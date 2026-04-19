@@ -21,9 +21,9 @@ session_start();
 
 // Database configuration
 define('DB_HOST', 'localhost');
-define('DB_NAME', 'adminchat');
-define('DB_USER', 'adminchat');
-define('DB_PASS', 'adminchat'); // Add your MySQL password here if needed
+define('DB_NAME', 'ms');
+define('DB_USER', 'ms');
+define('DB_PASS', 'ms');
 
 // Database connection
 function getDB() {
@@ -85,7 +85,7 @@ function getAllChats() {
                 c.membership_status,
                 COUNT(DISTINCT ps.id) as shared_profiles_count,
                 c.created_at
-              FROM chats c
+              FROM ac_chats c
               LEFT JOIN profile_shares ps ON c.id = ps.chat_id
               GROUP BY c.id
               ORDER BY c.is_pinned DESC, c.updated_at DESC";
@@ -128,7 +128,7 @@ function getAllProfiles($filters = []) {
                 membership_status,
                 status as status,
                 created_at
-              FROM memorial_profiles
+              FROM ac_memorial_profiles
               WHERE 1=1";
     
     $params = [];
@@ -167,7 +167,7 @@ function getAllProfiles($filters = []) {
     $profiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Get total count for pagination
-    $countQuery = "SELECT COUNT(*) as total FROM memorial_profiles WHERE 1=1";
+    $countQuery = "SELECT COUNT(*) as total FROM ac_memorial_profiles WHERE 1=1";
     $countParams = [];
     
     if (!empty($filters['membership_status']) && $filters['membership_status'] != 'all') {
@@ -228,8 +228,8 @@ function getChatMessages($chatId, $page = 1, $perPage = 50) {
                 u.avatar_url as sender_avatar,
                 mp.name as shared_profile_name,
                 mp.avatar_url as shared_profile_avatar
-              FROM messages m
-              LEFT JOIN users u ON m.sender_id = u.id
+              FROM ac_messages m
+              LEFT JOIN agent_users u ON m.sender_id = u.id
               LEFT JOIN memorial_profiles mp ON m.shared_profile_id = mp.id
               WHERE m.chat_id = :chat_id
               ORDER BY m.created_at DESC
@@ -278,7 +278,7 @@ function getChatMessages($chatId, $page = 1, $perPage = 50) {
     }
     
     // Get total count
-    $countQuery = "SELECT COUNT(*) as total FROM messages WHERE chat_id = :chat_id";
+    $countQuery = "SELECT COUNT(*) as total FROM ac_messages WHERE chat_id = :chat_id";
     $countStmt = $db->prepare($countQuery);
     $countStmt->execute([':chat_id' => $chatId]);
     $totalResult = $countStmt->fetch();
@@ -299,7 +299,7 @@ function sendMessageToChat($chatId, $text, $senderId = null) {
     // Generate message ID
     $messageId = $chatId . '-msg-' . time() . '-' . rand(1000, 9999);
     
-    $query = "INSERT INTO messages 
+    $query = "INSERT INTO ac_messages 
               (id, chat_id, sender_id, sender_type, text_content, message_type) 
               VALUES (:id, :chat_id, :sender_id, :sender_type, :text, 'text')";
     
@@ -314,7 +314,7 @@ function sendMessageToChat($chatId, $text, $senderId = null) {
     
     if ($result) {
         // Update chat's last message
-        $updateQuery = "UPDATE chats 
+        $updateQuery = "UPDATE ac_chats 
                        SET last_message = :last_message, 
                            last_message_time = :time,
                            updated_at = NOW()
@@ -346,7 +346,7 @@ function shareProfile($chatId, $profileId, $senderId = null) {
     $db = getDB();
     
     // Check if already shared
-    $checkQuery = "SELECT id FROM profile_shares 
+    $checkQuery = "SELECT id FROM ac_profile_shares 
                    WHERE chat_id = :chat_id AND profile_id = :profile_id 
                    LIMIT 1";
     $checkStmt = $db->prepare($checkQuery);
@@ -360,7 +360,7 @@ function shareProfile($chatId, $profileId, $senderId = null) {
     }
     
     // Insert share record
-    $shareQuery = "INSERT INTO profile_shares (chat_id, profile_id, shared_by) 
+    $shareQuery = "INSERT INTO ac_profile_shares (chat_id, profile_id, shared_by) 
                    VALUES (:chat_id, :profile_id, :shared_by)";
     $shareStmt = $db->prepare($shareQuery);
     $shareResult = $shareStmt->execute([
@@ -376,7 +376,7 @@ function shareProfile($chatId, $profileId, $senderId = null) {
         
         $messageId = $chatId . '-share-' . time() . '-' . rand(1000, 9999);
         
-        $messageQuery = "INSERT INTO messages 
+        $messageQuery = "INSERT INTO ac_messages 
                         (id, chat_id, sender_id, sender_type, text_content, message_type, shared_profile_id) 
                         VALUES (:id, :chat_id, :sender_id, :sender_type, :text, 'profile', :profile_id)";
         
@@ -391,7 +391,7 @@ function shareProfile($chatId, $profileId, $senderId = null) {
         ]);
         
         // Update chat's last message
-        $updateQuery = "UPDATE chats 
+        $updateQuery = "UPDATE ac_chats 
                        SET last_message = :last_message, 
                            last_message_time = :time,
                            updated_at = NOW()
@@ -406,7 +406,7 @@ function shareProfile($chatId, $profileId, $senderId = null) {
         ]);
         
         // Update profile status
-        $profileQuery = "UPDATE memorial_profiles 
+        $profileQuery = "UPDATE ac_memorial_profiles 
                         SET profile_status = 'alreadySent'
                         WHERE id = :profile_id";
         $profileStmt = $db->prepare($profileQuery);
@@ -422,7 +422,7 @@ function getProfileById($profileId) {
     $db = getDB();
     
     $query = "SELECT id, name, avatar_url, match_percentage, membership_status 
-              FROM memorial_profiles 
+              FROM ac_memorial_profiles 
               WHERE id = :id LIMIT 1";
     
     $stmt = $db->prepare($query);
@@ -435,7 +435,7 @@ function loginUser($email, $password) {
     $db = getDB();
     
     $query = "SELECT id, username, email, avatar_url, role 
-              FROM users 
+              FROM agent_users 
               WHERE email = :email LIMIT 1";
     
     $stmt = $db->prepare($query);
@@ -477,7 +477,7 @@ switch (true) {
         
         try {
             // Get database stats
-            $tables = ['users', 'chats', 'memorial_profiles', 'messages', 'profile_shares'];
+            $tables = ['agent_users', 'ac_chats', 'ac_memorial_profiles', 'ac_messages', 'ac_profile_shares'];
             foreach ($tables as $table) {
                 $stmt = $db->query("SELECT COUNT(*) as count FROM $table");
                 $result = $stmt->fetch();
@@ -605,7 +605,7 @@ switch (true) {
         $db = getDB();
         
         // Check if user exists
-        $checkQuery = "SELECT id FROM users WHERE email = :email OR username = :username";
+        $checkQuery = "SELECT id FROM agent_users WHERE email = :email OR username = :username";
         $checkStmt = $db->prepare($checkQuery);
         $checkStmt->execute([
             ':email' => $input['email'],
@@ -617,7 +617,7 @@ switch (true) {
         }
         
         // Create user (without password hash for simplicity)
-        $insertQuery = "INSERT INTO users (username, email, password_hash, role) 
+        $insertQuery = "INSERT INTO agent_users (username, email, password_hash, role) 
                        VALUES (:username, :email, :password_hash, 'agent')";
         
         $passwordHash = password_hash($input['password'], PASSWORD_DEFAULT);
@@ -634,7 +634,7 @@ switch (true) {
             
             // Get the created user
             $userQuery = "SELECT id, username, email, avatar_url, role 
-                         FROM users WHERE id = :id";
+                         FROM agent_users WHERE id = :id";
             $userStmt = $db->prepare($userQuery);
             $userStmt->execute([':id' => $userId]);
             $user = $userStmt->fetch();
@@ -654,7 +654,7 @@ switch (true) {
         $stats = [];
         
         try {
-            $tables = ['users', 'chats', 'memorial_profiles', 'messages', 'profile_shares'];
+            $tables = ['agent_users', 'ac_chats', 'ac_memorial_profiles', 'ac_messages', 'ac_profile_shares'];
             foreach ($tables as $table) {
                 $stmt = $db->query("SELECT COUNT(*) as count FROM $table");
                 $result = $stmt->fetch();
@@ -678,7 +678,7 @@ switch (true) {
         
         try {
             // Check if we have data
-            $chatsStmt = $db->query("SELECT COUNT(*) as count FROM chats");
+            $chatsStmt = $db->query("SELECT COUNT(*) as count FROM ac_chats");
             $chatsCount = $chatsStmt->fetch()['count'];
             
             if ($chatsCount == 0) {
@@ -690,7 +690,7 @@ switch (true) {
                 ];
                 
                 foreach ($testChats as $chat) {
-                    $stmt = $db->prepare("INSERT INTO chats (id, name, contact_id, avatar_url, last_message, last_message_time, is_pinned, is_unread, membership_status, assigned_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                    $stmt = $db->prepare("INSERT INTO ac_chats (id, name, contact_id, avatar_url, last_message, last_message_time, is_pinned, is_unread, membership_status, assigned_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmt->execute($chat);
                 }
                 

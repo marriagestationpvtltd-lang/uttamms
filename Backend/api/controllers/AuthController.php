@@ -11,9 +11,9 @@ class AuthController {
         // Create database connection
         try {
             $this->conn = new \PDO(
-                "mysql:host=localhost;dbname=adminchat;charset=utf8mb4",
-                "adminchat",
-                "adminchat" // Add your password here if needed
+                "mysql:host=localhost;dbname=ms;charset=utf8mb4",
+                "ms",
+                "ms"
             );
             $this->conn->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
             $this->conn->setAttribute(\PDO::ATTR_DEFAULT_FETCH_MODE, \PDO::FETCH_ASSOC);
@@ -37,21 +37,21 @@ class AuthController {
             $this->createUsersTableIfNotExists();
             
             // Check if admin user exists, if not create one
-            $adminCheck = $this->conn->query("SELECT COUNT(*) as count FROM users WHERE email = 'admin@example.com'");
+            $adminCheck = $this->conn->query("SELECT COUNT(*) as count FROM agent_users WHERE email = 'admin@example.com'");
             $adminExists = $adminCheck->fetch()['count'] > 0;
             
             if (!$adminExists) {
                 // Create default admin user
                 $hashedPassword = password_hash('admin123', PASSWORD_DEFAULT);
                 $stmt = $this->conn->prepare("
-                    INSERT INTO users (username, email, password_hash, role) 
+                    INSERT INTO agent_users (username, email, password_hash, role) 
                     VALUES ('admin', 'admin@example.com', ?, 'admin')
                 ");
                 $stmt->execute([$hashedPassword]);
             }
             
             // Now check credentials
-            $stmt = $this->conn->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
+            $stmt = $this->conn->prepare("SELECT * FROM agent_users WHERE email = ? LIMIT 1");
             $stmt->execute([$email]);
             $user = $stmt->fetch();
             
@@ -96,7 +96,7 @@ class AuthController {
         }
         
         try {
-            $stmt = $this->conn->prepare("SELECT id, username, email, avatar_url, role FROM users WHERE id = ?");
+            $stmt = $this->conn->prepare("SELECT id, username, email, avatar_url, role FROM agent_users WHERE id = ?");
             $stmt->execute([$_SESSION['user_id']]);
             $user = $stmt->fetch();
             
@@ -125,7 +125,7 @@ class AuthController {
         
         try {
             // Check if user already exists
-            $stmt = $this->conn->prepare("SELECT id FROM users WHERE email = ? OR username = ?");
+            $stmt = $this->conn->prepare("SELECT id FROM agent_users WHERE email = ? OR username = ?");
             $stmt->execute([$email, $username]);
             
             if ($stmt->fetch()) {
@@ -137,7 +137,7 @@ class AuthController {
             
             // Insert new user
             $stmt = $this->conn->prepare("
-                INSERT INTO users (username, email, password_hash, role) 
+                INSERT INTO agent_users (username, email, password_hash, role) 
                 VALUES (?, ?, ?, 'agent')
             ");
             
@@ -170,21 +170,8 @@ class AuthController {
     }
     
     private function createUsersTableIfNotExists() {
-        $sql = "
-        CREATE TABLE IF NOT EXISTS users (
-            id INT PRIMARY KEY AUTO_INCREMENT,
-            username VARCHAR(100) UNIQUE NOT NULL,
-            email VARCHAR(255) UNIQUE NOT NULL,
-            password_hash VARCHAR(255) NOT NULL,
-            avatar_url VARCHAR(500) DEFAULT NULL,
-            role ENUM('admin', 'agent') DEFAULT 'agent',
-            status ENUM('active', 'inactive') DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-        ";
-        
-        $this->conn->exec($sql);
+        // agent_users table is now defined in the main ms database schema (schema.sql, section 30).
+        // This method is kept for backwards compatibility but performs no action.
     }
 }
 ?>
