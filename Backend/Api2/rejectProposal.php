@@ -1,4 +1,7 @@
 <?php
+// NOTE: This file uses the older mysqli driver.
+// Use reject_proposal.php instead — it uses PDO, supports JSON request bodies,
+// and has cleaner error handling.
 header("Content-Type: application/json");
 
 // ---------------- DB CONNECTION ----------------
