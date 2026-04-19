@@ -5,7 +5,7 @@ use PDO;
 
 class Profile {
     private $conn;
-    private $table = 'memorial_profiles';
+    private $table = 'ac_memorial_profiles';
     
     public function __construct($db) {
         $this->conn = $db;
@@ -63,7 +63,7 @@ class Profile {
     }
     
     public function share($chatId, $profileId, $userId) {
-        $query = "INSERT INTO profile_shares (chat_id, profile_id, shared_by, status) 
+        $query = "INSERT INTO ac_profile_shares (chat_id, profile_id, shared_by, status) 
                   VALUES (:chat_id, :profile_id, :shared_by, 'sent')";
         
         $stmt = $this->conn->prepare($query);
@@ -80,7 +80,7 @@ class Profile {
     }
     
     public function updateStatus($profileId, $userId, $status) {
-        $query = "UPDATE profile_shares 
+        $query = "UPDATE ac_profile_shares 
                   SET status = :status 
                   WHERE profile_id = :profile_id AND shared_by = :user_id";
         

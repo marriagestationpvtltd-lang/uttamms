@@ -1,7 +1,7 @@
 <?php
 class Chat {
     private $conn;
-    private $table = 'chats';
+    private $table = 'ac_chats';
     
     public function __construct() {
         $database = new Database();
@@ -22,7 +22,7 @@ class Chat {
                     c.membership_status,
                     COUNT(DISTINCT ps.id) as shared_profiles_count
                   FROM {$this->table} c
-                  LEFT JOIN profile_shares ps ON c.id = ps.chat_id
+                  LEFT JOIN ac_profile_shares ps ON c.id = ps.chat_id
                   WHERE c.assigned_to = :user_id";
         
         $params = [':user_id' => $userId];

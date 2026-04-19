@@ -1,13 +1,20 @@
 -- =============================================================================
--- Marriage Station – Admin Chat Database Schema
--- Database: adminchat
+-- Marriage Station – Admin Chat Schema (MERGED INTO 'ms' DATABASE)
 -- =============================================================================
 --
--- This is a SEPARATE database from the main 'ms' matrimony database.
--- It powers the agent/admin chat panel (Backend/api/).
+-- NOTE: These tables have been merged into the main 'ms' matrimony database.
+--       Use schema.sql (section 30) for the authoritative table definitions.
+--       This file is kept for reference only and should NOT be applied separately.
 --
--- Usage:
---   mysql -u <user> -p adminchat < schema_adminchat.sql
+-- Table mapping (adminchat → ms):
+--   users            → agent_users
+--   chats            → ac_chats
+--   messages         → ac_messages
+--   memorial_profiles → ac_memorial_profiles
+--   profile_shares   → ac_profile_shares
+--
+-- The Backend/api/ code has been updated to connect to 'ms' and use the
+-- renamed tables accordingly.
 -- =============================================================================
 
 SET NAMES utf8mb4;

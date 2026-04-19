@@ -5,7 +5,7 @@ use PDO;
 
 class Chat {
     private $conn;
-    private $table = 'chats';
+    private $table = 'ac_chats';
     
     public function __construct($db) {
         $this->conn = $db;
