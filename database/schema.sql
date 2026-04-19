@@ -645,7 +645,7 @@ CREATE TABLE IF NOT EXISTS user_activities (
 -- user_tokens  – bearer tokens issued on login (mobile app)
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS user_tokens (
-    id         INT          AUTO_INCREMENT PRIMARY KEY,
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     userid     INT UNSIGNED NOT NULL,
     token      VARCHAR(255) NOT NULL,
     expires_at DATETIME     DEFAULT NULL,
