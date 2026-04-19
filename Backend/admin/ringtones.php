@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../Api2/db_config.php';
+require_once __DIR__ . '/auth.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 

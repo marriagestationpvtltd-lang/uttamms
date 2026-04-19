@@ -440,7 +440,48 @@ CREATE TABLE IF NOT EXISTS user_activities (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
--- 9. CALL SETTINGS  (ringtones + user preferences)
+-- 9. ADMINS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS admins (
+    id         INT          UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    username   VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL,
+    password   VARCHAR(255) NOT NULL,   -- bcrypt hash
+    name       VARCHAR(200) DEFAULT NULL,
+    is_active  TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    last_login DATETIME     DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_admin_username (username),
+    UNIQUE KEY uk_admin_email    (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Default admin: username=admin  password=Admin@123
+INSERT IGNORE INTO admins (id, username, email, password, name) VALUES
+    (1, 'admin', 'admin@marriagestation.com',
+     '$2y$10$UgRVAVqW2RmLi.x2UEcYtuBW7yxx3wGq2cGEV/JTtQtX1le40g7eG',
+     'Super Admin');
+
+-- ----------------------------------------------------------------------------
+-- admin_tokens  – bearer tokens issued on login (TTL: 24 hours)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS admin_tokens (
+    id         INT          UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    admin_id   INT UNSIGNED NOT NULL,
+    token      VARCHAR(128) NOT NULL,
+    expires_at DATETIME     NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_admin_token (token),
+    INDEX idx_at_admin_id   (admin_id),
+    INDEX idx_at_expires_at (expires_at),
+    FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 10. CALL SETTINGS  (ringtones + user preferences)
 -- =============================================================================
 
 -- System ringtones managed by admin
