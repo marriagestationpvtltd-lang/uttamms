@@ -1,4 +1,7 @@
 <?php
+// NOTE: This file uses the older mysqli driver and raw SQL (SQL-injection risk).
+// Use delete_proposal.php instead — it uses PDO prepared statements, supports
+// JSON request bodies, and has proper security checks.
 header("Content-Type: application/json");
 
 // DB CONNECTION
