@@ -114,12 +114,17 @@ CREATE TABLE IF NOT EXISTS users (
     -- Online presence (used by matched.php)
     isOnline        TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
 
+    -- Legacy admin-managed flags (used by get_users.php / get_dashboard.php)
+    isActive        TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    isDelete        TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+
     -- Document / KYC status fields (checked by check_document_status API)
     reject_reason         VARCHAR(500) DEFAULT NULL,
     document_upload_date  DATETIME     DEFAULT NULL,
 
     -- Login tracking
     last_login      DATETIME     DEFAULT NULL,
+    lastLogin       DATETIME     DEFAULT NULL,   -- legacy alias (get_users.php)
 
     -- Legacy timestamp alias (use created_at for new code)
     createdDate     DATETIME     DEFAULT CURRENT_TIMESTAMP,
@@ -701,6 +706,7 @@ CREATE TABLE IF NOT EXISTS admins (
     email      VARCHAR(255) NOT NULL,
     password   VARCHAR(255) NOT NULL,   -- bcrypt hash
     name       VARCHAR(200) DEFAULT NULL,
+    role       ENUM('super_admin','admin') NOT NULL DEFAULT 'admin',
     is_active  TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
     last_login DATETIME     DEFAULT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -710,12 +716,12 @@ CREATE TABLE IF NOT EXISTS admins (
     UNIQUE KEY uk_admin_email    (email)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Default admin: username=admin  password=Admin@123
+-- Default admin: username=admin  email=admin@ms.com  password=Admin@123
 -- ⚠️  Change this password immediately after the first deployment.
-INSERT IGNORE INTO admins (id, username, email, password, name) VALUES
-    (1, 'admin', 'admin@marriagestation.com',
+INSERT IGNORE INTO admins (id, username, email, password, name, role) VALUES
+    (1, 'admin', 'admin@ms.com',
      '$2y$10$UgRVAVqW2RmLi.x2UEcYtuBW7yxx3wGq2cGEV/JTtQtX1le40g7eG',
-     'Super Admin');
+     'Super Admin', 'super_admin');
 
 -- ----------------------------------------------------------------------------
 -- admin_tokens  – bearer tokens issued on login (TTL: 24 hours)
