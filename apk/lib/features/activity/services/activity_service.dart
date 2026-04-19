@@ -76,5 +76,14 @@ abstract class ActivityType {
   static const String customToneSet       = 'custom_tone_set';
   static const String customToneRemoved   = 'custom_tone_removed';
   static const String settingsChanged     = 'settings_changed';
+  static const String likeSent            = 'like_sent';
+  static const String likeRemoved         = 'like_removed';
+  static const String messageSent         = 'message_sent';
+  static const String requestSent         = 'request_sent';
+  static const String requestAccepted     = 'request_accepted';
+  static const String requestRejected     = 'request_rejected';
+  static const String callMade            = 'call_made';
+  static const String photoUploaded       = 'photo_uploaded';
+  static const String packageBought       = 'package_bought';
   static const String other               = 'other';
 }

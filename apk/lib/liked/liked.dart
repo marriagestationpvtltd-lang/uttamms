@@ -16,6 +16,7 @@ import '../Models/masterdata.dart';
 import '../main.dart';
 import '../pushnotification/pushservice.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class FavoritePeoplePage extends StatefulWidget {
   const FavoritePeoplePage({super.key});
@@ -178,6 +179,12 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
           setState(() {
             favoritePeople.removeWhere((person) => person['userid'] == receiverId);
           });
+          // Log unlike activity (fire-and-forget)
+          ActivityService.instance.log(
+            userId: userId.toString(),
+            activityType: ActivityType.likeRemoved,
+            targetUserId: receiverId.toString(),
+          );
        //   _showPopupMessage('Removed from favorites');
         } else {
        //   _showPopupMessage(data['message'] ?? 'Failed to remove', isError: true);
@@ -223,6 +230,13 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         if (data['success'] == true) {
+          // Log request_sent activity (fire-and-forget)
+          ActivityService.instance.log(
+            userId: userId.toString(),
+            activityType: ActivityType.requestSent,
+            targetUserId: receiverId.toString(),
+            description: '$formattedRequestType request sent to $receiverName',
+          );
           // Send notification
           final success = await NotificationService.sendRequestNotification(
             recipientUserId: receiverId.toString(),

@@ -55,7 +55,11 @@ $valid_types = [
     'login', 'logout', 'profile_view', 'search',
     'proposal_sent', 'proposal_accepted', 'proposal_rejected',
     'call_initiated', 'call_received', 'call_ended',
-    'custom_tone_set', 'custom_tone_removed', 'settings_changed', 'other',
+    'custom_tone_set', 'custom_tone_removed', 'settings_changed',
+    'like_sent', 'like_removed', 'message_sent',
+    'request_sent', 'request_accepted', 'request_rejected',
+    'call_made', 'photo_uploaded', 'package_bought',
+    'other',
 ];
 
 if (!in_array($activity_type, $valid_types, true)) {

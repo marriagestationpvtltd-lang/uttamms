@@ -9,6 +9,7 @@ import '../Home/Screen/HomeScreenPage.dart';
 import '../Startup/MainControllere.dart';
 import '../constant/design_system.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class PaymentPage extends StatefulWidget {
   final double amount;
@@ -1071,7 +1072,12 @@ class _PaymentPageState extends State<PaymentPage> {
 
       if (result["status"] == "success") {
         print("✅ Package activated successfully");
-
+        // Log package_bought activity (fire-and-forget)
+        ActivityService.instance.log(
+          userId: userId.toString(),
+          activityType: ActivityType.packageBought,
+          description: 'Package ${widget.packageId} purchased via $paidBy',
+        );
         _showPaymentSuccessDialog();
 
         Future.delayed(const Duration(seconds: 2), () {

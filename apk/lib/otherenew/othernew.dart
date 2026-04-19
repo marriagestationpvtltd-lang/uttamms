@@ -22,6 +22,7 @@ import '../utils/image_utils.dart';
 import '../utils/time_utils.dart';
 import 'modelfile.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
@@ -435,6 +436,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           recipientUserId: viewedUserId,
           viewerName: viewerName,
           viewerId: myId,
+        );
+        // Log profile_view activity (fire-and-forget)
+        ActivityService.instance.log(
+          userId: myId,
+          activityType: ActivityType.profileView,
+          targetUserId: viewedUserId,
         );
       }
 

@@ -28,6 +28,7 @@ import '../Screen/Signup.dart';
 import '../SuignupModel/signup_model.dart';
 import '../forgetpasswordscreen.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class PrefilledEmailScreen extends StatefulWidget {
   const PrefilledEmailScreen({super.key});
@@ -162,6 +163,11 @@ class _PrefilledEmailScreenState extends State<PrefilledEmailScreen> with Single
     }
 
     await _saveUserData(token.toString(), userData);
+    // Log login activity (fire-and-forget)
+    ActivityService.instance.log(
+      userId: userId.toString(),
+      activityType: ActivityType.login,
+    );
     final pageNo = await PageService.getPageNo(userId);
 
     if (!mounted) return;
@@ -308,6 +314,11 @@ class _PrefilledEmailScreenState extends State<PrefilledEmailScreen> with Single
             final userId = userData['id'];
 
             await _saveUserData(token.toString(), userData);
+            // Log login activity (fire-and-forget)
+            ActivityService.instance.log(
+              userId: userId.toString(),
+              activityType: ActivityType.login,
+            );
             final pageNo = await PageService.getPageNo(userId);
 
             if (!mounted) return;

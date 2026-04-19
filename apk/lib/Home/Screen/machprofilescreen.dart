@@ -10,6 +10,7 @@ import '../../pushnotification/pushservice.dart';
 import '../../ReUsable/loading_widgets.dart';
 import '../../utils/privacy_utils.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class MatchedProfilesPagee extends StatefulWidget {
   final int currentUserId;
@@ -143,7 +144,12 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
               _matchedProfiles[index]['like'] = !isCurrentlyLiked;
             }
           });
-
+          // Log like/unlike activity (fire-and-forget)
+          ActivityService.instance.log(
+            userId: widget.currentUserId.toString(),
+            activityType: isCurrentlyLiked ? ActivityType.likeRemoved : ActivityType.likeSent,
+            targetUserId: profileId.toString(),
+          );
           _showRequestSentPopup(isCurrentlyLiked ? 'Removed from likes' : 'Added to likes');
         } else {
           _showRequestSentPopup('Failed: ${data['message']}');

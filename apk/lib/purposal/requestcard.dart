@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'Purposalmodel.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class RequestCardDynamic extends StatefulWidget {
   final ProposalModel data;
@@ -613,6 +614,13 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         );
 
         if (success) {
+          // Log request_accepted activity (fire-and-forget)
+          ActivityService.instance.log(
+            userId: widget.userid,
+            activityType: ActivityType.requestAccepted,
+            targetUserId: widget.data.senderId ?? '',
+            description: '${widget.data.requestType ?? 'Request'} request accepted',
+          );
           final senderName = await NotificationInboxService.getCurrentUserDisplayName();
           await NotificationService.sendRequestAccepted(
             recipientUserId: widget.data.senderId ?? '',
@@ -803,6 +811,13 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         }
 
         if (success) {
+          // Log request_rejected activity (fire-and-forget)
+          ActivityService.instance.log(
+            userId: widget.userid,
+            activityType: ActivityType.requestRejected,
+            targetUserId: widget.data.senderId ?? '',
+            description: '${widget.data.requestType ?? 'Request'} request rejected',
+          );
           final senderName = await NotificationInboxService.getCurrentUserDisplayName();
           await NotificationService.sendRequestRejected(
             recipientUserId: widget.data.senderId ?? '',
