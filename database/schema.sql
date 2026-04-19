@@ -111,6 +111,9 @@ CREATE TABLE IF NOT EXISTS users (
     -- Push notification token
     fcm_token       VARCHAR(500) DEFAULT NULL,
 
+    -- Online presence (used by matched.php)
+    isOnline        TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+
     -- Document / KYC status fields (checked by check_document_status API)
     reject_reason         VARCHAR(500) DEFAULT NULL,
     document_upload_date  DATETIME     DEFAULT NULL,
@@ -159,6 +162,21 @@ CREATE TABLE IF NOT EXISTS userpersonaldetail (
     bodyType        VARCHAR(50)  DEFAULT NULL,   -- "Slim", "Average", etc.
     childStatus     VARCHAR(50)  DEFAULT NULL,   -- "No Children", "Has Children", etc.
     childLiveWith   VARCHAR(50)  DEFAULT NULL,   -- "Yes", "No" (children live with them)
+
+    -- Religion/community language preference (update_religion.php)
+    castlanguage    VARCHAR(100) DEFAULT NULL,
+
+    -- Legacy ID-based FK columns (used by older matched.php / webrtc.php)
+    -- Newer code uses text columns (height_name, etc.) directly.
+    occupationId    INT UNSIGNED DEFAULT NULL,
+    educationId     INT UNSIGNED DEFAULT NULL,
+    heightId        INT UNSIGNED DEFAULT NULL,
+    annualIncomeId  INT UNSIGNED DEFAULT NULL,
+    addressId       INT UNSIGNED DEFAULT NULL,
+
+    -- Legacy audit timestamps (get_personal_detail.php references these)
+    createdDate     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    modifiedDate    DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -880,6 +898,243 @@ CREATE TABLE IF NOT EXISTS call_history (
     INDEX idx_ch_recipient (recipient_id),
     INDEX idx_ch_start     (start_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 18. GEOGRAPHICAL LOOKUP TABLES  (countries / states / districts)
+-- =============================================================================
+
+-- Countries (used by countries.php, webrtc.php)
+CREATE TABLE IF NOT EXISTS countries (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(150) NOT NULL,
+    code       VARCHAR(10)  DEFAULT NULL,   -- ISO 3166-1 alpha-2, e.g. 'NP'
+    is_active  TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    UNIQUE KEY uk_country_name (name),
+    INDEX idx_ctry_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- States / Provinces (used by states.php)
+-- NOTE: table name is `state` (singular) as used by the PHP API
+CREATE TABLE IF NOT EXISTS state (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(150) NOT NULL,
+    countryId  INT UNSIGNED NOT NULL,
+    INDEX idx_state_country (countryId),
+    FOREIGN KEY (countryId) REFERENCES countries(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Districts / Cities (used by cities.php)
+CREATE TABLE IF NOT EXISTS districts (
+    id       INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name     VARCHAR(150) NOT NULL,
+    stateId  INT UNSIGNED NOT NULL,
+    INDEX idx_dist_state (stateId),
+    FOREIGN KEY (stateId) REFERENCES state(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 19. LEGACY LOOKUP TABLES  (occupation / education)
+--     Used by older Backend/matched.php and Backend/get_match_details.php
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS occupation (
+    id        INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name      VARCHAR(150) NOT NULL,
+    is_active TINYINT(1) UNSIGNED NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS education (
+    id        INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name      VARCHAR(150) NOT NULL,
+    is_active TINYINT(1) UNSIGNED NOT NULL DEFAULT 1
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 20. LEGACY ADDRESS TABLE  (used by matched.php / webrtc.php)
+--     Newer code uses permanent_address / current_address directly.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS addresses (
+    id        INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    userId    INT UNSIGNED NOT NULL,
+    countryId INT UNSIGNED DEFAULT NULL,
+    stateId   INT UNSIGNED DEFAULT NULL,
+    cityId    INT UNSIGNED DEFAULT NULL,
+    address1  VARCHAR(255) DEFAULT NULL,
+    address2  VARCHAR(255) DEFAULT NULL,
+    pincode   VARCHAR(20)  DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (countryId) REFERENCES countries(id) ON DELETE SET NULL,
+    INDEX idx_addr_user (userId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 21. LEGACY PARTNER PREFERENCES  (used by matched.php / webrtc.php)
+--     Newer code uses user_partner (text-based columns) instead.
+--     Both tables are kept for backwards compatibility.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS userpartnerpreferences (
+    id              INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    userId          INT UNSIGNED NOT NULL,
+    pFromAge        TINYINT UNSIGNED DEFAULT NULL,
+    pToAge          TINYINT UNSIGNED DEFAULT NULL,
+    pFromHeight     INT UNSIGNED     DEFAULT NULL,   -- heightId lower bound
+    pToHeight       INT UNSIGNED     DEFAULT NULL,   -- heightId upper bound
+    pMaritalStatusId INT UNSIGNED    DEFAULT NULL,
+    pReligionId      INT UNSIGNED    DEFAULT NULL,
+    pCommunityId     INT UNSIGNED    DEFAULT NULL,
+    pEducationTypeId INT UNSIGNED    DEFAULT NULL,
+    pAnnualIncomeId  INT UNSIGNED    DEFAULT NULL,
+    pOccupationTypeId INT UNSIGNED   DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_upp_userId (userId),
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 22. LEGACY PACKAGE TABLE  (used by webrtc.php as `userpackage`)
+--     Newer code uses user_package. Both tables kept for backwards compatibility.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS userpackage (
+    id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    userId       INT UNSIGNED NOT NULL,
+    packageId    INT UNSIGNED DEFAULT NULL,
+    netAmount    DECIMAL(10,2) DEFAULT NULL,
+    purchaseDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expiryDate   DATETIME DEFAULT NULL,
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_upkg_user (userId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 23. LEGACY BLOCKS TABLE  (used by send_delete_request.php as `userblock`)
+--     Newer code uses `blocks`. Both tables kept for backwards compatibility.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS userblock (
+    id           INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    userId       INT UNSIGNED NOT NULL,
+    userBlockId  INT UNSIGNED NOT NULL,
+    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId)      REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (userBlockId) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_ub (userId, userBlockId),
+    INDEX idx_ub_userId (userId)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 24. LEGACY IMAGE GALLERY  (used by match.php as `userimagegallery`)
+--     Newer code uses `user_gallery`. Both tables kept for backwards compatibility.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS userimagegallery (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    userId      INT UNSIGNED NOT NULL,
+    imageUrl    VARCHAR(500) NOT NULL,
+    isActive    TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    isDelete    TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+    createdDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updatedDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_uig_user_active (userId, isActive, isDelete)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 25. MATCHES  (mutual matches between users)
+--     Used by get_match_details.php and matched.php
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS matches (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id    INT UNSIGNED NOT NULL,
+    matched_id INT UNSIGNED NOT NULL,
+    score      DECIMAL(5,2) DEFAULT NULL,   -- match percentage
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_match_pair (user_id, matched_id),
+    FOREIGN KEY (user_id)    REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (matched_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_match_user    (user_id),
+    INDEX idx_match_matched (matched_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 26. WEBRTC SESSIONS
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS webrtc (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    caller_id   INT UNSIGNED NOT NULL,
+    receiver_id INT UNSIGNED NOT NULL,
+    room_id     VARCHAR(100) DEFAULT NULL,
+    channel     VARCHAR(255) DEFAULT NULL,
+    token       TEXT         DEFAULT NULL,
+    call_type   ENUM('audio','video') NOT NULL DEFAULT 'audio',
+    status      ENUM('pending','active','ended','missed') NOT NULL DEFAULT 'pending',
+    started_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at    DATETIME DEFAULT NULL,
+    FOREIGN KEY (caller_id)   REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_webrtc_caller   (caller_id),
+    INDEX idx_webrtc_receiver (receiver_id),
+    INDEX idx_webrtc_status   (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 27. SERVICES  (used by services_api.php)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS services (
+    id          INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    title       VARCHAR(255) NOT NULL,
+    description TEXT         DEFAULT NULL,
+    icon_url    VARCHAR(500) DEFAULT NULL,
+    is_active   TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    sort_order  INT UNSIGNED NOT NULL DEFAULT 0,
+    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_svc_active (is_active),
+    INDEX idx_svc_sort   (sort_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 28. APP VERSIONS  (mobile app version control)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS app_versions (
+    id             INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    platform       ENUM('android','ios') NOT NULL,
+    version_name   VARCHAR(50)  NOT NULL,   -- e.g. "2.1.0"
+    version_code   INT UNSIGNED NOT NULL,   -- e.g. 21
+    min_version    VARCHAR(50)  DEFAULT NULL,  -- minimum supported version
+    release_notes  TEXT         DEFAULT NULL,
+    force_update   TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+    is_active      TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    released_at    DATETIME     DEFAULT NULL,
+    created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_av_platform_active (platform, is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 29. PROFILE VIEWS  (track who viewed whose profile)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS profile_view (
+    id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    viewer_id   INT UNSIGNED NOT NULL,
+    viewed_id   INT UNSIGNED NOT NULL,
+    viewed_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (viewer_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (viewed_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_pv_viewer   (viewer_id),
+    INDEX idx_pv_viewed   (viewed_id),
+    INDEX idx_pv_viewed_at(viewed_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
 -- End of schema
