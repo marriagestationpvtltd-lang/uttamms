@@ -253,6 +253,9 @@ class CustomDropdownField<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Validate that value exists in items to prevent DropdownButton error
+    final T? validatedValue = (value != null && items.any((item) => item.value == value)) ? value : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -266,7 +269,7 @@ class CustomDropdownField<T> extends StatelessWidget {
         ExcludeFocus(
           excluding: true,
           child: DropdownButtonFormField<T>(
-            value: value,
+            value: validatedValue,
             items: items,
             onChanged: onChanged,
             style: AppTextStyles.bodyLarge,

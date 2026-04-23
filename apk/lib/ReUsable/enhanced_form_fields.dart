@@ -240,6 +240,9 @@ class EnhancedDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Validate that value exists in items list to prevent DropdownButton error
+    final T? validatedValue = (value != null && items.contains(value)) ? value : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -298,7 +301,7 @@ class EnhancedDropdown<T> extends StatelessWidget {
               excluding: true,
               child: DropdownButtonHideUnderline(
                 child: DropdownButton<T>(
-                  value: value,
+                  value: validatedValue,
                   onTap: () => FocusScope.of(context).unfocus(),
                   hint: Text(
                     hint ?? 'Select $label',

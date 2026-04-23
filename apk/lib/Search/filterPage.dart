@@ -547,6 +547,9 @@ class _FilterPageState extends State<FilterPage> {
   }
 
   Widget _buildDropdown(String value, List<String> list, Function(String?) onChange) {
+    // Validate that value exists in list to prevent DropdownButton error
+    final String? validatedValue = list.contains(value) ? value : null;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
@@ -557,7 +560,7 @@ class _FilterPageState extends State<FilterPage> {
       child: ExcludeFocus(
         excluding: true,
         child: DropdownButton<String>(
-          value: value,
+          value: validatedValue,
           underline: const SizedBox(),
           isExpanded: true,
           items: list.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
