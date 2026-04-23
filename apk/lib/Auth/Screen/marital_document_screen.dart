@@ -41,6 +41,7 @@ class _MaritalDocumentUploadScreenState
 
   String _documentStatus = 'not_uploaded';
   String _rejectReason = '';
+  String? _uploadedDocumentType; // Track which document type was uploaded
   bool _isLoading = true;
   bool _isCheckingStatus = false;
   bool _isUploading = false;
@@ -130,6 +131,7 @@ class _MaritalDocumentUploadScreenState
           setState(() {
             _documentStatus = newStatus;
             _rejectReason = result['reject_reason'] ?? '';
+            _uploadedDocumentType = result['document_type'];
           });
         }
       }
@@ -169,6 +171,7 @@ class _MaritalDocumentUploadScreenState
         setState(() {
           _documentStatus = 'pending';
           _rejectReason = '';
+          _uploadedDocumentType = _selectedDocumentType; // Save the uploaded document type
         });
         _fadeController.forward(from: 0);
         _showSuccess("Document submitted! We'll notify you once it's verified.");
@@ -225,16 +228,8 @@ class _MaritalDocumentUploadScreenState
   }
 
   Widget _buildContent() {
-    switch (_documentStatus) {
-      case 'pending':
-        return _buildPendingScreen();
-      case 'approved':
-        return _buildApprovedScreen();
-      case 'rejected':
-        return _buildRejectedScreen();
-      default:
-        return _buildUploadScreen();
-    }
+    // Always show upload screen with status information
+    return _buildUploadScreen();
   }
 
   // ─── UPLOAD SCREEN ────────────────────────────────────────────────────────
@@ -253,8 +248,13 @@ class _MaritalDocumentUploadScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildStepIndicator(currentStep: 0),
+                _buildStepIndicator(currentStep: _getStepFromStatus()),
                 const SizedBox(height: 32),
+                // Show status banner if document has been uploaded
+                if (_documentStatus != 'not_uploaded') ...[
+                  _buildStatusBanner(),
+                  const SizedBox(height: 24),
+                ],
                 _buildInfoBanner(),
                 const SizedBox(height: 32),
                 _buildSectionTitle('1. Choose Document Type'),
@@ -444,6 +444,18 @@ class _MaritalDocumentUploadScreenState
   }
 
   Widget _buildInfoBanner() {
+    // Different message based on document status
+    String message;
+    if (_documentStatus == 'rejected') {
+      message = 'Your previous document was rejected. Please upload a new valid document that meets all requirements.';
+    } else if (_documentStatus == 'pending') {
+      message = 'Your document is under review. You can upload a different document if you made a mistake.';
+    } else if (_documentStatus == 'approved') {
+      message = 'Your marital status is verified. You can upload a different document if needed.';
+    } else {
+      message = 'Since your marital status requires verification, please upload a supporting document (e.g. death certificate, divorce decree, or court order). This is separate from your identity document.';
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -474,10 +486,10 @@ class _MaritalDocumentUploadScreenState
             ),
           ),
           const SizedBox(width: 14),
-          const Expanded(
+          Expanded(
             child: Text(
-              'Since your marital status requires verification, please upload a supporting document (e.g. death certificate, divorce decree, or court order). This is separate from your identity document.',
-              style: TextStyle(
+              message,
+              style: const TextStyle(
                 fontSize: 14,
                 color: Color(0xFF5D4037),
                 height: 1.6,
@@ -524,6 +536,9 @@ class _MaritalDocumentUploadScreenState
       childAspectRatio: 0.85,
       children: _documentTypes.map((doc) {
         final isSelected = _selectedDocumentType == doc['label'];
+        final isUploaded = _uploadedDocumentType == doc['label'] && _documentStatus != 'not_uploaded';
+        final showUploaded = isUploaded && !isSelected; // Show uploaded indicator if this was uploaded before
+
         return GestureDetector(
           onTap: () {
             setState(() => _selectedDocumentType = doc['label'] as String);
@@ -536,20 +551,26 @@ class _MaritalDocumentUploadScreenState
             decoration: BoxDecoration(
               color: isSelected
                   ? AppColors.primary.withOpacity(0.08)
-                  : Colors.white,
+                  : showUploaded
+                      ? AppColors.success.withOpacity(0.05)
+                      : Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isSelected
                     ? AppColors.primary
-                    : const Color(0xFFE0E0E0),
-                width: isSelected ? 2 : 1,
+                    : showUploaded
+                        ? AppColors.success
+                        : const Color(0xFFE0E0E0),
+                width: isSelected || showUploaded ? 2 : 1,
               ),
               boxShadow: [
                 BoxShadow(
                   color: isSelected
                       ? AppColors.primary.withOpacity(0.15)
-                      : Colors.black.withOpacity(0.06),
-                  blurRadius: isSelected ? 12 : 8,
+                      : showUploaded
+                          ? AppColors.success.withOpacity(0.12)
+                          : Colors.black.withOpacity(0.06),
+                  blurRadius: isSelected || showUploaded ? 12 : 8,
                   offset: const Offset(0, 3),
                 ),
               ],
@@ -562,12 +583,18 @@ class _MaritalDocumentUploadScreenState
                   decoration: BoxDecoration(
                     color: isSelected
                         ? AppColors.primary.withOpacity(0.1)
-                        : const Color(0xFFF5F5F5),
+                        : showUploaded
+                            ? AppColors.success.withOpacity(0.1)
+                            : const Color(0xFFF5F5F5),
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
                     doc['icon'] as IconData,
-                    color: isSelected ? AppColors.primary : const Color(0xFF757575),
+                    color: isSelected
+                        ? AppColors.primary
+                        : showUploaded
+                            ? AppColors.success
+                            : const Color(0xFF757575),
                     size: 28,
                   ),
                 ),
@@ -579,12 +606,14 @@ class _MaritalDocumentUploadScreenState
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: isSelected
+                    fontWeight: isSelected || showUploaded
                         ? FontWeight.w600
                         : FontWeight.w500,
                     color: isSelected
                         ? AppColors.primary
-                        : const Color(0xFF212121),
+                        : showUploaded
+                            ? AppColors.success
+                            : const Color(0xFF212121),
                     height: 1.3,
                   ),
                 ),
@@ -598,6 +627,18 @@ class _MaritalDocumentUploadScreenState
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.check,
+                        color: Colors.white, size: 12),
+                  ),
+                ] else if (showUploaded) ...[
+                  const SizedBox(height: 6),
+                  Container(
+                    width: 20,
+                    height: 20,
+                    decoration: const BoxDecoration(
+                      color: AppColors.success,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.upload_rounded,
                         color: Colors.white, size: 12),
                   ),
                 ],
@@ -1704,6 +1745,126 @@ class _MaritalDocumentUploadScreenState
   }
 
   // ─── HELPERS ─────────────────────────────────────────────────────────────
+
+  int _getStepFromStatus() {
+    switch (_documentStatus) {
+      case 'pending':
+        return 1;
+      case 'approved':
+        return 2;
+      case 'rejected':
+        return 0;
+      default:
+        return 0;
+    }
+  }
+
+  Widget _buildStatusBanner() {
+    Color bgColor;
+    Color borderColor;
+    Color iconColor;
+    IconData icon;
+    String title;
+    String subtitle;
+
+    switch (_documentStatus) {
+      case 'pending':
+        bgColor = const Color(0xFFFFF8E1);
+        borderColor = const Color(0xFFF57C00);
+        iconColor = const Color(0xFFF57C00);
+        icon = Icons.hourglass_top_rounded;
+        title = 'Document Under Review';
+        subtitle = 'Your document is being verified by our team';
+        break;
+      case 'approved':
+        bgColor = const Color(0xFFE8F5E9);
+        borderColor = const Color(0xFF2E7D32);
+        iconColor = const Color(0xFF2E7D32);
+        icon = Icons.verified_rounded;
+        title = 'Document Approved';
+        subtitle = 'Your marital status has been verified successfully';
+        break;
+      case 'rejected':
+        bgColor = const Color(0xFFFFF5F5);
+        borderColor = const Color(0xFFC62828);
+        iconColor = const Color(0xFFC62828);
+        icon = Icons.cancel_rounded;
+        title = 'Document Rejected';
+        subtitle = _rejectReason.isNotEmpty ? _rejectReason : 'Please upload a new valid document';
+        break;
+      default:
+        return const SizedBox.shrink();
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: iconColor.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: iconColor, size: 28),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: iconColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF424242),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (_documentStatus == 'pending')
+            OutlinedButton(
+              onPressed: _isCheckingStatus ? null : _checkDocumentStatus,
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: iconColor),
+                foregroundColor: iconColor,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              ),
+              child: _isCheckingStatus
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh_rounded, size: 18),
+            ),
+        ],
+      ),
+    );
+  }
 
   void _goToHome() {
     Navigator.pushAndRemoveUntil(
