@@ -238,37 +238,77 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           ),
           Expanded(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildStepIndicator(currentStep: 0),
-                  const SizedBox(height: 24),
-                  _buildSectionTitle('Choose Document Type'),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 28),
+                  _buildSectionTitle('1. Choose Document Type'),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Tap a document type to upload',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
                   _buildDocumentTypeGrid(),
-                  const SizedBox(height: 24),
-                  if (_selectedDocumentType != null) ...[
-                    _buildSectionTitle('Document Number'),
-                    const SizedBox(height: 12),
+                  if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
+                    const SizedBox(height: 32),
+                    _buildSectionTitle('2. Document Photo'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Review and edit if needed',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildImagePreview(),
+                    const SizedBox(height: 32),
+                    _buildSectionTitle('3. Document Number'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Enter your document identification number',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
                     _buildDocumentNumberField(),
                     const SizedBox(height: 24),
-                    _buildSectionTitle('Upload Document Photo'),
-                    const SizedBox(height: 12),
-                    _buildPhotoUploadArea(),
-                    const SizedBox(height: 24),
                     _buildGuidelinesCard(),
-                    const SizedBox(height: 20),
-                    _buildConsentCard(),
                     const SizedBox(height: 24),
+                    _buildConsentCard(),
+                    const SizedBox(height: 28),
                     _buildSubmitButton(),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 16),
+                  ] else if (_selectedDocumentType != null) ...[
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              color: AppColors.primary, size: 20),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Select scan or gallery option from the bottom sheet to continue',
+                              style: TextStyle(fontSize: 13, color: AppColors.primary, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                   ] else ...[
+                    const SizedBox(height: 24),
                     _buildInfoBanner(),
                     const SizedBox(height: 24),
                   ],
                   _buildSkipButton(),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 32),
                 ],
               ),
             ),
@@ -422,13 +462,27 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   }
 
   Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.bold,
-        color: Color(0xFF212121),
-      ),
+    return Row(
+      children: [
+        Container(
+          width: 4,
+          height: 20,
+          decoration: BoxDecoration(
+            gradient: AppColors.primaryGradient,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFF212121),
+            letterSpacing: -0.2,
+          ),
+        ),
+      ],
     );
   }
 
@@ -443,8 +497,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       children: _documentTypes.map((doc) {
         final isSelected = _selectedDocumentType == doc['label'];
         return GestureDetector(
-          onTap: () =>
-              setState(() => _selectedDocumentType = doc['label'] as String),
+          onTap: () {
+            setState(() => _selectedDocumentType = doc['label'] as String);
+            // Immediately open bottom sheet to select image source
+            _showImageSourceSelector();
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             decoration: BoxDecoration(
@@ -587,17 +644,17 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     return GestureDetector(
       onTap: _showImageSourceSelector,
       child: Container(
-        height: 170,
+        padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(20),
           border: Border.all(
-              color: AppColors.primary.withOpacity(0.35), width: 2),
+              color: AppColors.primary.withOpacity(0.4), width: 2.5),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+              color: AppColors.primary.withOpacity(0.08),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
             ),
           ],
         ),
@@ -605,32 +662,57 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Container(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
                 gradient: AppColors.primaryGradient,
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.primary.withOpacity(0.3),
-                    blurRadius: 16,
-                    offset: const Offset(0, 6),
+                    color: AppColors.primary.withOpacity(0.35),
+                    blurRadius: 20,
+                    offset: const Offset(0, 8),
                   ),
                 ],
               ),
-              child: const Icon(Icons.add_a_photo_rounded,
-                  color: Colors.white, size: 30),
+              child: const Icon(Icons.cloud_upload_rounded,
+                  color: Colors.white, size: 40),
             ),
-            const SizedBox(height: 14),
+            const SizedBox(height: 20),
             const Text(
-              'Tap to Upload Photo',
+              'Upload Document Photo',
               style: TextStyle(
-                  fontSize: 15,
+                  fontSize: 17,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF212121)),
             ),
-            const SizedBox(height: 4),
-            const Text('Scan or Gallery',
-                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            const SizedBox(height: 8),
+            const Text(
+              'Tap here to scan or select from gallery',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Color(0xFF757575), height: 1.4)),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.document_scanner_rounded,
+                      color: AppColors.primary, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Scan recommended',
+                    style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.primary),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
