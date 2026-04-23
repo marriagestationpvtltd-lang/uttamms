@@ -2306,7 +2306,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         // Fetch fresh verification state from the backend so that all screens
         // immediately reflect the approved status without relying on the cache.
         if (mounted) {
-          await context.read<UserState>().refresh(userId);
+          await context.read<UserState>().refresh(userId!);
         }
       }
     }
