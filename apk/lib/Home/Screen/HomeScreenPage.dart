@@ -113,9 +113,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   // Silent background refresh flag (shown as thin progress bar at top)
   bool _isSilentRefreshing = false;
 
-  // Photo reminder dismissal flag
-  bool _photoReminderDismissed = false;
-
   Future<void> _checkDocumentStatus() async {
     if (_isCheckingStatus) return;
 
@@ -1003,10 +1000,6 @@ String usertye = '';
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   AppSpacing.verticalSM,
-                  if (userimage.isEmpty && !_photoReminderDismissed) ...[
-                    _buildPhotoReminderBanner(),
-                    AppSpacing.verticalSM,
-                  ],
                   if (pageno != 10)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1452,83 +1445,6 @@ String usertye = '';
             ),
           ),
       ],
-    );
-  }
-
-  Widget _buildPhotoReminderBanner() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF3E0),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFB300).withOpacity(0.5), width: 1),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFB300).withOpacity(0.15),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.add_a_photo_rounded,
-                color: Color(0xFFE65100), size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Add a profile photo',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF4E342E),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                const Text(
-                  'Profiles with photos get more views',
-                  style: TextStyle(fontSize: 11, color: Color(0xFF6D4C41)),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          GestureDetector(
-            onTap: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => MatrimonyProfilePage()),
-              );
-              if (mounted) loadMasterData();
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE65100),
-                borderRadius: BorderRadius.circular(20),
-              ),
-              child: const Text(
-                'Add Photo',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => setState(() => _photoReminderDismissed = true),
-            child: const Icon(Icons.close_rounded,
-                color: Color(0xFF9E9E9E), size: 18),
-          ),
-        ],
-      ),
     );
   }
 
