@@ -82,10 +82,10 @@ try {
                     $isVerified = true;
                 }
             } elseif ($row['status'] === 'approved' && !$isVerified) {
-                // A newer entry is already captured; older 'approved' rows still
-                // set the verified flag if the newer entry was merely 'pending'.
+                // An older approved document – the newest entry already set
+                // $identityStatus, but this older approved doc means the user
+                // is verified overall.
                 $isVerified = true;
-                $identityStatus = 'approved';
             }
         }
     }

@@ -111,7 +111,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   // Silent background refresh flag (shown as thin progress bar at top)
   bool _isSilentRefreshing = false;
 
-  Future<void> _checkDocumentStatus() async {
+  Future<void> _refreshVerificationStatus() async {
     if (userid == 0) return;
     await VerificationService.instance.refresh(userid);
     if (mounted) setState(() {}); // rebuild so gated UI reflects new status
@@ -140,7 +140,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       await Future.wait([
         fetchMatchedProfiles(),
         _fetchQuickActionCounts(forceRefresh: true),
-        _checkDocumentStatus(),
+        _refreshVerificationStatus(),
         _fetchPremiumMembers(),
         _fetchOtherServices(),
         _fetchShortlistedProfiles(),
