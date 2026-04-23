@@ -547,8 +547,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     return Column(
       children: [
         _buildHeroHeader(
-          title: 'KYC Verification',
-          subtitle: 'Complete verification to unlock all features',
+          title: 'Identity Verification',
+          subtitle: 'Upload your documents to complete verification',
           icon: Icons.verified_user_rounded,
         ),
         Expanded(
@@ -1629,7 +1629,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               color: const Color(0xFFF57C00).withOpacity(0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.badge_outlined,
+            child: const Icon(Icons.hourglass_top_rounded,
                 color: Color(0xFFF57C00), size: 26),
           ),
           const SizedBox(width: 14),
