@@ -249,48 +249,48 @@ class _MaritalDocumentUploadScreenState
         ),
         Expanded(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildStepIndicator(currentStep: 0),
-                const SizedBox(height: 28),
+                const SizedBox(height: 32),
                 _buildInfoBanner(),
-                const SizedBox(height: 28),
+                const SizedBox(height: 32),
                 _buildSectionTitle('1. Choose Document Type'),
-                const SizedBox(height: 4),
+                const SizedBox(height: 8),
                 const Text(
-                  'Tap a document type to upload',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                  'Select the type of document you want to upload',
+                  style: TextStyle(fontSize: 14, color: Color(0xFF757575), height: 1.5),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 20),
                 _buildDocumentTypeGrid(),
                 if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 36),
                   _buildSectionTitle('2. Document Photo'),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   const Text(
-                    'Review and edit if needed',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                    'Review the uploaded photo and make changes if needed',
+                    style: TextStyle(fontSize: 14, color: Color(0xFF757575), height: 1.5),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   _buildImagePreview(),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 36),
                   _buildSectionTitle('3. Document Number (Optional)'),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 8),
                   const Text(
-                    'Enter the document number if available',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                    'Enter the document number if available on your document',
+                    style: TextStyle(fontSize: 14, color: Color(0xFF757575), height: 1.5),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
                   _buildDocumentNumberField(),
-                  const SizedBox(height: 24),
-                  _buildGuidelinesCard(),
-                  const SizedBox(height: 24),
-                  _buildConsentCard(),
                   const SizedBox(height: 28),
-                  _buildSubmitButton(),
+                  _buildGuidelinesCard(),
+                  const SizedBox(height: 28),
+                  _buildConsentCard(),
                   const SizedBox(height: 32),
+                  _buildSubmitButton(),
+                  const SizedBox(height: 40),
                 ],
               ],
             ),
@@ -361,14 +361,14 @@ class _MaritalDocumentUploadScreenState
   Widget _buildStepIndicator({required int currentStep}) {
     final steps = ['Select', 'Upload', 'Verified'];
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
             offset: const Offset(0, 4),
           ),
         ],
@@ -379,10 +379,13 @@ class _MaritalDocumentUploadScreenState
             final stepIdx = i ~/ 2;
             return Expanded(
               child: Container(
-                height: 2,
-                color: stepIdx <= currentStep
-                    ? AppColors.primary
-                    : const Color(0xFFE0E0E0),
+                height: 3,
+                decoration: BoxDecoration(
+                  color: stepIdx <= currentStep
+                      ? AppColors.primary
+                      : const Color(0xFFE0E0E0),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
             );
           }
@@ -393,35 +396,44 @@ class _MaritalDocumentUploadScreenState
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                width: 32,
-                height: 32,
+                width: 36,
+                height: 36,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: isActive
                       ? AppColors.primary
                       : const Color(0xFFE0E0E0),
+                  boxShadow: isActive
+                      ? [
+                          BoxShadow(
+                            color: AppColors.primary.withOpacity(0.3),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : [],
                 ),
                 child: Center(
                   child: isCompleted
-                      ? const Icon(Icons.check, color: Colors.white, size: 16)
+                      ? const Icon(Icons.check, color: Colors.white, size: 18)
                       : Text(
                           '${stepIdx + 1}',
                           style: TextStyle(
-                            color: isActive ? Colors.white : Colors.grey,
-                            fontSize: 13,
+                            color: isActive ? Colors.white : const Color(0xFF9E9E9E),
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
                 ),
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
               Text(
                 steps[stepIdx],
                 style: TextStyle(
-                  fontSize: 11,
-                  color: isActive ? AppColors.primary : Colors.grey,
+                  fontSize: 12,
+                  color: isActive ? AppColors.primary : const Color(0xFF9E9E9E),
                   fontWeight:
-                      isActive ? FontWeight.w600 : FontWeight.normal,
+                      isActive ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
             ],
@@ -433,23 +445,43 @@ class _MaritalDocumentUploadScreenState
 
   Widget _buildInfoBanner() {
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFFFF8E1),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFFFCC02).withOpacity(0.5)),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFFCC02).withOpacity(0.3)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
-      child: const Row(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline_rounded,
-              color: Color(0xFFF57F17), size: 20),
-          SizedBox(width: 10),
-          Expanded(
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF57F17).withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(
+              Icons.info_outline_rounded,
+              color: Color(0xFFF57F17),
+              size: 22,
+            ),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
             child: Text(
               'Since your marital status requires verification, please upload a supporting document (e.g. death certificate, divorce decree, or court order). This is separate from your identity document.',
               style: TextStyle(
-                  fontSize: 13, color: Color(0xFF5D4037), height: 1.5),
+                fontSize: 14,
+                color: Color(0xFF5D4037),
+                height: 1.6,
+              ),
             ),
           ),
         ],
@@ -487,9 +519,9 @@ class _MaritalDocumentUploadScreenState
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       crossAxisCount: 3,
-      mainAxisSpacing: 10,
-      crossAxisSpacing: 10,
-      childAspectRatio: 0.95,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 12,
+      childAspectRatio: 0.85,
       children: _documentTypes.map((doc) {
         final isSelected = _selectedDocumentType == doc['label'];
         return GestureDetector(
@@ -499,12 +531,13 @@ class _MaritalDocumentUploadScreenState
             _showImageSourceSelector();
           },
           child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
             decoration: BoxDecoration(
               color: isSelected
                   ? AppColors.primary.withOpacity(0.08)
                   : Colors.white,
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: isSelected
                     ? AppColors.primary
@@ -514,47 +547,58 @@ class _MaritalDocumentUploadScreenState
               boxShadow: [
                 BoxShadow(
                   color: isSelected
-                      ? AppColors.primary.withOpacity(0.18)
-                      : Colors.black.withOpacity(0.04),
-                  blurRadius: isSelected ? 8 : 4,
-                  offset: const Offset(0, 2),
+                      ? AppColors.primary.withOpacity(0.15)
+                      : Colors.black.withOpacity(0.06),
+                  blurRadius: isSelected ? 12 : 8,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(
-                  doc['icon'] as IconData,
-                  color: isSelected ? AppColors.primary : Colors.grey,
-                  size: 28,
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? AppColors.primary.withOpacity(0.1)
+                        : const Color(0xFFF5F5F5),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    doc['icon'] as IconData,
+                    color: isSelected ? AppColors.primary : const Color(0xFF757575),
+                    size: 28,
+                  ),
                 ),
-                const SizedBox(height: 6),
+                const SizedBox(height: 10),
                 Text(
                   doc['label'] as String,
                   textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
+                        ? FontWeight.w600
+                        : FontWeight.w500,
                     color: isSelected
                         ? AppColors.primary
-                        : const Color(0xFF616161),
-                    height: 1.2,
+                        : const Color(0xFF212121),
+                    height: 1.3,
                   ),
                 ),
                 if (isSelected) ...[
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 6),
                   Container(
-                    width: 18,
-                    height: 18,
+                    width: 20,
+                    height: 20,
                     decoration: const BoxDecoration(
                       color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.check,
-                        color: Colors.white, size: 11),
+                        color: Colors.white, size: 12),
                   ),
                 ],
               ],
@@ -569,12 +613,13 @@ class _MaritalDocumentUploadScreenState
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(0.04),
             blurRadius: 8,
-            offset: const Offset(0, 3),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
@@ -586,27 +631,27 @@ class _MaritalDocumentUploadScreenState
         onChanged: (_) => setState(() {}),
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
         decoration: InputDecoration(
-          hintText: 'Enter document number (if any)',
-          hintStyle: const TextStyle(color: Colors.grey, fontSize: 14),
+          hintText: 'Enter document number (if available)',
+          hintStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
           prefixIcon: Container(
-            margin: const EdgeInsets.all(10),
-            padding: const EdgeInsets.all(8),
+            margin: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: AppColors.primary.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: const Icon(Icons.numbers_rounded,
-                color: AppColors.primary, size: 18),
+                color: AppColors.primary, size: 20),
           ),
           suffixIcon: (_selectedImage != null || _scannedImagePath != null)
               ? _isScanning
                   ? const Padding(
-                      padding: EdgeInsets.all(12),
+                      padding: EdgeInsets.all(14),
                       child: SizedBox(
-                        width: 20,
-                        height: 20,
+                        width: 22,
+                        height: 22,
                         child: CircularProgressIndicator(
-                          strokeWidth: 2,
+                          strokeWidth: 2.5,
                           valueColor: AlwaysStoppedAnimation<Color>(
                               AppColors.primary),
                         ),
@@ -614,19 +659,19 @@ class _MaritalDocumentUploadScreenState
                     )
                   : IconButton(
                       icon: const Icon(Icons.document_scanner_rounded,
-                          color: AppColors.primary),
+                          color: AppColors.primary, size: 22),
                       tooltip: 'Scan document number',
                       onPressed: _scanDocumentId,
                     )
               : null,
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             borderSide: BorderSide.none,
           ),
           filled: true,
           fillColor: Colors.white,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
         ),
       ),
     );
@@ -718,20 +763,20 @@ class _MaritalDocumentUploadScreenState
     return Column(
       children: [
         Container(
-          height: 220,
+          height: 240,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.success, width: 2),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: AppColors.success, width: 2.5),
             boxShadow: [
               BoxShadow(
                 color: AppColors.success.withOpacity(0.15),
-                blurRadius: 12,
+                blurRadius: 16,
                 offset: const Offset(0, 6),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             child: Stack(
               children: [
                 if (_scannedImagePath != null)
@@ -772,26 +817,33 @@ class _MaritalDocumentUploadScreenState
                     },
                   ),
                 Positioned(
-                  top: 10,
-                  right: 10,
+                  top: 12,
+                  right: 12,
                   child: Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                        horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppColors.success,
                       borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
                     ),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(Icons.check_circle,
-                            color: Colors.white, size: 14),
-                        SizedBox(width: 4),
+                            color: Colors.white, size: 16),
+                        SizedBox(width: 6),
                         Text('Photo Ready',
                             style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold)),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -800,35 +852,36 @@ class _MaritalDocumentUploadScreenState
             ),
           ),
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         Row(
           children: [
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: _showImageSourceSelector,
-                icon: const Icon(Icons.refresh_rounded, size: 18),
-                label: const Text('Change'),
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                label: const Text('Change Photo'),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Color(0xFFE0E0E0)),
+                  side: const BorderSide(color: AppColors.primary, width: 1.5),
+                  foregroundColor: AppColors.primary,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
                 onPressed: _removeImage,
                 icon: const Icon(Icons.delete_outline_rounded,
-                    size: 18, color: Colors.red),
+                    size: 20, color: Colors.red),
                 label: const Text('Remove',
                     style: TextStyle(color: Colors.red)),
                 style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.red),
+                  side: const BorderSide(color: Colors.red, width: 1.5),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
+                      borderRadius: BorderRadius.circular(12)),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
                 ),
               ),
             ),
@@ -855,41 +908,78 @@ class _MaritalDocumentUploadScreenState
       },
     ];
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: const Color(0xFFF0F7FF),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFBBDEFB)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          Row(
             children: [
-              Icon(Icons.lightbulb_outline_rounded,
-                  color: Color(0xFF1565C0), size: 20),
-              SizedBox(width: 8),
-              Text(
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1565C0).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(
+                  Icons.lightbulb_outline_rounded,
+                  color: Color(0xFF1565C0),
+                  size: 22,
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text(
                 'Photo Tips',
                 style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1565C0)),
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF1565C0),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
           ...guidelines.map((g) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.only(bottom: 10),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(g['icon'] as IconData,
-                        size: 16, color: const Color(0xFF1976D2)),
-                    const SizedBox(width: 10),
-                    Text(
-                      g['text'] as String,
-                      style: const TextStyle(
-                          fontSize: 13, color: Color(0xFF424242)),
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1976D2).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Icon(
+                        g['icon'] as IconData,
+                        size: 16,
+                        color: const Color(0xFF1976D2),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Text(
+                          g['text'] as String,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF424242),
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -903,28 +993,37 @@ class _MaritalDocumentUploadScreenState
     return GestureDetector(
       onTap: () => setState(() => _hasConsented = !_hasConsented),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: _hasConsented ? const Color(0xFFF1F8E9) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: _hasConsented
                 ? AppColors.success
                 : const Color(0xFFE0E0E0),
-            width: 1.5,
+            width: 2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: _hasConsented
+                  ? AppColors.success.withOpacity(0.1)
+                  : Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 22,
-              height: 22,
+              duration: const Duration(milliseconds: 200),
+              width: 24,
+              height: 24,
               decoration: BoxDecoration(
                 color: _hasConsented ? AppColors.success : Colors.white,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: _hasConsented
                       ? AppColors.success
@@ -933,17 +1032,18 @@ class _MaritalDocumentUploadScreenState
                 ),
               ),
               child: _hasConsented
-                  ? const Icon(Icons.check, color: Colors.white, size: 14)
+                  ? const Icon(Icons.check, color: Colors.white, size: 16)
                   : null,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             const Expanded(
               child: Text(
                 'I consent to use of this document solely for marital-status verification. It will remain confidential and will not be shared with third parties.',
                 style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF616161),
-                    height: 1.5),
+                  fontSize: 14,
+                  color: Color(0xFF424242),
+                  height: 1.6,
+                ),
               ),
             ),
           ],
@@ -953,43 +1053,61 @@ class _MaritalDocumentUploadScreenState
   }
 
   Widget _buildSubmitButton() {
-    return SizedBox(
+    return Container(
       width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: _isUploading
+            ? []
+            : [
+                BoxShadow(
+                  color: AppColors.primary.withOpacity(0.3),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+      ),
       child: ElevatedButton(
         onPressed: _isUploading ? null : _validateAndSubmit,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          elevation: 4,
-          shadowColor: AppColors.primary.withOpacity(0.4),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
         ),
         child: _isUploading
             ? const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SizedBox(
-                    width: 18,
-                    height: 18,
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
-                        color: Colors.white, strokeWidth: 2.5),
+                      color: Colors.white,
+                      strokeWidth: 2.5,
+                    ),
                   ),
-                  SizedBox(width: 12),
-                  Text('Uploading...',
-                      style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white)),
+                  SizedBox(width: 14),
+                  Text(
+                    'Uploading...',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
                 ],
               )
             : const Text(
                 'Submit for Verification',
                 style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
               ),
       ),
     );
