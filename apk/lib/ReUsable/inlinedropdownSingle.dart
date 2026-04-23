@@ -63,6 +63,7 @@ class _InlineSearchDropdownState<T> extends State<InlineSearchDropdown<T>> {
       children: [
         GestureDetector(
           onTap: () {
+            FocusScope.of(context).unfocus();
             setState(() {
               isDropdownOpen = !isDropdownOpen;
             });
@@ -77,13 +78,19 @@ class _InlineSearchDropdownState<T> extends State<InlineSearchDropdown<T>> {
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: controller,
-                    decoration: InputDecoration(
-                      hintText: widget.hint,
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
+                  child: IgnorePointer(
+                    ignoring: !isDropdownOpen,
+                    child: TextField(
+                      controller: controller,
+                      readOnly: !isDropdownOpen,
+                      autofocus: false,
+                      enableInteractiveSelection: isDropdownOpen,
+                      decoration: InputDecoration(
+                        hintText: widget.hint,
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                      ),
                     ),
                   ),
                 ),
