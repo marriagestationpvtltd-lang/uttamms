@@ -49,6 +49,10 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   /// Key: document label, Value: true when successfully uploaded.
   final Map<String, bool> _maritalDocUploaded = {};
 
+  /// Per-document server state for marital docs (populated from API).
+  /// Key: document label, Value: {status, reject_reason}
+  final Map<String, Map<String, dynamic>> _maritalDocStates = {};
+
   /// The marital document type currently being uploaded (used while the image
   /// source bottom-sheet / upload is in progress).
   String? _activeMaritalDocType;
@@ -116,14 +120,55 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       if (response.statusCode == 200) {
         final result = jsonDecode(response.body);
         if (result['success'] == true) {
-          final newStatus = result['status'] ?? 'not_uploaded';
-          setState(() {
-            _documentStatus = newStatus;
-            _rejectReason = result['reject_reason'] ?? '';
-          });
-          if (newStatus == 'pending') {
-            // no-op: status will be re-checked on next app resume
+          final docs = result['documents'] as List<dynamic>? ?? [];
+          // Collect the labels of documents required for this user's marital status.
+          final maritalDocLabels = _getRequiredMaritalDocuments()
+              .map((d) => d['label'] as String)
+              .toSet();
+
+          String idStatus = 'not_uploaded';
+          String idRejectReason = '';
+          final Map<String, Map<String, dynamic>> newMaritalStates = {};
+
+          for (final doc in docs) {
+            final type = doc['documenttype'] as String? ?? '';
+            final status = doc['status'] as String? ?? 'not_uploaded';
+            final reason = doc['reject_reason'] as String? ?? '';
+
+            if (maritalDocLabels.contains(type)) {
+              newMaritalStates[type] = {
+                'status': status,
+                'reject_reason': reason,
+              };
+            } else {
+              // Identity document: pick the highest-priority status seen so far.
+              // Priority order: approved (3) > rejected (2) > pending (1) > not_uploaded (0)
+              const statusPriority = {
+                'approved': 3,
+                'rejected': 2,
+                'pending': 1,
+                'not_uploaded': 0,
+              };
+              if ((statusPriority[status] ?? 0) >
+                  (statusPriority[idStatus] ?? 0)) {
+                idStatus = status;
+                idRejectReason = reason;
+              }
+            }
           }
+
+          setState(() {
+            _documentStatus = idStatus;
+            _rejectReason = idRejectReason;
+            _maritalDocStates
+              ..clear()
+              ..addAll(newMaritalStates);
+            // Sync boolean upload-tracking map from server states.
+            for (final entry in newMaritalStates.entries) {
+              _maritalDocUploaded[entry.key] =
+                  entry.value['status'] != 'not_uploaded';
+            }
+          });
         }
       }
     } catch (e) {
@@ -174,7 +219,19 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           final Map<String, bool> restored = {
             for (final t in uploaded.whereType<String>()) t: true,
           };
-          if (mounted) setState(() => _maritalDocUploaded.addAll(restored));
+          if (mounted) {
+            setState(() {
+              _maritalDocUploaded.addAll(restored);
+              // Seed marital states as 'pending' so the UI shows "Under Review"
+              // while _checkDocumentStatus() fetches the real state from the server.
+              for (final type in restored.keys) {
+                _maritalDocStates.putIfAbsent(
+                  type,
+                  () => {'status': 'pending', 'reject_reason': ''},
+                );
+              }
+            });
+          }
         } catch (_) {}
       }
     }
@@ -371,7 +428,15 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       final response = await request.send();
       if (!mounted) return;
       if (response.statusCode == 200) {
-        setState(() => _maritalDocUploaded[docType] = true);
+        setState(() {
+          _maritalDocUploaded[docType] = true;
+          // Optimistically mark as pending so the UI reflects the upload
+          // immediately while the server processes it.
+          _maritalDocStates[docType] = {
+            'status': 'pending',
+            'reject_reason': '',
+          };
+        });
         await _persistMaritalDocUploaded();
         _showSuccess('"$docType" uploaded successfully!');
       } else {
@@ -638,123 +703,208 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     required String label,
     required IconData icon,
   }) {
-    final isUploaded = _maritalDocUploaded[label] == true;
+    // Read the real server-side state; fall back to not_uploaded.
+    final stateInfo = _maritalDocStates[label] ??
+        {'status': 'not_uploaded', 'reject_reason': ''};
+    final status = stateInfo['status'] as String? ?? 'not_uploaded';
+    final rejectReason = stateInfo['reject_reason'] as String? ?? '';
     final isUploading =
         _isUploadingMaritalDoc && _activeMaritalDocType == label;
 
-    return GestureDetector(
-      onTap: isUploaded || isUploading
-          ? null
-          : () => _showMaritalDocSourceSelector(label),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: isUploaded
-              ? const Color(0xFFE8F5E9)
-              : const Color(0xFFFAFAFA),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: isUploaded
-                ? AppColors.success
-                : AppColors.primary.withOpacity(0.3),
-            width: isUploaded ? 1.5 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 6,
-              offset: const Offset(0, 2),
-            ),
-          ],
+    // Resolve colours and labels for each state.
+    final Color cardColor;
+    final Color borderColor;
+    final Color iconBgColor;
+    final Color iconColor;
+    final String statusLabel;
+
+    switch (status) {
+      case 'approved':
+        cardColor = const Color(0xFFE8F5E9);
+        borderColor = AppColors.success;
+        iconBgColor = AppColors.success.withOpacity(0.15);
+        iconColor = AppColors.success;
+        statusLabel = 'Verified';
+        break;
+      case 'rejected':
+        cardColor = const Color(0xFFFFF5F5);
+        borderColor = const Color(0xFFC62828).withOpacity(0.5);
+        iconBgColor = const Color(0xFFC62828).withOpacity(0.1);
+        iconColor = const Color(0xFFC62828);
+        statusLabel = 'Rejected';
+        break;
+      case 'pending':
+        cardColor = const Color(0xFFFFF8E1);
+        borderColor = const Color(0xFFF57C00).withOpacity(0.4);
+        iconBgColor = const Color(0xFFF57C00).withOpacity(0.1);
+        iconColor = const Color(0xFFF57C00);
+        statusLabel = 'Under Review';
+        break;
+      default:
+        cardColor = const Color(0xFFFAFAFA);
+        borderColor = AppColors.primary.withOpacity(0.3);
+        iconBgColor = AppColors.primary.withOpacity(0.08);
+        iconColor = AppColors.primary;
+        statusLabel = 'Upload Required';
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: borderColor,
+          width: status == 'approved' ? 1.5 : 1,
         ),
-        child: Row(
-          children: [
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: iconBgColor,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: iconColor, size: 22),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: status == 'approved'
+                            ? const Color(0xFF2E7D32)
+                            : const Color(0xFF212121),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        if (status == 'approved') ...[
+                          const Icon(Icons.verified_rounded,
+                              size: 13, color: AppColors.success),
+                          const SizedBox(width: 4),
+                        ] else if (status == 'rejected') ...[
+                          const Icon(Icons.cancel_rounded,
+                              size: 13, color: Color(0xFFC62828)),
+                          const SizedBox(width: 4),
+                        ] else if (status == 'pending') ...[
+                          const Icon(Icons.hourglass_top_rounded,
+                              size: 13, color: Color(0xFFF57C00)),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          statusLabel,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: iconColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              if (isUploading)
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(AppColors.primary),
+                  ),
+                )
+              else if (status == 'approved')
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: const BoxDecoration(
+                    color: AppColors.success,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check_rounded,
+                      color: Colors.white, size: 16),
+                )
+              else if (status != 'pending')
+                // Show upload/re-upload button for not_uploaded and rejected states.
+                GestureDetector(
+                  onTap: () => _showMaritalDocSourceSelector(label),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: status == 'rejected'
+                          ? const Color(0xFFC62828)
+                          : null,
+                      gradient: status == 'rejected'
+                          ? null
+                          : AppColors.primaryGradient,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      status == 'rejected' ? 'Re-upload' : 'Upload',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          // Show rejection reason below the row when applicable.
+          if (status == 'rejected' && rejectReason.isNotEmpty) ...[
+            const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: isUploaded
-                    ? AppColors.success.withOpacity(0.15)
-                    : AppColors.primary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10),
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFFCDD2)),
               ),
-              child: Icon(
-                icon,
-                color: isUploaded ? AppColors.success : AppColors.primary,
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: isUploaded
-                          ? const Color(0xFF2E7D32)
-                          : const Color(0xFF212121),
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    isUploaded
-                        ? 'Pending – under review'
-                        : 'Upload Required',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: isUploaded
-                          ? AppColors.success
-                          : const Color(0xFFC62828),
+                  const Icon(Icons.info_rounded,
+                      color: Color(0xFFC62828), size: 14),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      rejectReason,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF424242),
+                        height: 1.4,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 8),
-            if (isUploading)
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
-                ),
-              )
-            else if (isUploaded)
-              Container(
-                width: 28,
-                height: 28,
-                decoration: const BoxDecoration(
-                  color: AppColors.success,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(Icons.check_rounded,
-                    color: Colors.white, size: 16),
-              )
-            else
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  'Upload',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
           ],
-        ),
+        ],
       ),
     );
   }
