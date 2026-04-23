@@ -154,10 +154,47 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   // ─── Marital-document helpers ─────────────────────────────────────────────
 
   /// Reads the marital status that was persisted by [PersonalDetailsPage].
+  /// Also restores any previously uploaded marital-document entries.
   Future<void> _loadMaritalStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final status = prefs.getString('selected_marital_status');
+    final userDataString = prefs.getString('user_data');
+    String? userId;
+    if (userDataString != null) {
+      try {
+        final userData = jsonDecode(userDataString);
+        userId = userData['id']?.toString();
+      } catch (_) {}
+    }
+    if (userId != null) {
+      final uploadedJson = prefs.getString('marital_docs_uploaded_$userId');
+      if (uploadedJson != null) {
+        try {
+          final List<dynamic> uploaded = jsonDecode(uploadedJson);
+          final Map<String, bool> restored = {
+            for (final t in uploaded.whereType<String>()) t: true,
+          };
+          if (mounted) setState(() => _maritalDocUploaded.addAll(restored));
+        } catch (_) {}
+      }
+    }
     if (mounted) setState(() => _maritalStatus = status);
+  }
+
+  /// Persists the current set of uploaded marital document types.
+  Future<void> _persistMaritalDocUploaded() async {
+    final prefs = await SharedPreferences.getInstance();
+    final userDataString = prefs.getString('user_data');
+    if (userDataString == null) return;
+    try {
+      final userData = jsonDecode(userDataString);
+      final userId = userData['id']?.toString();
+      if (userId == null) return;
+      final uploadedDocTypes =
+          _maritalDocUploaded.entries.where((e) => e.value).map((e) => e.key).toList();
+      await prefs.setString(
+          'marital_docs_uploaded_$userId', jsonEncode(uploadedDocTypes));
+    } catch (_) {}
   }
 
   /// Returns true when the user's marital status requires supporting documents.
@@ -335,6 +372,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       if (!mounted) return;
       if (response.statusCode == 200) {
         setState(() => _maritalDocUploaded[docType] = true);
+        await _persistMaritalDocUploaded();
         _showSuccess('"$docType" uploaded successfully!');
       } else {
         _showError('Upload failed for "$docType". Please try again.');
@@ -427,13 +465,13 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
 
   Widget _buildContent() {
     switch (_documentStatus) {
-      case 'pending':
-        return _buildPendingScreen();
       case 'approved':
         return _buildApprovedScreen();
       case 'rejected':
         return _buildRejectedScreen();
       default:
+        // 'pending' and 'not_uploaded' both show the upload screen so the user
+        // can always upload all required documents, even while one is under review.
         return _buildUploadScreen();
     }
   }
@@ -456,6 +494,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 children: [
                   _buildStepIndicator(currentStep: 0),
                   const SizedBox(height: 28),
+                  // ── Identity document status banner (when pending) ────────
+                  if (_documentStatus == 'pending') ...[
+                    _buildIdDocumentStatusBanner(),
+                    const SizedBox(height: 24),
+                  ],
                   // ── Marital document requirements ───────────────────────
                   if (_requiresMaritalDocuments()) ...[
                     _buildMaritalDocumentsSection(),
@@ -658,11 +701,13 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   const SizedBox(height: 3),
                   Text(
                     isUploaded
-                        ? 'Uploaded successfully'
-                        : 'Tap to upload this document',
+                        ? 'Pending – under review'
+                        : 'Upload Required',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isUploaded ? AppColors.success : Colors.grey,
+                      color: isUploaded
+                          ? AppColors.success
+                          : const Color(0xFFC62828),
                     ),
                   ),
                 ],
@@ -1372,6 +1417,60 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildIdDocumentStatusBanner() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF8E1),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFF57C00).withOpacity(0.4)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.hourglass_top_rounded,
+              color: Color(0xFFF57C00), size: 20),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Identity Document Under Review',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFFF57C00),
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Your identity document is being verified. '
+                  'Upload any remaining required documents below.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF5D4037),
+                    height: 1.4,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            icon: _isCheckingStatus
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh_rounded, size: 18),
+            onPressed: _isCheckingStatus ? null : _checkDocumentStatus,
+            color: const Color(0xFFF57C00),
+          ),
+        ],
       ),
     );
   }
