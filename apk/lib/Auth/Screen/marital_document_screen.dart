@@ -1738,13 +1738,13 @@ class _MaritalDocumentUploadScreenState
               ),
               const SizedBox(height: 20),
               const Text(
-                'Scan or Upload Document',
+                'Choose Upload Method',
                 style:
                     TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
-                'Document scanner detects edges automatically',
+                'Scan, take a photo, or choose from gallery',
                 style: TextStyle(fontSize: 13, color: Colors.grey),
               ),
               const SizedBox(height: 20),
@@ -1766,6 +1766,16 @@ class _MaritalDocumentUploadScreenState
                 onTap: () {
                   Navigator.pop(context);
                   _selectFromGallery();
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildSourceOption(
+                icon: Icons.camera_alt_rounded,
+                label: 'Camera',
+                subtitle: 'Take a photo',
+                onTap: () {
+                  Navigator.pop(context);
+                  _selectFromCamera();
                 },
               ),
               const SizedBox(height: 8),
@@ -1883,6 +1893,26 @@ class _MaritalDocumentUploadScreenState
     }
   }
 
+  Future<void> _selectFromCamera() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 90,
+      );
+      if (image != null) {
+        setState(() {
+          _selectedImage = image;
+          _scannedImagePath = null;
+        });
+        await _scanDocumentId();
+      }
+    } catch (e) {
+      _showError('Failed to capture image: $e');
+    }
+  }
+
   void _removeImage() => setState(() {
         _selectedImage = null;
         _scannedImagePath = null;
@@ -1891,6 +1921,33 @@ class _MaritalDocumentUploadScreenState
   Future<void> _scanDocumentId() async {
     if (_selectedImage == null && _scannedImagePath == null) return;
     setState(() => _isScanning = true);
+
+    // Show scanning feedback
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              SizedBox(width: 12),
+              Text('Scanning document number...'),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          backgroundColor: AppColors.primary,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
+
     try {
       // OCR only works on native (not web)
       if (!kIsWeb) {
@@ -1902,6 +1959,26 @@ class _MaritalDocumentUploadScreenState
         setState(() => _isScanning = false);
         if (extractedText != null && extractedText.isNotEmpty) {
           _showScanResultDialog(extractedText);
+        } else {
+          // Show feedback when nothing is found
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Row(
+                  children: [
+                    Icon(Icons.info_outline, color: Colors.white, size: 20),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text('No document number detected. You can enter it manually below.'),
+                    ),
+                  ],
+                ),
+                backgroundColor: Colors.orange,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            );
+          }
         }
       } else {
         setState(() => _isScanning = false);
