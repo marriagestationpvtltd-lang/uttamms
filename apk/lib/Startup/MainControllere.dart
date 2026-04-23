@@ -1,4 +1,3 @@
-// screens/main_controller_screen.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -10,6 +9,7 @@ import '../liked/liked.dart';
 import '../Chat/ChatlistScreen.dart';
 import '../profile/myprofile.dart';
 import '../service/socket_service.dart';
+import '../service/verification_service.dart';
 import '../utils/responsive_layout.dart';
 
 class MainControllerScreen extends StatefulWidget {
@@ -53,13 +53,24 @@ class _MainControllerScreenState extends State<MainControllerScreen> {
       final s = prefs.getString('user_data');
       if (s != null && s.isNotEmpty) {
         final data = jsonDecode(s);
+        final userId = data['id']?.toString();
         setState(() {
-          _senderId = data['id']?.toString();
+          _senderId = userId;
           _senderName = data['firstName']?.toString() ?? 'User';
           _currentUserImage = data['profile_picture']?.toString();
         });
         if (_senderId != null) {
           _listenUnreadCounts(_senderId!);
+        }
+        // Refresh verification status in the background so it is ready
+        // as soon as the user interacts with a gated feature.
+        if (userId != null) {
+          final uid = int.tryParse(userId);
+          if (uid != null) {
+            VerificationService.instance.loadFromCache().then((_) {
+              VerificationService.instance.refresh(uid);
+            });
+          }
         }
       }
     } catch (e) {

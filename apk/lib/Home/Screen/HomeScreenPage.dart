@@ -33,6 +33,7 @@ import '../../purposal/purposalScreen.dart';
 import '../../purposal/purposalservice.dart';
 import '../../purposal/requestcard.dart' show showUpgradeDialog;
 import '../../service/Service_chat.dart';
+import '../../service/verification_service.dart';
 import '../../ReUsable/loading_widgets.dart';
 import '../../utils/privacy_utils.dart';
 import 'machprofilescreen.dart';
@@ -93,9 +94,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
   int userid = 0;
   String _userId = '';
-  String docstatus = 'not_uploaded';
-
-  bool _isCheckingStatus = false;
 
   // Cache management
   Map<String, CachedData> _cache = {};
@@ -113,71 +111,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   // Silent background refresh flag (shown as thin progress bar at top)
   bool _isSilentRefreshing = false;
 
-  Future<void> _checkDocumentStatus() async {
-    if (_isCheckingStatus) return;
-
-    setState(() {
-      _isCheckingStatus = true;
-    });
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userDataString = prefs.getString('user_data');
-
-
-      final userData = jsonDecode(userDataString!);
-      final userId = int.tryParse(userData["id"].toString());
-
-
-
-      debugPrint("Checking document status for user ID: $userId");
-
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-
-      debugPrint("Status check response: ${response.statusCode}");
-      debugPrint("Response body: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-
-        if (result['success'] == true) {
-          if (!mounted) return;
-          setState(() {
-            docstatus = result['status'] ?? 'not_uploaded';
-            //  _rejectReason = result['reject_reason'] ?? '';
-          });
-          //  debugPrint("Document status: $_documentStatus");
-          // debugPrint("Reject reason: $_rejectReason");
-        } else {
-          debugPrint("API returned success: false");
-          debugPrint("Message: ${result['message']}");
-        }
-      } else {
-        debugPrint("HTTP error: ${response.statusCode}");
-      }
-    } catch (e) {
-      debugPrint("Error checking document status: $e");
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Unable to check document status right now. Please try again later.",
-          ),
-          backgroundColor: AppColors.error,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isCheckingStatus = false;
-        });
-      }
-    }
+  Future<void> _refreshVerificationStatus() async {
+    if (userid == 0) return;
+    await VerificationService.instance.refresh(userid);
+    if (mounted) setState(() {}); // rebuild so gated UI reflects new status
   }
 
   Future<void> _loadUnreadNotificationCount() async {
@@ -203,7 +140,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       await Future.wait([
         fetchMatchedProfiles(),
         _fetchQuickActionCounts(forceRefresh: true),
-        _checkDocumentStatus(),
+        _refreshVerificationStatus(),
         _fetchPremiumMembers(),
         _fetchOtherServices(),
         _fetchShortlistedProfiles(),
@@ -810,6 +747,12 @@ String usertye = '';
       });
     }
 
+    // Load cached verification status immediately, then refresh from network.
+    if (userId != null) {
+      await VerificationService.instance.loadFromCache();
+      VerificationService.instance.refresh(userId);
+    }
+
     try {
       UserMasterData user = await fetchUserMasterData(userId.toString());
 
@@ -825,7 +768,6 @@ String usertye = '';
         name = "${user.firstName} ${user.lastName}";
         _userId = userId?.toString() ?? '';
         userid = userId ?? 0;
-       // docstatus = user.docStatus;
       });
     } catch (e) {
       debugPrint("Error: $e");
@@ -837,7 +779,6 @@ String usertye = '';
     super.initState();
     _loadPersistentCacheThenRefresh();
     loadMasterData();
-    _checkDocumentStatus();
     _loadUnreadNotificationCount();
     OnlineStatusService().start();
   }
@@ -1105,7 +1046,7 @@ String usertye = '';
                     child: GestureDetector(
                       onTap: () => Navigator.push(context,
                           MaterialPageRoute(builder: (_) => MatchedProfilesPagee(
-                            currentUserId: userid, docstatus: docstatus))),
+                            currentUserId: userid, docstatus: VerificationService.instance.identityStatus))),
                       child: _buildSectionHeader('Matched Profiles', showSeeAll: true),
                     ),
                   ),
@@ -1380,10 +1321,10 @@ String usertye = '';
         _buildAppBarIcon(
           icon: Icons.search_rounded,
           onPressed: () {
-            if (docstatus == 'approved') {
+            if (VerificationService.instance.isVerified) {
               Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
             } else {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => IDVerificationScreen()));
+              VerificationService.requireVerification(context);
             }
           },
         ),
@@ -1651,10 +1592,10 @@ String usertye = '';
         'label': 'Search',
         'gradient': [const Color(0xFF6C63FF), const Color(0xFF4834D4)],
         'onTap': () {
-          if (docstatus == 'approved') {
+          if (VerificationService.instance.isVerified) {
             Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
           } else {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => IDVerificationScreen()));
+            VerificationService.requireVerification(context);
           }
         },
       },
@@ -1919,14 +1860,11 @@ String usertye = '';
             onTap: () {
               final profileUserId = profile['userid'];
               if (profileUserId != null) {
-                if (docstatus == 'approved') {
+                if (VerificationService.requireVerification(context)) {
                   Navigator.push(context, MaterialPageRoute(
                       builder: (_) => ProfileLoader(
                           userId: profileUserId.toString(),
                           myId: userid.toString())));
-                } else {
-                  Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => IDVerificationScreen()));
                 }
               }
             },
@@ -2112,7 +2050,7 @@ String usertye = '';
                               onPressed: () {
                                 final profileUserId = profile['userid'];
                                 if (profileUserId != null) {
-                                  if (docstatus == 'approved') {
+                                  if (VerificationService.requireVerification(context)) {
                                     Navigator.push(
                                         context,
                                         MaterialPageRoute(
@@ -2120,12 +2058,6 @@ String usertye = '';
                                                 userId: profileUserId
                                                     .toString(),
                                                 myId: userid.toString())));
-                                  } else {
-                                    Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                            builder: (_) =>
-                                                IDVerificationScreen()));
                                   }
                                 }
                               },
@@ -2226,16 +2158,13 @@ String usertye = '';
           return GestureDetector(
             onTap: () {
               if (receiverId != null) {
-                if (docstatus == 'approved') {
+                if (VerificationService.requireVerification(context)) {
                   Navigator.push(
                       context,
                       MaterialPageRoute(
                           builder: (_) => ProfileLoader(
                               userId: receiverId.toString(),
                               myId: userid.toString())));
-                } else {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => IDVerificationScreen()));
                 }
               }
             },
@@ -2412,13 +2341,10 @@ String usertye = '';
 
           return GestureDetector(
             onTap: () {
-              if (docstatus == 'approved') {
+              if (VerificationService.requireVerification(context)) {
                 Navigator.push(context, MaterialPageRoute(
                     builder: (_) => ProfileLoader(
                         userId: userIdd.toString(), myId: userid.toString())));
-              } else {
-                Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => IDVerificationScreen()));
               }
             },
             child: Container(
@@ -2563,19 +2489,13 @@ String usertye = '';
                                 ),
                               ),
                               onPressed: () {
-                                if (docstatus == 'approved') {
+                                if (VerificationService.requireVerification(context)) {
                                   Navigator.push(
                                       context,
                                       MaterialPageRoute(
                                           builder: (_) => ProfileLoader(
                                               userId: userIdd.toString(),
                                               myId: userid.toString())));
-                                } else {
-                                  Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (_) =>
-                                              IDVerificationScreen()));
                                 }
                               },
                               child: Text(
@@ -2647,13 +2567,10 @@ String usertye = '';
 
           return GestureDetector(
             onTap: () {
-              if (docstatus == 'approved') {
+              if (VerificationService.requireVerification(context)) {
                 Navigator.push(context, MaterialPageRoute(
                     builder: (_) => ProfileLoader(
                         userId: userIdd.toString(), myId: userid.toString())));
-              } else {
-                Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => IDVerificationScreen()));
               }
             },
             child: Container(
@@ -3205,32 +3122,20 @@ String usertye = '';
   }
 
   void _openProfile(String profileUserId) {
-    if (docstatus == 'approved') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ProfileLoader(
-            userId: profileUserId,
-            myId: userid.toString(),
-          ),
+    if (!VerificationService.requireVerification(context)) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileLoader(
+          userId: profileUserId,
+          myId: userid.toString(),
         ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-      );
-    }
+      ),
+    );
   }
 
   void _openPhotoRequestProfile(String profileUserId) {
-    if (docstatus != 'approved') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-      );
-      return;
-    }
+    if (!VerificationService.requireVerification(context)) return;
 
     if (usertye == 'free') {
       Navigator.push(
@@ -3245,15 +3150,7 @@ String usertye = '';
 
   Future<void> _openChatRequest(ProposalModel request) async {
     try {
-      if (docstatus == "not_uploaded" ||
-          docstatus == "rejected" ||
-          docstatus == "pending") {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-        );
-        return;
-      }
+      if (!VerificationService.requireVerification(context)) return;
 
       if (usertye == "free") {
         showUpgradeDialog(context);

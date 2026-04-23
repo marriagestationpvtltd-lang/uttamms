@@ -10,6 +10,7 @@ import 'package:ms2026/Package/PackageScreen.dart';
 import 'package:ms2026/otherenew/othernew.dart';
 import 'package:ms2026/pushnotification/pushservice.dart';
 import 'package:ms2026/purposal/purposalservice.dart';
+import 'package:ms2026/service/verification_service.dart';
 import 'package:ms2026/utils/image_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -39,15 +40,13 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
   String usertye = '';
   String userimage = '';
   var pageno;
-  var docstatus = 'not_uploaded';
   bool _isLoading = false;
-  bool _isCheckingStatus = false;
 
   @override
   void initState() {
     super.initState();
     loadMasterData();
-    _checkDocumentStatus();
+    VerificationService.instance.loadFromCache();
   }
 
   Future<UserMasterData> fetchUserMasterData(String userId) async {
@@ -86,55 +85,6 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       });
     } catch (e) {
       print("Error: $e");
-    }
-  }
-
-  Future<void> _checkDocumentStatus() async {
-    if (_isCheckingStatus) return;
-
-    setState(() {
-      _isCheckingStatus = true;
-      _isLoading = true;
-    });
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userDataString = prefs.getString('user_data');
-      final userData = jsonDecode(userDataString!);
-      final userId = int.tryParse(userData["id"].toString());
-
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-
-        if (result['success'] == true) {
-          setState(() {
-            docstatus = result['status'] ?? 'not_uploaded';
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint("Error checking document status: $e");
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Unable to check document status right now. Please try again later.",
-          ),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
-        _isCheckingStatus = false;
-      });
     }
   }
 
@@ -421,7 +371,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         icon: Icons.photo_library_outlined,
         color: const Color(0xFF6A1B9A),
         onTap: () {
-          if (docstatus == "approved" && usertye == "paid") {
+          if (VerificationService.instance.isVerified && usertye == "paid") {
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -430,16 +380,9 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
                 ),
               ),
             );
-          }
-          if (docstatus == "not_uploaded" ||
-              docstatus == "rejected" ||
-              docstatus == "pending") {
-            Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => IDVerificationScreen()));
-          }
-          if (usertye == "free" && docstatus == "approved") {
+          } else if (!VerificationService.instance.isVerified) {
+            VerificationService.requireVerification(context);
+          } else if (usertye == "free") {
             Navigator.push(context,
                 MaterialPageRoute(builder: (context) => SubscriptionPage()));
           }
@@ -571,11 +514,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
   // Action Handlers
   Future<void> _handleAcceptRequest() async {
     // Step 1: Check document verification
-    if (docstatus != 'approved') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IDVerificationScreen()),
-      );
+    if (!VerificationService.requireVerification(context)) {
       return;
     }
 
@@ -967,7 +906,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       // Chat room is auto-created by the Socket.IO server on first message send.
       // No need to pre-create it in Firestore.
 
-      if (docstatus == "approved" && usertye == "paid") {
+      if (VerificationService.instance.isVerified && usertye == "paid") {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -990,13 +929,9 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
             ),
           ),
         );
-      }
-
-      if (docstatus == "not_uploaded" || docstatus == "rejected" || docstatus == "pending") {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => IDVerificationScreen()));
-      }
-
-      if (usertye == "free" && docstatus == "approved") {
+      } else if (!VerificationService.instance.isVerified) {
+        VerificationService.requireVerification(context);
+      } else if (usertye == "free") {
         showUpgradeDialog(context);
       }
     } catch (e) {

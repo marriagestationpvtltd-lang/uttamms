@@ -139,6 +139,20 @@ class _MaritalDocumentUploadScreenState
     }
   }
 
+  /// Returns a screen title that reflects the user's specific marital status.
+  String get _screenTitle {
+    switch (_maritalStatus) {
+      case 'Widowed':
+        return 'Widowhood Documents';
+      case 'Divorced':
+        return 'Divorce Documents';
+      case 'Waiting Divorce':
+        return 'Separation Documents';
+      default:
+        return 'Marital Status Verification';
+    }
+  }
+
   // ─── API ─────────────────────────────────────────────────────────────────
 
   Future<void> _checkDocumentStatuses() async {
@@ -289,7 +303,7 @@ class _MaritalDocumentUploadScreenState
       return Column(
         children: [
           _buildHeroHeader(
-            title: 'Marital Status Verification',
+            title: _screenTitle,
             subtitle: 'Upload the required documents for verification',
             icon: Icons.family_restroom_rounded,
             showBack: true,
@@ -337,7 +351,7 @@ class _MaritalDocumentUploadScreenState
     return Column(
       children: [
         _buildHeroHeader(
-          title: 'Marital Status Verification',
+          title: _screenTitle,
           subtitle: 'Upload the required documents for verification',
           icon: Icons.family_restroom_rounded,
           showBack: true,

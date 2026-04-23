@@ -60,6 +60,32 @@ try {
         exit;
     }
 
+    // ===============================
+    // 🔒 REQUIRE SENDER IDENTITY VERIFICATION
+    // ===============================
+    $maritalDocTypes = ['Death Certificate', 'Marriage Certificate', 'Divorce Decree', 'Court Order', 'Separation Document'];
+    $placeholders    = implode(',', array_fill(0, count($maritalDocTypes), '?'));
+
+    $verifyStmt = $pdo->prepare("
+        SELECT id
+        FROM user_documents
+        WHERE userid = ?
+          AND status = 'approved'
+          AND documenttype NOT IN ($placeholders)
+        LIMIT 1
+    ");
+    $verifyParams = array_merge([$sender_id], $maritalDocTypes);
+    $verifyStmt->execute($verifyParams);
+
+    if ($verifyStmt->rowCount() === 0) {
+        echo json_encode([
+            "success"    => false,
+            "message"    => "Identity verification required to send requests. Please upload and get your identity document approved first.",
+            "error_code" => "VERIFICATION_REQUIRED",
+        ]);
+        exit;
+    }
+
     $status = 'pending';
     $created_at = date('Y-m-d H:i:s');
 

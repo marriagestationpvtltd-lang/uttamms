@@ -11,6 +11,7 @@ import 'package:ms2026/constant/app_colors.dart';
 import 'package:ms2026/constant/app_dimensions.dart';
 import 'package:ms2026/constant/app_text_styles.dart';
 import 'package:ms2026/ReUsable/loading_widgets.dart';
+import 'package:ms2026/service/verification_service.dart';
 import 'package:ms2026/utils/image_utils.dart';
 import '../Models/masterdata.dart';
 import '../main.dart';
@@ -44,8 +45,6 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   bool _showPopup = false;
   String _popupMessage = '';
   String _selectedRequestType = 'Profile';
-  String docstatus = 'not_uploaded';
-  bool _isCheckingStatus = false;
   String usertye = '';
 
   @override
@@ -65,44 +64,15 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       userId = int.tryParse(userData["id"].toString());
       userName = userData['firstName']?.toString();
       userLastName = userData['lastName']?.toString();
-      await _checkDocumentStatus();
+      if (userId != null) {
+        await VerificationService.instance.loadFromCache();
+        VerificationService.instance.refresh(userId!);
+      }
       _fetchFavoritePeople();
     } else {
       setState(() {
         isLoading = false;
         errorMessage = 'User data not found. Please login again.';
-      });
-    }
-  }
-
-  Future<void> _checkDocumentStatus() async {
-    if (_isCheckingStatus || userId == null) return;
-
-    setState(() {
-      _isCheckingStatus = true;
-    });
-
-    try {
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-
-        if (result['success'] == true) {
-          setState(() {
-            docstatus = result['status'] ?? 'not_uploaded';
-          });
-        }
-      }
-    } catch (e) {
-      print("Error checking document status: $e");
-    } finally {
-      setState(() {
-        _isCheckingStatus = false;
       });
     }
   }
@@ -283,41 +253,18 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   }
 
   void _handleSendRequest(BuildContext context, int receiverId, String receiverName) {
-    if (docstatus == 'approved') {
+    if (VerificationService.requireVerification(context)) {
       _showSendRequestDialog(context, receiverId, receiverName);
-    } else {
-      _handleDocumentNotApproved();
     }
   }
 
   void _handleViewProfile(BuildContext context, int receiverId) {
-    if (docstatus == 'approved') {
+    if (VerificationService.requireVerification(context)) {
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (context) => ProfileLoader(userId: receiverId.toString(), myId: userId.toString(),),
         ),
-      );
-    } else {
-      _handleDocumentNotApproved();
-    }
-  }
-
-  void _handleDocumentNotApproved() {
-    if (docstatus == 'not_uploaded') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IDVerificationScreen()),
-      );
-    } else if (docstatus == 'pending') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IDVerificationScreen()),
-      );
-    } else if (docstatus == 'rejected') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IDVerificationScreen()),
       );
     }
   }
@@ -623,7 +570,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   }
 
   ({String label, Color color, IconData icon}) _documentStatusStyle() {
-    switch (docstatus.toLowerCase()) {
+    switch (VerificationService.instance.identityStatus.toLowerCase()) {
       case 'approved':
         return (
           label: 'ID Approved',
@@ -764,7 +711,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                   ),
                 ),
                 Text(
-                  docstatus.toLowerCase() == 'approved'
+                  VerificationService.instance.isVerified
                       ? 'Unlocked'
                       : 'Restricted',
                   style: AppTextStyles.whiteBody.copyWith(
@@ -1405,8 +1352,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     final photoRequestStatus = _getPhotoRequestStatus(person);
     final receiverId = int.tryParse(person['userid']?.toString() ?? '0') ?? 0;
 
-    if (docstatus != 'approved') {
-      _handleDocumentNotApproved();
+    if (!VerificationService.requireVerification(context)) {
       return;
     }
 
