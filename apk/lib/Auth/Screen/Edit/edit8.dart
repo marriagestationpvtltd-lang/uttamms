@@ -2649,7 +2649,7 @@ class _MultiSelectBottomSheetState extends State<_MultiSelectBottomSheet> {
               const SizedBox(height: 12),
               TextField(
                 controller: _searchController,
-                autofocus: true,
+                autofocus: false,
                 textInputAction: TextInputAction.search,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(

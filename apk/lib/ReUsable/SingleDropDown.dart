@@ -30,6 +30,7 @@ class _SingleSelectDropdownState extends State<SingleSelectDropdown> {
   }
 
   void _openDropdown() {
+    FocusScope.of(context).unfocus();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -57,6 +58,7 @@ class _SingleSelectDropdownState extends State<SingleSelectDropdown> {
 
                 // Search Field
                 TextField(
+                  autofocus: false,
                   decoration: InputDecoration(
                     hintText: "Search...",
                     prefixIcon: const Icon(Icons.search),
