@@ -154,7 +154,7 @@ class _IntroduceYourselfPageState extends State<IntroduceYourselfPage> {
                 Center(
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
+                    padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         colors: [
@@ -194,7 +194,7 @@ class _IntroduceYourselfPageState extends State<IntroduceYourselfPage> {
                   ),
                 ),
 
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
 
                 // Section: Profile For
                 SectionHeader(
@@ -233,7 +233,7 @@ class _IntroduceYourselfPageState extends State<IntroduceYourselfPage> {
                   }).toList(),
                 ),
 
-                const SizedBox(height: 32),
+                const SizedBox(height: 24),
 
                 // Section: Gender
                 SectionHeader(

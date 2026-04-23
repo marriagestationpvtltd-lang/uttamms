@@ -218,12 +218,12 @@ class RegistrationStepHeader extends StatelessWidget {
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.white,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(14),
                   boxShadow: [
                     BoxShadow(
                       color: AppColors.shadowLight,
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
                   ],
                 ),
@@ -239,7 +239,7 @@ class RegistrationStepHeader extends StatelessWidget {
                           model,
                           onStepBack: onStepBack,
                         ),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         child: const Padding(
                           padding: EdgeInsets.all(12),
                           child: Icon(
@@ -262,18 +262,19 @@ class RegistrationStepHeader extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         // Title
         Text(
           title,
           style: const TextStyle(
-            fontSize: 28,
+            fontSize: 26,
             fontWeight: FontWeight.bold,
             color: AppColors.textPrimary,
             height: 1.2,
+            letterSpacing: -0.3,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         // Subtitle
         Text(
           subtitle,
@@ -283,10 +284,10 @@ class RegistrationStepHeader extends StatelessWidget {
             height: 1.5,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         // Decorative divider
         Container(
-          width: 60,
+          width: 48,
           height: 4,
           decoration: BoxDecoration(
             gradient: AppColors.primaryGradient,
@@ -407,13 +408,13 @@ class RegistrationStepContainer extends StatelessWidget {
                                       },
                                 style: OutlinedButton.styleFrom(
                                   padding:
-                                      const EdgeInsets.symmetric(vertical: 16),
+                                      const EdgeInsets.symmetric(vertical: 18),
                                   side: const BorderSide(
                                     color: AppColors.border,
                                     width: 1.5,
                                   ),
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(16),
                                   ),
                                 ),
                                 child: const Text(
@@ -422,6 +423,7 @@ class RegistrationStepContainer extends StatelessWidget {
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
                                     color: AppColors.textPrimary,
+                                    letterSpacing: 0.2,
                                   ),
                                 ),
                               ),
@@ -442,14 +444,14 @@ class RegistrationStepContainer extends StatelessWidget {
                                           AppColors.border,
                                         ],
                                       ),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius: BorderRadius.circular(16),
                                 boxShadow: canContinue
                                     ? [
                                         BoxShadow(
                                           color: AppColors.primary
                                               .withOpacity(0.3),
-                                          blurRadius: 12,
-                                          offset: const Offset(0, 4),
+                                          blurRadius: 16,
+                                          offset: const Offset(0, 6),
                                         ),
                                       ]
                                     : [],
@@ -463,10 +465,10 @@ class RegistrationStepContainer extends StatelessWidget {
                                           FocusScope.of(context).unfocus();
                                           onContinue?.call();
                                         },
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(16),
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
-                                        vertical: 16),
+                                        vertical: 18),
                                     child: Center(
                                       child: isLoading
                                           ? const SizedBox(
@@ -489,6 +491,7 @@ class RegistrationStepContainer extends StatelessWidget {
                                                             .textSecondary,
                                                     fontSize: 16,
                                                     fontWeight: FontWeight.w600,
+                                                    letterSpacing: 0.3,
                                                   ),
                                                 ),
                                                 const SizedBox(width: 8),

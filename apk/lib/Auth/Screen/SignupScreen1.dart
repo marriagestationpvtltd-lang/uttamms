@@ -834,7 +834,7 @@ super.dispose();
                                 Flexible(
                                   child: Text(
                                     "Your photo will not be visible to others without your permission until approved by admin",
-                                    style: AppTextStyles.captionSmall,
+                                    style: AppTextStyles.caption,
                                     textAlign: TextAlign.center,
                                   ),
                                 ),
@@ -854,7 +854,7 @@ super.dispose();
                       icon: Icons.person_outline,
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
                     // First Name and Last Name
                     Row(
@@ -1049,7 +1049,7 @@ super.dispose();
                                 height: 56,
                                 decoration: BoxDecoration(
                                   color: AppColors.white,
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
                                     color: _fieldErrors['phone'] != null
                                         ? AppColors.error
@@ -1061,8 +1061,8 @@ super.dispose();
                                       color: _fieldErrors['phone'] != null
                                           ? AppColors.error.withOpacity(0.1)
                                           : AppColors.shadowLight,
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 2),
+                                      blurRadius: 10,
+                                      offset: const Offset(0, 3),
                                     ),
                                   ],
                                 ),
@@ -1086,7 +1086,7 @@ super.dispose();
                                   height: 56,
                                   decoration: BoxDecoration(
                                     color: AppColors.white,
-                                    borderRadius: BorderRadius.circular(12),
+                                    borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
                                       color: _fieldErrors['phone'] != null
                                           ? AppColors.error
@@ -1098,8 +1098,8 @@ super.dispose();
                                         color: _fieldErrors['phone'] != null
                                             ? AppColors.error.withOpacity(0.1)
                                             : AppColors.shadowLight,
-                                        blurRadius: 8,
-                                        offset: const Offset(0, 2),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 3),
                                       ),
                                     ],
                                   ),
@@ -1450,12 +1450,12 @@ super.dispose();
                         ),
                         InkWell(
                           onTap: _showLanguagePicker,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(14),
                           child: Container(
-                            padding: const EdgeInsets.all(16),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                             decoration: BoxDecoration(
                               color: AppColors.white,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: _fieldErrors['languages'] != null
                                     ? AppColors.error
@@ -1467,8 +1467,8 @@ super.dispose();
                                   color: _fieldErrors['languages'] != null
                                       ? AppColors.error.withOpacity(0.1)
                                       : AppColors.shadowLight,
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
                                 ),
                               ],
                             ),
