@@ -42,6 +42,7 @@ class _MaritalDocumentUploadScreenState
   String _documentStatus = 'not_uploaded';
   String _rejectReason = '';
   String? _uploadedDocumentType; // Track which document type was uploaded
+  String? _maritalStatus;
   bool _isLoading = true;
   bool _isCheckingStatus = false;
   bool _isUploading = false;
@@ -80,6 +81,7 @@ class _MaritalDocumentUploadScreenState
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
     _checkDocumentStatus();
+    _loadMaritalStatus();
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -100,6 +102,34 @@ class _MaritalDocumentUploadScreenState
   }
 
   // ─── API ─────────────────────────────────────────────────────────────────
+
+  Future<void> _loadMaritalStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final status = prefs.getString('selected_marital_status');
+    if (mounted) setState(() => _maritalStatus = status);
+  }
+
+  List<Map<String, dynamic>> _getFilteredDocumentTypes() {
+    switch (_maritalStatus) {
+      case 'Widowed':
+        return [
+          {'label': 'Death Certificate', 'icon': Icons.article_outlined},
+          {'label': 'Marriage Certificate', 'icon': Icons.favorite_border_rounded},
+        ];
+      case 'Divorced':
+        return [
+          {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
+          {'label': 'Court Order', 'icon': Icons.balance_rounded},
+        ];
+      case 'Waiting Divorce':
+        return [
+          {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
+          {'label': 'Separation Document', 'icon': Icons.assignment_outlined},
+        ];
+      default:
+        return _documentTypes;
+    }
+  }
 
   Future<void> _checkDocumentStatus() async {
     if (_isCheckingStatus) return;
@@ -228,8 +258,16 @@ class _MaritalDocumentUploadScreenState
   }
 
   Widget _buildContent() {
-    // Always show upload screen with status information
-    return _buildUploadScreen();
+    switch (_documentStatus) {
+      case 'approved':
+        return _buildApprovedScreen();
+      case 'pending':
+        return _buildPendingScreen();
+      case 'rejected':
+        return _buildRejectedScreen();
+      default:
+        return _buildUploadScreen();
+    }
   }
 
   // ─── UPLOAD SCREEN ────────────────────────────────────────────────────────
@@ -259,9 +297,11 @@ class _MaritalDocumentUploadScreenState
                 const SizedBox(height: 32),
                 _buildSectionTitle('1. Choose Document Type'),
                 const SizedBox(height: 8),
-                const Text(
-                  'Select the type of document you want to upload',
-                  style: TextStyle(fontSize: 14, color: Color(0xFF757575), height: 1.5),
+                Text(
+                  _maritalStatus != null && _maritalStatus != 'Still Unmarried'
+                      ? 'Upload a document supporting your "$_maritalStatus" status'
+                      : 'Select the type of document you want to upload',
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF757575), height: 1.5),
                 ),
                 const SizedBox(height: 20),
                 _buildDocumentTypeGrid(),
@@ -534,7 +574,7 @@ class _MaritalDocumentUploadScreenState
       mainAxisSpacing: 12,
       crossAxisSpacing: 12,
       childAspectRatio: 0.85,
-      children: _documentTypes.map((doc) {
+      children: _getFilteredDocumentTypes().map((doc) {
         final isSelected = _selectedDocumentType == doc['label'];
         final isUploaded = _uploadedDocumentType == doc['label'] && _documentStatus != 'not_uploaded';
         final showUploaded = isUploaded && !isSelected; // Show uploaded indicator if this was uploaded before

@@ -492,7 +492,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildStepIndicator(currentStep: 0),
+                  _buildStepIndicator(currentStep: _documentStatus == 'pending' ? 1 : 0),
                   const SizedBox(height: 28),
                   // ── Identity document status banner (when pending) ────────
                   if (_documentStatus == 'pending') ...[
@@ -506,69 +506,71 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     const Divider(thickness: 1, color: Color(0xFFEEEEEE)),
                     const SizedBox(height: 24),
                   ],
-                  // ── ID document section ─────────────────────────────────
-                  _buildSectionTitle('${_requiresMaritalDocuments() ? '2' : '1'}. Choose Identity Document'),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Tap a document type to upload',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildDocumentTypeGrid(),
-                  if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
-                    const SizedBox(height: 32),
-                    _buildSectionTitle('${_requiresMaritalDocuments() ? '3' : '2'}. Document Photo'),
+                  // ── ID document section (only when not already submitted) ─
+                  if (_documentStatus != 'pending') ...[
+                    _buildSectionTitle('${_requiresMaritalDocuments() ? '2' : '1'}. Choose Identity Document'),
                     const SizedBox(height: 4),
                     const Text(
-                      'Review and edit if needed',
+                      'Tap a document type to upload',
                       style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
                     ),
                     const SizedBox(height: 16),
-                    _buildImagePreview(),
-                    const SizedBox(height: 32),
-                    _buildSectionTitle('${_requiresMaritalDocuments() ? '4' : '3'}. Document Number'),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Enter your document identification number',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildDocumentNumberField(),
-                    const SizedBox(height: 24),
-                    _buildGuidelinesCard(),
-                    const SizedBox(height: 24),
-                    _buildConsentCard(),
-                    const SizedBox(height: 28),
-                    _buildSubmitButton(),
-                    const SizedBox(height: 16),
-                  ] else if (_selectedDocumentType != null) ...[
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                    _buildDocumentTypeGrid(),
+                    if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
+                      const SizedBox(height: 32),
+                      _buildSectionTitle('${_requiresMaritalDocuments() ? '3' : '2'}. Document Photo'),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Review and edit if needed',
+                        style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.info_outline_rounded,
-                              color: AppColors.primary, size: 20),
-                          const SizedBox(width: 12),
-                          const Expanded(
-                            child: Text(
-                              'Select scan or gallery option from the bottom sheet to continue',
-                              style: TextStyle(fontSize: 13, color: AppColors.primary, height: 1.4),
+                      const SizedBox(height: 16),
+                      _buildImagePreview(),
+                      const SizedBox(height: 32),
+                      _buildSectionTitle('${_requiresMaritalDocuments() ? '4' : '3'}. Document Number'),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Enter your document identification number',
+                        style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildDocumentNumberField(),
+                      const SizedBox(height: 24),
+                      _buildGuidelinesCard(),
+                      const SizedBox(height: 24),
+                      _buildConsentCard(),
+                      const SizedBox(height: 28),
+                      _buildSubmitButton(),
+                      const SizedBox(height: 16),
+                    ] else if (_selectedDocumentType != null) ...[
+                      const SizedBox(height: 24),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.info_outline_rounded,
+                                color: AppColors.primary, size: 20),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'Select scan or gallery option from the bottom sheet to continue',
+                                style: TextStyle(fontSize: 13, color: AppColors.primary, height: 1.4),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                  ] else ...[
-                    const SizedBox(height: 24),
-                    _buildInfoBanner(),
-                    const SizedBox(height: 24),
+                      const SizedBox(height: 24),
+                    ] else ...[
+                      const SizedBox(height: 24),
+                      _buildInfoBanner(),
+                      const SizedBox(height: 24),
+                    ],
                   ],
                   _buildSkipButton(),
                   const SizedBox(height: 32),
