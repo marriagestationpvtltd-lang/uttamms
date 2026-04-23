@@ -2,9 +2,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../Auth/Screen/signupscreen10.dart';
+import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../pushnotification/pushservice.dart';
 import '../../ReUsable/loading_widgets.dart';
@@ -14,12 +16,10 @@ import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class MatchedProfilesPagee extends StatefulWidget {
   final int currentUserId;
-  final String docstatus;
 
   const MatchedProfilesPagee({
     Key? key,
     required this.currentUserId,
-    required this.docstatus,
   }) : super(key: key);
 
   @override
@@ -710,7 +710,8 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
   }
 
   void _navigateToProfile(int userId) {
-    switch (widget.docstatus) {
+    final docstatus = context.read<UserState>().identityStatus;
+    switch (docstatus) {
       case 'approved':
         Navigator.push(
           context,
@@ -849,7 +850,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                                 ),
 
                                 // ── Verify identity banner ────────────────
-                                if (widget.docstatus != 'approved')
+                                if (!context.read<UserState>().isVerified)
                                   SliverToBoxAdapter(
                                     child: Container(
                                       margin: const EdgeInsets.fromLTRB(

@@ -15,6 +15,7 @@ import '../Chat/adminchat.dart';
 import '../Models/masterdata.dart';
 import '../Package/PackageScreen.dart';
 import '../constant/constant.dart';
+import '../core/user_state.dart';
 import '../main.dart';
 import '../otherenew/service.dart';
 import '../service/socket_service.dart';
@@ -489,13 +490,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (mounted) {
         setState(() {
-          usertye = user.usertype;
           userimage = user.profilePicture;
           pageno = user.pageno;
           userId = user.id?.toString() ?? userIdString;
           name = user.firstName;
           isLoading = false;
-          docstatus = user.docStatus;
         });
       }
 
@@ -508,13 +507,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String myidd = '';
-  String usertye = '';
   String userimage = '';
   var pageno;
   String userId = '';
   String name = '';
   bool isLoading = true;
-  String docstatus = '';
 
   bool _isOtherUserOnline = false;
   DateTime? _otherUserLastSeen;
@@ -694,7 +691,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onChatRequestPressed: () => _handleChatRequest(context),
               onUpgradePressed: () => _showUpgradeDialog(context),
               userId: widget.userId, // Pass the user ID from ProfileScreen
-              userName: userProfile.name, currentUserId: myidd, currentUserName: name, currentUserImage: userimage, docStatus: docstatus, userType: usertye, // Pass the user name
+              userName: userProfile.name, currentUserId: myidd, currentUserName: name, currentUserImage: userimage, docStatus: context.read<UserState>().identityStatus, userType: context.read<UserState>().usertype, // Pass the user name
             ),
             const SizedBox(height: 16),
             _PhotosAlbumSection(

@@ -7,11 +7,12 @@ import 'package:ms2026/Chat/ChatdetailsScreen.dart';
 import 'package:ms2026/Models/masterdata.dart';
 import 'package:ms2026/Notification/notification_inbox_service.dart';
 import 'package:ms2026/Package/PackageScreen.dart';
+import 'package:ms2026/core/user_state.dart';
 import 'package:ms2026/otherenew/othernew.dart';
 import 'package:ms2026/pushnotification/pushservice.dart';
 import 'package:ms2026/purposal/purposalservice.dart';
-import 'package:ms2026/service/verification_service.dart';
 import 'package:ms2026/utils/image_utils.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'Purposalmodel.dart';
@@ -37,7 +38,6 @@ class RequestCardDynamic extends StatefulWidget {
 }
 
 class _RequestCardDynamicState extends State<RequestCardDynamic> {
-  String usertye = '';
   String userimage = '';
   var pageno;
   bool _isLoading = false;
@@ -45,8 +45,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
   @override
   void initState() {
     super.initState();
-    loadMasterData();
-    VerificationService.instance.loadFromCache();
+    _loadUserImage();
   }
 
   Future<UserMasterData> fetchUserMasterData(String userId) async {
@@ -69,7 +68,9 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
     return UserMasterData.fromJson(res['data']);
   }
 
-  void loadMasterData() async {
+  /// Loads profile image and pageno; usertype and verification status are
+  /// read from the global [UserState] provider so no duplicate API call is made.
+  void _loadUserImage() async {
     final prefs = await SharedPreferences.getInstance();
     final userDataString = prefs.getString('user_data');
     final userData = jsonDecode(userDataString!);
@@ -78,11 +79,12 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
     try {
       UserMasterData user = await fetchUserMasterData(userId.toString());
 
-      setState(() {
-        usertye = user.usertype;
-        userimage = user.profilePicture;
-        pageno = user.pageno;
-      });
+      if (mounted) {
+        setState(() {
+          userimage = user.profilePicture;
+          pageno = user.pageno;
+        });
+      }
     } catch (e) {
       print("Error: $e");
     }
@@ -371,7 +373,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         icon: Icons.photo_library_outlined,
         color: const Color(0xFF6A1B9A),
         onTap: () {
-          if (VerificationService.instance.isVerified && usertye == "paid") {
+          final userState = context.read<UserState>();
+          if (userState.isVerified && userState.hasPackage) {
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -380,9 +383,10 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
                 ),
               ),
             );
-          } else if (!VerificationService.instance.isVerified) {
-            VerificationService.requireVerification(context);
-          } else if (usertye == "free") {
+          } else if (!userState.isVerified) {
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => IDVerificationScreen()));
+          } else {
             Navigator.push(context,
                 MaterialPageRoute(builder: (context) => SubscriptionPage()));
           }
@@ -513,13 +517,16 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
 
   // Action Handlers
   Future<void> _handleAcceptRequest() async {
+    final userState = context.read<UserState>();
     // Step 1: Check document verification
-    if (!VerificationService.requireVerification(context)) {
+    if (!userState.isVerified) {
+      Navigator.push(context,
+          MaterialPageRoute(builder: (_) => IDVerificationScreen()));
       return;
     }
 
     // Step 2: Check payment / subscription
-    if (usertye != 'paid') {
+    if (!userState.hasPackage) {
       _showUpgradeDialog();
       return;
     }
@@ -906,7 +913,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       // Chat room is auto-created by the Socket.IO server on first message send.
       // No need to pre-create it in Firestore.
 
-      if (VerificationService.instance.isVerified && usertye == "paid") {
+      final userState = context.read<UserState>();
+      if (userState.isVerified && userState.hasPackage) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -929,9 +937,10 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
             ),
           ),
         );
-      } else if (!VerificationService.instance.isVerified) {
-        VerificationService.requireVerification(context);
-      } else if (usertye == "free") {
+      } else if (!userState.isVerified) {
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => IDVerificationScreen()));
+      } else {
         showUpgradeDialog(context);
       }
     } catch (e) {

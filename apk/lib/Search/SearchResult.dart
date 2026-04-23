@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'dart:ui' as ui;
+import '../core/user_state.dart';
 import '../main.dart';
 import '../pushnotification/pushservice.dart';
 import '../utils/privacy_utils.dart'; // Add privacy utils import
@@ -32,7 +34,6 @@ class _SearchResultPageState extends State<SearchResultPage> {
   String _errorMessage = '';
   int _totalCount = 0;
   int _currentUserId = 0;
-  String docstatus = 'not_uploaded'; // Add document status
   Set<int> _blockedUserIds = {};
 
   // Track sent requests
@@ -65,7 +66,6 @@ class _SearchResultPageState extends State<SearchResultPage> {
       });
 
       if (userId > 0) {
-        await _checkDocumentStatus(userId); // Check document status
         await _fetchBlockedUsers();
         await _fetchProfiles(userId);
       } else {
@@ -79,28 +79,6 @@ class _SearchResultPageState extends State<SearchResultPage> {
         _errorMessage = 'Failed to load user data: $e';
         _isLoading = false;
       });
-    }
-  }
-
-  // Check document status
-  Future<void> _checkDocumentStatus(int userId) async {
-    try {
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        if (result['success'] == true) {
-          setState(() {
-            docstatus = result['status'] ?? 'not_uploaded';
-          });
-        }
-      }
-    } catch (e) {
-      print("Error checking document status: $e");
     }
   }
 
@@ -227,27 +205,26 @@ class _SearchResultPageState extends State<SearchResultPage> {
 
   // Handle document not approved status
   void _handleDocumentNotApproved() {
-    if (docstatus == 'not_uploaded') {
-      // Navigate to ID verification screen
-      // Navigator.push(context, MaterialPageRoute(builder: (context) => IDVerificationScreen()));
+    final status = context.read<UserState>().identityStatus;
+    if (status == 'not_uploaded') {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Please upload your documents first'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 3),
         ),
       );
-    } else if (docstatus == 'pending') {
+    } else if (status == 'pending') {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Your documents are pending approval'),
           backgroundColor: Colors.orange,
           duration: Duration(seconds: 3),
         ),
       );
-    } else if (docstatus == 'rejected') {
+    } else if (status == 'rejected') {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+        const SnackBar(
           content: Text('Your documents were rejected. Please re-upload'),
           backgroundColor: Colors.red,
           duration: Duration(seconds: 3),
@@ -709,7 +686,7 @@ class _SearchResultPageState extends State<SearchResultPage> {
     return GestureDetector(
       onTap: () {
         // Check document status before navigation
-        if (docstatus == 'approved') {
+        if (context.read<UserState>().isVerified) {
           Navigator.push(
             context,
             MaterialPageRoute(

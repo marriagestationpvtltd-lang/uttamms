@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui' as ui;
 
@@ -11,9 +12,8 @@ import 'package:ms2026/constant/app_colors.dart';
 import 'package:ms2026/constant/app_dimensions.dart';
 import 'package:ms2026/constant/app_text_styles.dart';
 import 'package:ms2026/ReUsable/loading_widgets.dart';
-import 'package:ms2026/service/verification_service.dart';
+import 'package:ms2026/core/user_state.dart';
 import 'package:ms2026/utils/image_utils.dart';
-import '../Models/masterdata.dart';
 import '../main.dart';
 import '../pushnotification/pushservice.dart';
 import 'package:ms2026/config/app_endpoints.dart';
@@ -45,13 +45,11 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   bool _showPopup = false;
   String _popupMessage = '';
   String _selectedRequestType = 'Profile';
-  String usertye = '';
 
   @override
   void initState() {
     super.initState();
     _initializeUserData();
-    loadMasterData();
   }
 
   Future<void> _initializeUserData() async {
@@ -65,10 +63,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       userName = userData['firstName']?.toString();
       userLastName = userData['lastName']?.toString();
       if (userId != null) {
-        await VerificationService.instance.loadFromCache();
-        VerificationService.instance.refresh(userId!);
+        _fetchFavoritePeople();
       }
-      _fetchFavoritePeople();
     } else {
       setState(() {
         isLoading = false;
@@ -570,7 +566,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   }
 
   ({String label, Color color, IconData icon}) _documentStatusStyle() {
-    switch (VerificationService.instance.identityStatus.toLowerCase()) {
+    switch (context.read<UserState>().identityStatus.toLowerCase()) {
       case 'approved':
         return (
           label: 'ID Approved',
@@ -711,7 +707,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                   ),
                 ),
                 Text(
-                  VerificationService.instance.isVerified
+                  context.read<UserState>().isVerified
                       ? 'Unlocked'
                       : 'Restricted',
                   style: AppTextStyles.whiteBody.copyWith(
@@ -917,46 +913,6 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
         ],
       ),
     );
-  }
-
-  Future<UserMasterData> fetchUserMasterData(String userId) async {
-    final url = Uri.parse(
-      "${kApiBaseUrl}/Api2/masterdata.php?userid=$userId",
-    );
-
-    final response = await http.get(url);
-
-    if (response.statusCode != 200) {
-      throw Exception("Failed: ${response.statusCode}");
-    }
-
-    final res = json.decode(response.body);
-
-    if (res['success'] != true) {
-      throw Exception(res['message'] ?? "API error");
-    }
-
-    return UserMasterData.fromJson(res['data']);
-  }
-
-  void loadMasterData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-    final userData = jsonDecode(userDataString!);
-    final userId = int.tryParse(userData["id"].toString());
-    try {
-      UserMasterData user = await fetchUserMasterData(userId.toString());
-
-      print("Name: ${user.firstName} ${user.lastName}");
-      print("Usertype: ${user.usertype}");
-      print("Page No: ${user.pageno}");
-      print("Profile: ${user.profilePicture}");
-      setState(() {
-        usertye = user.usertype;
-      });
-    } catch (e) {
-      print("Error: $e");
-    }
   }
 
   Widget _favoriteCard(BuildContext context, Map<String, dynamic> person, int index) {

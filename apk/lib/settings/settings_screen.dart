@@ -18,6 +18,7 @@ import '../DeleteAccount/deleteAccointScreen.dart';
 import '../Package/PackageScreen.dart';
 import '../Startup/onboarding.dart';
 import '../constant/app_colors.dart';
+import '../core/user_state.dart';
 import '../otherenew/blocked_users_screen.dart';
 import '../service/sound_settings_service.dart';
 import 'package:ms2026/config/app_endpoints.dart';
@@ -72,12 +73,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (userDataString == null || userDataString.isEmpty) return;
     final userData = jsonDecode(userDataString);
     if (!mounted) return;
+    // Prefer the global UserState for usertype so it's always in sync.
+    final utFromState = context.read<UserState>().usertype.toLowerCase();
+    final utFromPrefs = userData['personalDetail']?['usertype']?.toString().toLowerCase() ?? 'free';
+    final ut = utFromState.isNotEmpty ? utFromState : utFromPrefs;
     setState(() {
       _userName =
           '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim();
       _userEmail = userData['email']?.toString() ?? '';
       _profilePicture = userData['profile_picture']?.toString() ?? '';
-      final ut = userData['personalDetail']?['usertype']?.toString().toLowerCase() ?? 'free';
       _memberType = _mapMemberType(ut);
     });
   }
@@ -374,6 +378,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _logout() async {
+    // Clear the global UserState before wiping SharedPreferences.
+    if (mounted) {
+      await context.read<UserState>().clear();
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     // Preserve fast-start flag so subsequent opens still use the short animation.

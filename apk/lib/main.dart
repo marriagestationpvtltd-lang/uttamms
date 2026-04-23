@@ -30,6 +30,7 @@ import 'otherenew/modelfile.dart';
 import 'otherenew/othernew.dart';
 import 'otherenew/service.dart';
 import 'constant/app_theme.dart';
+import 'core/user_state.dart';
 import 'navigation/app_navigation.dart';
 import 'online/onlineservice.dart';
 import 'service/connectivity_service.dart';
@@ -1077,6 +1078,7 @@ void main() async {
         ChangeNotifierProvider<UserProfile>(
           create: (_) => UserProfile.empty(),
         ),
+        ChangeNotifierProvider(create: (_) => UserState()),
         ChangeNotifierProvider.value(value: connectivityService),
         ChangeNotifierProvider.value(value: UnifiedCallManager()),
       ],

@@ -8,11 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../Auth/Screen/signupscreen10.dart';
 import '../Models/masterdata.dart';
 import '../Package/PackageScreen.dart';
+import '../core/user_state.dart';
 import '../online/onlineservice.dart';
 import '../utils/time_utils.dart';
 import '../utils/image_utils.dart';
@@ -42,7 +44,6 @@ class ChatListScreen extends StatefulWidget {
 
 class _ChatListScreenState extends State<ChatListScreen>
     with WidgetsBindingObserver {
-  String usertye = '';
   String userimage = '';
   var pageno;
   String userId = '';
@@ -50,7 +51,6 @@ class _ChatListScreenState extends State<ChatListScreen>
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   bool isLoading = true;
-  String docstatus = '';
 
   List<ProposalModel> _pendingChatRequests = [];
   List<ProposalModel> _sentChatRequests = [];
@@ -263,13 +263,11 @@ class _ChatListScreenState extends State<ChatListScreen>
 
       if (mounted) {
         setState(() {
-          usertye = user.usertype;
           userimage = user.profilePicture;
           pageno = user.pageno;
           userId = user.id?.toString() ?? userIdString;
           name = '${user.firstName} ${user.lastName}'.trim();
           isLoading = false;
-          docstatus = user.docStatus;
         });
       }
 
@@ -911,8 +909,9 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   Future<void> _handleAcceptChatRequest(ProposalModel proposal) async {
+    final userState = context.read<UserState>();
     // Step 1: Check document status
-    if (docstatus != 'approved') {
+    if (!userState.isVerified) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => IDVerificationScreen()),
@@ -921,7 +920,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
 
     // Step 2: Check payment / subscription
-    if (usertye != 'paid') {
+    if (!userState.hasPackage) {
       showUpgradeDialog(context);
       return;
     }
@@ -2343,7 +2342,10 @@ class _ChatListScreenState extends State<ChatListScreen>
                 ).then((_) => _markAdminChatSeen());
                 return;
               }
-              if (docstatus == "approved" && usertye == "paid") {
+              final userState = context.read<UserState>();
+              final isVerified = userState.isVerified;
+              final hasPackage = userState.hasPackage;
+              if (isVerified && hasPackage) {
                 final chatData = {
                   'chatRoomId': data['chatRoomId']?.toString() ?? '',
                   'receiverId': otherParticipantId,
@@ -2373,14 +2375,13 @@ class _ChatListScreenState extends State<ChatListScreen>
                     ),
                   );
                 }
-              }
-              if (docstatus == "not_uploaded" && usertye == 'free') {
+              } else if (!isVerified) {
                 Navigator.push(
                     context,
                     MaterialPageRoute(
                         builder: (context) => IDVerificationScreen()));
-              }
-              if (usertye == "free" && docstatus == 'approved') {
+              } else {
+                // Verified but no package
                 showUpgradeDialog(context);
               }
             },

@@ -2,18 +2,19 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../Auth/Screen/signupscreen10.dart';
 import '../constant/app_colors.dart';
 import '../config/app_endpoints.dart';
+import '../core/user_state.dart';
 
-/// Global singleton that caches and provides the current user's document
-/// verification status.
+/// Guard helper for verification-gated features.
 ///
-/// Call [refresh] after sign-in and whenever a screen that gates features
-/// behind verification becomes visible.  Call [loadFromCache] for instant
-/// (zero-latency) reads during widget build.
+/// The [instance] singleton is retained for backward compatibility with
+/// code that cannot easily access a [BuildContext].  New code should prefer
+/// reading from the [UserState] provider directly.
 class VerificationService {
   VerificationService._();
   static final VerificationService instance = VerificationService._();
@@ -96,12 +97,25 @@ class VerificationService {
   // ── guard helper ─────────────────────────────────────────────────────────
   /// Returns `true` when the user is verified so the caller may proceed.
   ///
+  /// Reads verification status from the global [UserState] provider so that
+  /// the check always reflects the latest refreshed value.  Falls back to
+  /// the local singleton state when no [UserState] is available in the tree.
+  ///
   /// If not verified, shows an informational dialog (with a "Verify Now"
   /// button for unsubmitted/rejected documents) and returns `false`.
   static bool requireVerification(BuildContext context) {
-    if (instance.isVerified) return true;
-    _showVerificationRequired(context, instance.identityStatus);
-    return false;
+    // Prefer the global provider so the check is always up-to-date.
+    try {
+      final userState = context.read<UserState>();
+      if (userState.isVerified) return true;
+      _showVerificationRequired(context, userState.identityStatus);
+      return false;
+    } catch (_) {
+      // Fallback: provider not available (e.g. in tests or deep navigator routes).
+      if (instance.isVerified) return true;
+      _showVerificationRequired(context, instance.identityStatus);
+      return false;
+    }
   }
 
   static void _showVerificationRequired(
@@ -171,3 +185,4 @@ class VerificationService {
     );
   }
 }
+

@@ -21,6 +21,7 @@ import '../DeleteAccount/deleteAccointScreen.dart';
 import '../Package/PackageScreen.dart';
 import '../Startup/onboarding.dart';
 import '../constant/app_colors.dart';
+import '../core/user_state.dart';
 import '../service/connectivity_service.dart';
 import '../otherenew/blocked_users_screen.dart';
 import '../settings/settings_screen.dart';
@@ -129,7 +130,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
             isLoading = false;
           });
           _fetchActivePackage(userId.toString());
-          _fetchDocumentStatus(userId.toString());
+          _syncDocStatusFromUserState();
 
           // Sync fresh name and profile picture back to SharedPreferences so
           // other screens (e.g. Settings, Home) always show up-to-date info.
@@ -199,32 +200,23 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     }
   }
 
-  Future<void> _fetchDocumentStatus(String userId) async {
+  /// Syncs `_docStatus` and `isProfileVerified` from the global [UserState]
+  /// provider instead of making an extra API call to `check_document_status.php`.
+  void _syncDocStatusFromUserState() {
+    if (!mounted) return;
     try {
-      final response = await http.post(
-        Uri.parse('${kApiBaseUrl}/Api2/check_document_status.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': int.parse(userId)}),
-      );
-      if (response.statusCode == 200) {
-        final result = json.decode(response.body);
-        if (result['success'] == true && mounted) {
-          final status = result['status'] ?? 'not_uploaded';
-          final maritalStatusName =
-              profileData?['personalDetail']?['maritalStatusName']?.toString() ?? '';
-          final requiresDoc = _requiresMaritalStatusDocument(maritalStatusName);
-          setState(() {
-            _docStatus = status;
-            // If marital status requires a document, only mark as verified
-            // when that document has been approved by the admin.
-            if (requiresDoc) {
-              isProfileVerified = status == 'approved';
-            }
-          });
+      final status = context.read<UserState>().identityStatus;
+      final maritalStatusName =
+          profileData?['personalDetail']?['maritalStatusName']?.toString() ?? '';
+      final requiresDoc = _requiresMaritalStatusDocument(maritalStatusName);
+      setState(() {
+        _docStatus = status;
+        if (requiresDoc) {
+          isProfileVerified = status == 'approved';
         }
-      }
+      });
     } catch (e) {
-      debugPrint('Marital document status fetch failed: $e');
+      debugPrint('_syncDocStatusFromUserState error: $e');
     }
   }
 
@@ -665,6 +657,10 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
   }
 
   Future<void> _logout() async {
+    // Clear the global UserState before wiping SharedPreferences.
+    if (mounted) {
+      await context.read<UserState>().clear();
+    }
     final prefs = await SharedPreferences.getInstance();
 
     // Clear all local data
@@ -673,6 +669,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     await prefs.setBool('has_launched_before', true);
 
     // Navigate to login screen
+    if (!mounted) return;
     Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
 
     ScaffoldMessenger.of(context).showSnackBar(

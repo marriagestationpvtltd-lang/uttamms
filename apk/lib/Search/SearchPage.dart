@@ -4,8 +4,10 @@ import 'dart:ui' as ui;
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/user_state.dart';
 import '../main.dart';
 import 'SearchResult.dart';
 import 'package:ms2026/config/app_endpoints.dart';
@@ -33,7 +35,6 @@ class _SearchPageState extends State<SearchPage>
   bool _isLoading = true;
   String _errorMessage = '';
   int _currentUserId = 0;
-  String docstatus = 'not_uploaded';
   Set<int> _blockedUserIds = {};
 
   // ── Advanced Search (filter) state ──
@@ -128,7 +129,6 @@ class _SearchPageState extends State<SearchPage>
       setState(() { _currentUserId = userId; });
 
       if (userId > 0) {
-        await _checkDocumentStatus(userId);
         await _fetchBlockedUsers();
         await Future.wait([
           _fetchRecommendedProfiles(userId),
@@ -139,24 +139,6 @@ class _SearchPageState extends State<SearchPage>
       }
     } catch (e) {
       setState(() { _errorMessage = 'Failed to load user data: $e'; _isLoading = false; });
-    }
-  }
-
-  Future<void> _checkDocumentStatus(int userId) async {
-    try {
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        if (result['success'] == true) {
-          setState(() { docstatus = result['status'] ?? 'not_uploaded'; });
-        }
-      }
-    } catch (e) {
-      debugPrint("Error checking document status: $e");
     }
   }
 
@@ -233,14 +215,15 @@ class _SearchPageState extends State<SearchPage>
   }
 
   void _handleDocumentNotApproved() {
+    final status = context.read<UserState>().identityStatus;
     String msg = '';
     Color color = Colors.red;
-    if (docstatus == 'not_uploaded') {
+    if (status == 'not_uploaded') {
       msg = 'Please upload your documents first';
-    } else if (docstatus == 'pending') {
+    } else if (status == 'pending') {
       msg = 'Your documents are pending approval';
       color = Colors.orange;
-    } else if (docstatus == 'rejected') {
+    } else if (status == 'rejected') {
       msg = 'Your documents were rejected. Please re-upload';
     }
     if (msg.isNotEmpty) {
@@ -1352,7 +1335,7 @@ class _SearchPageState extends State<SearchPage>
 
     return GestureDetector(
       onTap: () {
-        if (docstatus == 'approved') {
+        if (context.read<UserState>().isVerified) {
           Navigator.push(
             context,
             MaterialPageRoute(

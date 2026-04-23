@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:ui' as ui;
 
@@ -25,6 +26,7 @@ import '../../Notification/notificationscreen.dart';
 import '../../Notification/notification_inbox_service.dart';
 import '../../Package/PackageScreen.dart';
 import '../../Search/SearchPage.dart';
+import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../online/onlineservice.dart';
 import '../../profile/myprofile.dart';
@@ -113,8 +115,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
   Future<void> _refreshVerificationStatus() async {
     if (userid == 0) return;
-    await VerificationService.instance.refresh(userid);
-    if (mounted) setState(() {}); // rebuild so gated UI reflects new status
+    await context.read<UserState>().refresh(userid);
+    // UserState is a ChangeNotifier; widgets watching it rebuild automatically.
+    // An explicit setState is only needed if this widget reads UserState without
+    // context.watch — which we do via context.read in action callbacks — so a
+    // minimal rebuild is triggered here to keep any locally-read state in sync.
+    if (mounted) setState(() {});
   }
 
   Future<void> _loadUnreadNotificationCount() async {
@@ -715,8 +721,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
 
 
-
-String usertye = '';
   String userimage = '';
   var  pageno;
   String name = '';
@@ -741,17 +745,13 @@ String usertye = '';
       setState(() {
         name = '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim();
         userimage = userData['profile_picture'] ?? userData['profilePicture'] ?? '';
-        usertye = userData['usertype'] ?? '';
         _userId = userId?.toString() ?? '';
         userid = userId ?? 0;
       });
     }
 
-    // Load cached verification status immediately, then refresh from network.
-    if (userId != null) {
-      await VerificationService.instance.loadFromCache();
-      VerificationService.instance.refresh(userId);
-    }
+    // UserState is already loaded and refreshed from SplashScreen / MainController.
+    // No additional VerificationService calls needed here.
 
     try {
       UserMasterData user = await fetchUserMasterData(userId.toString());
@@ -762,13 +762,16 @@ String usertye = '';
       debugPrint("Profile: ${user.profilePicture}");
       if (!mounted) return;
       setState(() {
-        usertye = user.usertype;
         userimage = user.profilePicture;
         pageno = user.pageno;
         name = "${user.firstName} ${user.lastName}";
         _userId = userId?.toString() ?? '';
         userid = userId ?? 0;
       });
+      // Also refresh UserState so any package/verification changes are reflected.
+      if (userId != null) {
+        unawaited(context.read<UserState>().refresh(userId));
+      }
     } catch (e) {
       debugPrint("Error: $e");
     }
@@ -1046,7 +1049,7 @@ String usertye = '';
                     child: GestureDetector(
                       onTap: () => Navigator.push(context,
                           MaterialPageRoute(builder: (_) => MatchedProfilesPagee(
-                            currentUserId: userid, docstatus: VerificationService.instance.identityStatus))),
+                            currentUserId: userid))),
                       child: _buildSectionHeader('Matched Profiles', showSeeAll: true),
                     ),
                   ),
@@ -1146,7 +1149,7 @@ String usertye = '';
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 gradient: LinearGradient(
-                  colors: (usertye.isNotEmpty && usertye != 'free')
+                  colors: (context.read<UserState>().hasPackage)
                       ? const [Color(0xFFFFD700), Color(0xFFFF8C00)]
                       : [AppColors.primary, AppColors.primaryDark],
                   begin: Alignment.topLeft,
@@ -1154,7 +1157,7 @@ String usertye = '';
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: ((usertye.isNotEmpty && usertye != 'free')
+                    color: ((context.read<UserState>().hasPackage)
                             ? const Color(0xFFFFD700)
                             : AppColors.primary)
                         .withOpacity(0.35),
@@ -1228,7 +1231,7 @@ String usertye = '';
         ),
       ),
       actions: [
-        if (usertye == 'free')
+        if (!context.read<UserState>().hasPackage)
           Center(
             child: Padding(
               padding: const EdgeInsets.only(right: 6),
@@ -1276,7 +1279,7 @@ String usertye = '';
               ),
             ),
           )
-        else if (usertye.isNotEmpty && usertye != 'free')
+        else if (context.read<UserState>().hasPackage)
           Center(
             child: Padding(
               padding: const EdgeInsets.only(right: 6),
@@ -1321,7 +1324,7 @@ String usertye = '';
         _buildAppBarIcon(
           icon: Icons.search_rounded,
           onPressed: () {
-            if (VerificationService.instance.isVerified) {
+            if (context.read<UserState>().isVerified) {
               Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
             } else {
               VerificationService.requireVerification(context);
@@ -1592,7 +1595,7 @@ String usertye = '';
         'label': 'Search',
         'gradient': [const Color(0xFF6C63FF), const Color(0xFF4834D4)],
         'onTap': () {
-          if (VerificationService.instance.isVerified) {
+          if (context.read<UserState>().isVerified) {
             Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
           } else {
             VerificationService.requireVerification(context);
@@ -3137,7 +3140,7 @@ String usertye = '';
   void _openPhotoRequestProfile(String profileUserId) {
     if (!VerificationService.requireVerification(context)) return;
 
-    if (usertye == 'free') {
+    if (!context.read<UserState>().hasPackage) {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => SubscriptionPage()),
@@ -3152,7 +3155,7 @@ String usertye = '';
     try {
       if (!VerificationService.requireVerification(context)) return;
 
-      if (usertye == "free") {
+      if (!context.read<UserState>().hasPackage) {
         showUpgradeDialog(context);
         return;
       }

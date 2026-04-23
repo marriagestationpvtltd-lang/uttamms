@@ -3,10 +3,12 @@ import 'dart:ui' as ui;
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:ms2026/Auth/Screen/signupscreen10.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../Models/masterdata.dart';
 import '../../constant/app_colors.dart';
+import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../pushnotification/pushservice.dart';
 import '../../utils/privacy_utils.dart';
@@ -361,10 +363,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
   String errorMessage = '';
   int currentIndex = 0;
   String selectedRequestType = '';
-  String usertye = '';
   String userimage = '';
   var pageno;
-  var docstatus = 'not_uploaded';
   bool _showPopup = false;
   String _popupMessage = '';
   bool _isProcessingLike = false;
@@ -377,8 +377,7 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
     requestService = RequestService(sendRequestUrl: widget.sendRequestApiUrl);
     likeService = LikeService(likeApiUrl: widget.likeApiUrl);
     _loadProfiles();
-    _checkDocumentStatus();
-    loadMasterData();
+    _loadMasterDataForImage();
   }
 
   @override
@@ -439,85 +438,28 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
   bool _isCheckingStatus = false;
   bool _isLoading = true;
 
-  Future<void> _checkDocumentStatus() async {
-    if (_isCheckingStatus) return;
-
-    setState(() {
-      _isCheckingStatus = true;
-      _isLoading = true;
-    });
-
+  /// Loads the current user's profile image and pageno from masterdata.
+  /// Document status and usertype are read from the global [UserState] provider.
+  Future<void> _loadMasterDataForImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final userDataString = prefs.getString('user_data');
-
-      final userData = jsonDecode(userDataString!);
+      if (userDataString == null) return;
+      final userData = jsonDecode(userDataString);
       final userId = int.tryParse(userData["id"].toString());
-
-      print("Checking document status for user ID: $userId");
-
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-
-      print("Status check response: ${response.statusCode}");
-      print("Response body: ${response.body}");
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-
-        if (result['success'] == true) {
-          setState(() {
-            docstatus = result['status'] ?? 'not_uploaded';
-          });
-        } else {
-          print("API returned success: false");
-          print("Message: ${result['message']}");
-        }
-      } else {
-        print("HTTP error: ${response.statusCode}");
+      if (userId == null) return;
+      final UserMasterData user = await fetchUserMasterData(userId.toString());
+      if (mounted) {
+        setState(() {
+          userimage = user.profilePicture;
+          pageno = user.pageno;
+          _isLoading = false;
+          _isCheckingStatus = false;
+        });
       }
     } catch (e) {
-      debugPrint("Error checking document status: $e");
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Unable to check document status right now. Please try again later.",
-          ),
-          backgroundColor: Colors.red,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } finally {
-      setState(() {
-        _isLoading = false;
-        _isCheckingStatus = false;
-      });
-    }
-  }
-
-  void loadMasterData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-    final userData = jsonDecode(userDataString!);
-    final userId = int.tryParse(userData["id"].toString());
-    try {
-      UserMasterData user = await fetchUserMasterData(userId.toString());
-
-      print("Name: ${user.firstName} ${user.lastName}");
-      print("Usertype: ${user.usertype}");
-      print("Page No: ${user.pageno}");
-      print("Profile: ${user.profilePicture}");
-      setState(() {
-        usertye = user.usertype;
-        userimage = user.profilePicture;
-        pageno = user.pageno;
-      });
-    } catch (e) {
-      print("Error: $e");
+      debugPrint('Error loading master data for image: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -864,7 +806,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                       if (userDataString == null) return;
                       final userData = jsonDecode(userDataString);
                       final senderId = int.tryParse(userData["id"].toString());
-                      if (docstatus == 'approved') {
+                      if (!mounted) return;
+                      if (context.read<UserState>().isVerified) {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -1060,7 +1003,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                             final userData = jsonDecode(userDataString!);
                             final senderId = int.tryParse(
                                 userData["id"].toString());
-                            if (docstatus == 'approved') {
+                            if (!mounted) return;
+                            if (context.read<UserState>().isVerified) {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(

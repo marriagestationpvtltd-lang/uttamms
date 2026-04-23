@@ -1,19 +1,11 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:ms2026/Auth/Screen/signupscreen10.dart';
-import 'package:ms2026/Chat/ChatlistScreen.dart';
-import 'package:ms2026/Home/Screen/HomeScreenPage.dart';
-import 'package:ms2026/Package/PackageScreen.dart';
 import 'package:ms2026/ReUsable/loading_widgets.dart';
 import 'package:ms2026/purposal/purposalservice.dart';
 import 'package:ms2026/purposal/requestcard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../Chat/ChatdetailsScreen.dart';
-import '../Models/masterdata.dart';
 import 'Purposalmodel.dart';
-import 'package:ms2026/config/app_endpoints.dart';
 
 class ProposalsPage extends StatefulWidget {
   const ProposalsPage({super.key});
@@ -25,9 +17,6 @@ class ProposalsPage extends StatefulWidget {
 class _ProposalsPageState extends State<ProposalsPage> {
   String userid = '';
   int selectedTab = 0;
-  String usertye = '';
-  String userimage = '';
-  var pageno;
 
   // PageController for swiping between tabs
   late PageController _pageController;
@@ -58,7 +47,6 @@ class _ProposalsPageState extends State<ProposalsPage> {
     super.initState();
     _pageController = PageController(initialPage: selectedTab);
     _loadInitialData();
-    loadMasterData();
   }
 
   @override
@@ -70,48 +58,6 @@ class _ProposalsPageState extends State<ProposalsPage> {
   /// LOAD INITIAL DATA - only loads the first (active) tab
   Future<void> _loadInitialData() async {
     await _loadDataForTab(0);
-  }
-
-  void loadMasterData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-    final userData = jsonDecode(userDataString!);
-    final userId = int.tryParse(userData["id"].toString());
-    try {
-      UserMasterData user = await fetchUserMasterData(userId.toString());
-
-      print("Name: ${user.firstName} ${user.lastName}");
-      print("Usertype: ${user.usertype}");
-      print("Page No: ${user.pageno}");
-      print("Profile: ${user.profilePicture}");
-      setState(() {
-        usertye = user.usertype;
-        userimage = user.profilePicture;
-        pageno = user.pageno;
-      });
-    } catch (e) {
-      print("Error: $e");
-    }
-  }
-
-  Future<UserMasterData> fetchUserMasterData(String userId) async {
-    final url = Uri.parse(
-      "${kApiBaseUrl}/Api2/masterdata.php?userid=$userId",
-    );
-
-    final response = await http.get(url);
-
-    if (response.statusCode != 200) {
-      throw Exception("Failed: ${response.statusCode}");
-    }
-
-    final res = json.decode(response.body);
-
-    if (res['success'] != true) {
-      throw Exception(res['message'] ?? "API error");
-    }
-
-    return UserMasterData.fromJson(res['data']);
   }
 
   /// LOAD DATA FOR SPECIFIC TAB

@@ -19,6 +19,7 @@ import '../Auth/SuignupModel/signup_model.dart';
 import '../Chat/ChatlistScreen.dart';
 import '../Home/Screen/HomeScreenPage.dart';
 import '../ReUsable/Navbar.dart';
+import '../core/user_state.dart';
 import '../online/onlineservice.dart';
 import '../profile/myprofile.dart';
 import '../purposal/purposalScreen.dart';
@@ -32,6 +33,7 @@ import 'MainControllere.dart';
 import 'onboarding.dart';
 
 import 'dart:convert';
+import 'dart:async' show unawaited;
 import 'package:ms2026/config/app_endpoints.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -157,6 +159,13 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       final userData = jsonDecode(userDataString);
       final userId = int.tryParse(userData["id"].toString());
       if (userId == null) return;
+
+      // Load cached UserState immediately (zero network) then refresh in background.
+      if (mounted) {
+        final userState = context.read<UserState>();
+        await userState.loadFromCache();
+        unawaited(userState.refresh(userId));
+      }
 
       // Only fetch pageNo from the server when there is no cached value.
       // Subsequent launches already have a cached pageNo and will navigate

@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../ReUsable/Navbar.dart'; // AppNavbar with onItemSelected callback
 import '../Home/Screen/HomeScreenPage.dart';
 import '../liked/liked.dart';
 import '../Chat/ChatlistScreen.dart';
+import '../core/user_state.dart';
 import '../profile/myprofile.dart';
 import '../service/socket_service.dart';
 import '../service/verification_service.dart';
@@ -62,13 +64,14 @@ class _MainControllerScreenState extends State<MainControllerScreen> {
         if (_senderId != null) {
           _listenUnreadCounts(_senderId!);
         }
-        // Refresh verification status in the background so it is ready
-        // as soon as the user interacts with a gated feature.
-        if (userId != null) {
+        // Refresh the global UserState so all screens have up-to-date
+        // verification and package information without individual API calls.
+        if (userId != null && mounted) {
           final uid = int.tryParse(userId);
           if (uid != null) {
-            VerificationService.instance.loadFromCache().then((_) {
-              VerificationService.instance.refresh(uid);
+            final userState = context.read<UserState>();
+            userState.loadFromCache().then((_) {
+              userState.refresh(uid);
             });
           }
         }

@@ -5,8 +5,10 @@ import 'package:http/http.dart' as http;
 import 'package:ms2026/constant/app_colors.dart';
 import 'package:ms2026/constant/app_dimensions.dart';
 import 'package:ms2026/constant/app_text_styles.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../Auth/Screen/signupscreen10.dart';
+import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../ReUsable/privacy_aware_profile_card.dart';
 import 'package:ms2026/config/app_endpoints.dart';
@@ -29,48 +31,18 @@ class _RecentMembersPageState extends State<RecentMembersPage> {
   final int _perPage = 20;
   final ScrollController _scrollController = ScrollController();
   String _userCreatedDate = '';
-  String docstatus = 'not_uploaded';
 
   @override
   void initState() {
     super.initState();
     _fetchMembers();
     _scrollController.addListener(_scrollListener);
-    _checkDocumentStatus();
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     super.dispose();
-  }
-
-  Future<void> _checkDocumentStatus() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final userDataString = prefs.getString('user_data');
-      if (userDataString == null) return;
-
-      final userData = jsonDecode(userDataString);
-      final userId = int.tryParse(userData["id"].toString());
-
-      final response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/check_document_status.php"),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'user_id': userId}),
-      );
-
-      if (response.statusCode == 200) {
-        final result = jsonDecode(response.body);
-        if (result['success'] == true && mounted) {
-          setState(() {
-            docstatus = result['status'] ?? 'not_uploaded';
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error checking document status: $e');
-    }
   }
 
   void _scrollListener() {
@@ -349,8 +321,8 @@ class _RecentMembersPageState extends State<RecentMembersPage> {
         if (userDataString == null) return;
         final userData = jsonDecode(userDataString);
         final myUserId = int.tryParse(userData['id'].toString());
-        if (docstatus == 'approved') {
-          if (!mounted) return;
+        if (!mounted) return;
+        if (context.read<UserState>().isVerified) {
           Navigator.push(
             context,
             MaterialPageRoute(
@@ -361,7 +333,6 @@ class _RecentMembersPageState extends State<RecentMembersPage> {
             ),
           );
         } else {
-          if (!mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(builder: (_) => const IDVerificationScreen()),

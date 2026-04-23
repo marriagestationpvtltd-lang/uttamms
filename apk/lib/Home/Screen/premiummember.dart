@@ -7,7 +7,6 @@ import 'package:intl/intl.dart';
 import 'package:ms2026/constant/app_colors.dart';
 import 'package:ms2026/constant/status_bar_utils.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../Models/masterdata.dart';
 import '../../main.dart';
 import '../../ReUsable/loading_widgets.dart';
 import '../../utils/privacy_utils.dart';
@@ -33,7 +32,6 @@ class _PaidUsersListPageState extends State<PaidUsersListPage> {
   String _searchQuery = '';
   String _selectedCity = '';
   List<String> _availableCities = [];
-  String usertye = '';
 
   // Filter variables
   String _selectedGender = '';
@@ -70,42 +68,11 @@ class _PaidUsersListPageState extends State<PaidUsersListPage> {
     super.initState();
     _fetchUsers();
     _scrollController.addListener(_scrollListener);
-    loadMasterData();
     _initializeAnimations();
   }
 
   void _initializeAnimations() {
     // Will be initialized in build context
-  }
-
-  Future<UserMasterData> fetchUserMasterData(String userId) async {
-    final url = Uri.parse(
-      "${kApiBaseUrl}/Api2/masterdata.php?userid=$userId",
-    );
-    final response = await http.get(url);
-    if (response.statusCode != 200) {
-      throw Exception("Failed: ${response.statusCode}");
-    }
-    final res = json.decode(response.body);
-    if (res['success'] != true) {
-      throw Exception(res['message'] ?? "API error");
-    }
-    return UserMasterData.fromJson(res['data']);
-  }
-
-  void loadMasterData() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-    final userData = jsonDecode(userDataString!);
-    final userId = int.tryParse(userData["id"].toString());
-    try {
-      UserMasterData user = await fetchUserMasterData(userId.toString());
-      setState(() {
-        usertye = user.usertype;
-      });
-    } catch (e) {
-      print("Error: $e");
-    }
   }
 
   @override
