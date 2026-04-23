@@ -25,18 +25,30 @@ class UserPartnerPreferenceService {
         return null;
       }
 
-      final body = response.body.trim();
-      if (body.isEmpty || body.startsWith('<')) {
-        debugPrint('[fetchPartnerPreference] Non-JSON body (${response.statusCode}): ${body.substring(0, body.length.clamp(0, 500))}');
+      final rawBody = response.body.trim();
+      if (rawBody.isEmpty) {
+        debugPrint('[fetchPartnerPreference] Empty body (HTTP ${response.statusCode}).');
         return null;
       }
+
+      // Extract JSON even if PHP warning/notice text is prepended.
+      final jsonStart = rawBody.indexOf('{');
+      final jsonEnd = rawBody.lastIndexOf('}');
+      final jsonCandidate = (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart)
+          ? rawBody.substring(jsonStart, jsonEnd + 1)
+          : rawBody;
+
+      if (jsonCandidate != rawBody) {
+        debugPrint('[fetchPartnerPreference] Non-JSON prefix detected. Extracted candidate: $jsonCandidate');
+      }
+
       try {
-        final data = json.decode(body);
+        final data = json.decode(jsonCandidate);
         if (data is Map<String, dynamic>) {
           return data;
         }
       } on FormatException catch (e) {
-        debugPrint('[fetchPartnerPreference] FormatException: $e\nBody: ${body.substring(0, body.length.clamp(0, 500))}');
+        debugPrint('[fetchPartnerPreference] FormatException: $e\nCandidate: $jsonCandidate');
         return null;
       }
     } catch (e) {
@@ -84,15 +96,18 @@ class UserPartnerPreferenceService {
         'religion': religion,
         'caste': community ?? '',
         'subcaste': '',
-        'mothertongue': motherTongue ?? '',
-        'horoscopebelief': '',
+        // PHP field name is "mothertoungue" (typo in backend — must match exactly)
+        'mothertoungue': motherTongue ?? '',
+        // PHP field name is "herscopeblief" (typo in backend — must match exactly)
+        'herscopeblief': '',
         'manglik': '',
         'country': countryIds.join(','),
         'state': stateIds.join(','),
         'city': cityIds.join(','),
         'qualification': education ?? '',
         'educationmedium': '',
-        'profession': occupation ?? '',
+        // PHP field name is "proffession" (typo in backend — must match exactly)
+        'proffession': occupation ?? '',
         'workingwith': '',
         'annualincome': '',
         'diet': diet ?? '',
@@ -118,30 +133,46 @@ class UserPartnerPreferenceService {
           .timeout(const Duration(seconds: 30));
 
       if (response.statusCode == 200) {
-        final body = response.body.trim();
-        if (body.isEmpty || body.startsWith('<')) {
-          print('[savePartnerPreference] Non-JSON body (HTTP 200). Body preview: ${body.substring(0, body.length.clamp(0, 500))}');
+        final rawBody = response.body.trim();
+        debugPrint('[savePartnerPreference] HTTP 200. Raw body: $rawBody');
+
+        if (rawBody.isEmpty) {
+          debugPrint('[savePartnerPreference] Empty body received.');
           return {
             'status': 'error',
-            'message': 'Server returned an unexpected response. Please try again.',
+            'message': 'Server returned an empty response. Please try again.',
           };
         }
+
+        // Attempt to extract a JSON object even if PHP warning/notice text is
+        // prepended to the response (happens when display_errors is enabled on
+        // the server and an undefined array key triggers a notice/warning).
+        final jsonStart = rawBody.indexOf('{');
+        final jsonEnd = rawBody.lastIndexOf('}');
+        final jsonCandidate = (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart)
+            ? rawBody.substring(jsonStart, jsonEnd + 1)
+            : rawBody;
+
+        if (jsonCandidate != rawBody) {
+          debugPrint('[savePartnerPreference] Non-JSON prefix detected. Extracted candidate: $jsonCandidate');
+        }
+
         try {
-          final data = json.decode(body);
+          final data = json.decode(jsonCandidate);
           if (data is Map<String, dynamic>) {
             return data;
           }
-          print('[savePartnerPreference] Unexpected body type: $data');
+          debugPrint('[savePartnerPreference] Unexpected decoded type: ${data.runtimeType}. Value: $data');
           return {'status': 'error', 'message': 'Unexpected response format.'};
         } on FormatException catch (e) {
-          print('[savePartnerPreference] FormatException: $e\nBody preview: ${body.substring(0, body.length.clamp(0, 500))}');
+          debugPrint('[savePartnerPreference] FormatException: $e\nCandidate: $jsonCandidate');
           return {
             'status': 'error',
             'message': 'Server returned an unexpected response. Please try again.',
           };
         }
       } else {
-        print('[savePartnerPreference] HTTP ${response.statusCode}. Body: ${response.body.substring(0, response.body.length.clamp(0, 500))}');
+        debugPrint('[savePartnerPreference] HTTP ${response.statusCode}. Body: ${response.body}');
         return {
           'status': 'error',
           'message': 'Server returned status code ${response.statusCode}'
