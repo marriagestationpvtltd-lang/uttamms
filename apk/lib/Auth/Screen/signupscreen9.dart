@@ -1157,12 +1157,12 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
                 fontSize: 14,
                 fontWeight: FontWeight.w400,
               ),
-              prefixIcon: Padding(
-                padding: const EdgeInsets.only(top: 14, left: 4),
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  widthFactor: 1,
-                  heightFactor: 1,
+              prefixIcon: Align(
+                alignment: Alignment.topCenter,
+                widthFactor: 1,
+                heightFactor: 1,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 14),
                   child: Icon(icon, color: AppColors.textSecondary, size: 20),
                 ),
               ),
@@ -1738,10 +1738,10 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          children: const [
-                            Icon(Icons.auto_awesome, size: 14, color: AppColors.secondary),
-                            SizedBox(width: 6),
-                            Flexible(
+                          children: [
+                            const Icon(Icons.auto_awesome, size: 14, color: AppColors.secondary),
+                            const SizedBox(width: 6),
+                            const Flexible(
                               child: Text(
                                 'Auto-generated from your selections:',
                                 style: TextStyle(
