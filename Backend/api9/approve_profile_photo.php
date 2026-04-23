@@ -57,7 +57,7 @@ if ($userId <= 0 || !in_array($action, ['approve', 'reject'], true)) {
 
 if ($action === 'reject' && $reason === '') {
     http_response_code(422);
-    echo json_encode(['success' => false, 'message' => 'reject_reason is required when action is reject']);
+    echo json_encode(['success' => false, 'message' => 'reason is required when action is reject']);
     exit;
 }
 
@@ -105,7 +105,7 @@ try {
     // Only promote to 'approved' if currently pending; do not demote verified users.
     if ($action === 'approve') {
         $pdo->prepare(
-            "UPDATE users SET status = 'verified' WHERE id = ? AND status = 'pending'"
+            "UPDATE users SET status = 'approved' WHERE id = ? AND status = 'pending'"
         )->execute([$userId]);
     }
 

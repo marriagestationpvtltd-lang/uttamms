@@ -184,18 +184,40 @@ if (!$check->fetch()) {
     exit;
 }
 
+// ── Build explicit SQL from whitelisted table+field ───────────────────────────
+// The $table and $field values are exclusively sourced from $fieldMap (not from
+// user input), but we construct the SQL here to make that provenance explicit.
+$allowedTableColumns = [
+    'users'               => ['firstName','lastName','privacy','gender'],
+    'userpersonaldetail'  => ['height_name','maritalStatusId','motherTongue','aboutMe','birthDate','Disability','bloodGroup','complexion','bodyType','childStatus'],
+    'educationcareer'     => ['educationtype','educationmedium','faculty','degree','areyouworking','occupationtype','companyname','designation','workingwith','annualincome','businessname'],
+    'user_astrologic'     => ['manglik','birthtime','birthcity'],
+    'user_family'         => ['familytype','familybackground','fatherstatus','fathername','fathereducation','fatheroccupation','motherstatus','mothercaste','mothereducation','motheroccupation','familyorigin'],
+    'user_lifestyle'      => ['smoketype','diet','drinks','drinktype','smoke'],
+    'user_partner'        => ['minage','maxage','minheight','maxheight','maritalstatus','profilewithchild','familytype','religion','caste','mothertoungue','herscopeblief','manglik','country','state','city','qualification','educationmedium','proffession','workingwith','annualincome','diet','smokeaccept','drinkaccept','disabilityaccept','complexion','bodytype','otherexpectation'],
+];
+
+// Secondary whitelist check (belt-and-suspenders)
+if (!isset($allowedTableColumns[$table]) || !in_array($field, $allowedTableColumns[$table], true)) {
+    http_response_code(422);
+    echo json_encode(['success' => false, 'message' => "Field '$field' is not allowed in table '$table'"]);
+    exit;
+}
+
 // ── Perform update ────────────────────────────────────────────────────────────
 try {
     if ($table === 'users') {
-        // Simple UPDATE – row always exists for users table
-        $stmt = $pdo->prepare("UPDATE users SET `$field` = ? WHERE id = ?");
+        // Simple UPDATE – row always exists for users table.
+        // Column name comes from the whitelist above, not from user input.
+        $sql  = 'UPDATE users SET `' . $field . '` = ? WHERE id = ?';
+        $stmt = $pdo->prepare($sql);
         $stmt->execute([$value, $userId]);
     } else {
-        // Tables keyed by userid – use UPSERT so missing rows are created
-        $stmt = $pdo->prepare(
-            "INSERT INTO `$table` (userid, `$field`) VALUES (?, ?)
-             ON DUPLICATE KEY UPDATE `$field` = VALUES(`$field`)"
-        );
+        // Tables keyed by userid – use UPSERT so missing rows are created.
+        // Both table and column names are sourced exclusively from the whitelist.
+        $sql  = 'INSERT INTO `' . $table . '` (userid, `' . $field . '`) VALUES (?, ?) '
+              . 'ON DUPLICATE KEY UPDATE `' . $field . '` = VALUES(`' . $field . '`)';
+        $stmt = $pdo->prepare($sql);
         $stmt->execute([$userId, $value]);
     }
 
