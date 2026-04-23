@@ -6,10 +6,23 @@
 -- =============================================================================
 
 -- 1. Add reject_reason column to user_documents (stores admin rejection note
---    per document row rather than globally on users)
-ALTER TABLE user_documents
-    ADD COLUMN IF NOT EXISTS reject_reason VARCHAR(500) DEFAULT NULL
-    AFTER status;
+--    per document row rather than globally on users).
+--    MySQL does not support ADD COLUMN IF NOT EXISTS, so we use an
+--    INFORMATION_SCHEMA check with PREPARE/EXECUTE to make this idempotent.
+SET @_add_col = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE user_documents ADD COLUMN reject_reason VARCHAR(500) DEFAULT NULL AFTER status',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_documents'
+      AND COLUMN_NAME  = 'reject_reason'
+);
+PREPARE _stmt FROM @_add_col;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- 2. Ensure documenttype column is NOT NULL (new uploads always supply it)
 --    Update any existing NULL rows to a descriptive placeholder before

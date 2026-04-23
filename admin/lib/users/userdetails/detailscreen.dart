@@ -2267,7 +2267,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     );
     if (confirmed != true || !mounted) return;
     final ok = await dp.updateDocumentStatus(
-        userId: doc.userId, action: 'approve');
+        documentId: doc.documentId, action: 'approve');
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
@@ -2329,7 +2329,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
               Navigator.pop(context);
               if (!mounted) return;
               final ok = await dp.updateDocumentStatus(
-                userId: doc.userId,
+                documentId: doc.documentId,
                 action: 'reject',
                 rejectReason: _rejectDocCtrl.text.trim(),
               );
