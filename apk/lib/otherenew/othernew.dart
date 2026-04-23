@@ -2625,7 +2625,13 @@ class _ContactInfoSection extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: () async {
-              // ✅ VERIFIED DOCUMENT → Can chat (request already accepted)
+              // Guard: re-read the latest profile state. The widget was built
+              // with isChatRequestAccepted==true, but the profile could have
+              // been refreshed since then (e.g. the other user withdrew the
+              // acceptance). Bail out silently if that has happened.
+              if (!userProfile.isChatRequestAccepted) return;
+
+              // ✅ VERIFIED DOCUMENT AND ACCEPTED REQUEST → Can chat
               if (docStatus == "approved") {
                 try {
                   // Generate chatRoomId (sorted)
