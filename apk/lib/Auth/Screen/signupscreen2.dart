@@ -177,6 +177,9 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
           pageNo: 1,
         );
 
+        // Persist the selected marital status so the document step can read it
+        await prefs.setString('selected_marital_status', _selectedMaritalStatus!);
+
         _showSnackBar('Personal details saved successfully!');
 
         Navigator.push(

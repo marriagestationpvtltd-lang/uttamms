@@ -41,6 +41,21 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   bool _hasConsented = false;
   bool _isScanning = false;
 
+  // ─── Marital document state ───────────────────────────────────────────────
+  /// Marital status loaded from SharedPreferences (set in PersonalDetailsPage).
+  String? _maritalStatus;
+
+  /// Tracks which required marital document types have been uploaded this session.
+  /// Key: document label, Value: true when successfully uploaded.
+  final Map<String, bool> _maritalDocUploaded = {};
+
+  /// The marital document type currently being uploaded (used while the image
+  /// source bottom-sheet / upload is in progress).
+  String? _activeMaritalDocType;
+
+  /// Whether a marital document upload is in progress.
+  bool _isUploadingMaritalDoc = false;
+  // ─────────────────────────────────────────────────────────────────────────
 
   final List<Map<String, dynamic>> _documentTypes = [
     {'label': 'Passport', 'icon': Icons.book_outlined},
@@ -55,6 +70,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   void initState() {
     super.initState();
     _checkDocumentStatus();
+    _loadMaritalStatus();
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -134,6 +150,202 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       _isCheckingStatus = false;
     });
   }
+
+  // ─── Marital-document helpers ─────────────────────────────────────────────
+
+  /// Reads the marital status that was persisted by [PersonalDetailsPage].
+  Future<void> _loadMaritalStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final status = prefs.getString('selected_marital_status');
+    if (mounted) setState(() => _maritalStatus = status);
+  }
+
+  /// Returns true when the user's marital status requires supporting documents.
+  bool _requiresMaritalDocuments() =>
+      _maritalStatus != null && _maritalStatus != 'Still Unmarried';
+
+  /// Returns the ordered list of document types the user must provide based on
+  /// their marital status.
+  List<Map<String, dynamic>> _getRequiredMaritalDocuments() {
+    switch (_maritalStatus) {
+      case 'Widowed':
+        return [
+          {'label': 'Death Certificate', 'icon': Icons.article_outlined},
+          {'label': 'Marriage Certificate', 'icon': Icons.favorite_border_rounded},
+        ];
+      case 'Divorced':
+        return [
+          {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
+          {'label': 'Court Order', 'icon': Icons.balance_rounded},
+        ];
+      case 'Waiting Divorce':
+        return [
+          {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
+          {'label': 'Separation Document', 'icon': Icons.assignment_outlined},
+        ];
+      default:
+        return [];
+    }
+  }
+
+  /// Opens a bottom-sheet so the user can pick a source for uploading the
+  /// marital document identified by [docType].
+  void _showMaritalDocSourceSelector(String docType) {
+    setState(() => _activeMaritalDocType = docType);
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE0E0E0),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Upload "$docType"',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Choose how you want to provide this document',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            _buildSourceOption(
+              icon: Icons.document_scanner_rounded,
+              label: 'Scan Document',
+              subtitle: 'Auto edge detection',
+              isRecommended: true,
+              onTap: () async {
+                Navigator.pop(context);
+                await _scanAndUploadMaritalDoc(docType);
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildSourceOption(
+              icon: Icons.photo_library_rounded,
+              label: 'Gallery',
+              subtitle: 'Choose existing photo',
+              onTap: () async {
+                Navigator.pop(context);
+                await _galleryUploadMaritalDoc(docType);
+              },
+            ),
+            const SizedBox(height: 12),
+            _buildSourceOption(
+              icon: Icons.camera_alt_rounded,
+              label: 'Camera',
+              subtitle: 'Take a new photo',
+              onTap: () async {
+                Navigator.pop(context);
+                await _cameraUploadMaritalDoc(docType);
+              },
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _scanAndUploadMaritalDoc(String docType) async {
+    try {
+      final scannedPaths = await _documentScanner.scanDocument(
+        numberOfPages: 1,
+        allowGallery: true,
+      );
+      if (scannedPaths != null && scannedPaths.isNotEmpty) {
+        await _uploadMaritalDocument(docType, scannedPaths.first);
+      }
+    } catch (e) {
+      _showError('Failed to scan document: $e');
+    }
+  }
+
+  Future<void> _galleryUploadMaritalDoc(String docType) async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 90,
+      );
+      if (image != null) await _uploadMaritalDocument(docType, image.path);
+    } catch (e) {
+      _showError('Failed to select image: $e');
+    }
+  }
+
+  Future<void> _cameraUploadMaritalDoc(String docType) async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 90,
+      );
+      if (image != null) await _uploadMaritalDocument(docType, image.path);
+    } catch (e) {
+      _showError('Failed to take photo: $e');
+    }
+  }
+
+  /// Uploads a marital-status supporting document to the server.
+  Future<void> _uploadMaritalDocument(String docType, String imagePath) async {
+    if (!mounted) return;
+    setState(() => _isUploadingMaritalDoc = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataString = prefs.getString('user_data');
+      if (userDataString == null) {
+        _showError('User data not found. Please login again.');
+        return;
+      }
+      final userData = jsonDecode(userDataString);
+      final userId = int.tryParse(userData['id'].toString());
+      if (userId == null) {
+        _showError('Invalid user data.');
+        return;
+      }
+
+      final uri = Uri.parse('${kApiBaseUrl}/Api2/upload_document.php');
+      final request = http.MultipartRequest('POST', uri);
+      request.fields['userid'] = userId.toString();
+      request.fields['documenttype'] = docType;
+      request.fields['documentidnumber'] = '';
+      request.fields['title'] = 'Marital Status Document';
+
+      final imageFile = await http.MultipartFile.fromPath('photo', imagePath);
+      request.files.add(imageFile);
+
+      final response = await request.send();
+      if (!mounted) return;
+      if (response.statusCode == 200) {
+        setState(() => _maritalDocUploaded[docType] = true);
+        _showSuccess('"$docType" uploaded successfully!');
+      } else {
+        _showError('Upload failed for "$docType". Please try again.');
+      }
+    } catch (e) {
+      _showError('Error uploading document. Check your connection.');
+    } finally {
+      if (mounted) setState(() => _isUploadingMaritalDoc = false);
+    }
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _uploadDocument() async {
     setState(() => _isUploading = true);
@@ -244,7 +456,15 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 children: [
                   _buildStepIndicator(currentStep: 0),
                   const SizedBox(height: 28),
-                  _buildSectionTitle('1. Choose Document Type'),
+                  // ── Marital document requirements ───────────────────────
+                  if (_requiresMaritalDocuments()) ...[
+                    _buildMaritalDocumentsSection(),
+                    const SizedBox(height: 28),
+                    const Divider(thickness: 1, color: Color(0xFFEEEEEE)),
+                    const SizedBox(height: 24),
+                  ],
+                  // ── ID document section ─────────────────────────────────
+                  _buildSectionTitle('${_requiresMaritalDocuments() ? '2' : '1'}. Choose Identity Document'),
                   const SizedBox(height: 4),
                   const Text(
                     'Tap a document type to upload',
@@ -254,7 +474,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   _buildDocumentTypeGrid(),
                   if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
                     const SizedBox(height: 32),
-                    _buildSectionTitle('2. Document Photo'),
+                    _buildSectionTitle('${_requiresMaritalDocuments() ? '3' : '2'}. Document Photo'),
                     const SizedBox(height: 4),
                     const Text(
                       'Review and edit if needed',
@@ -263,7 +483,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     const SizedBox(height: 16),
                     _buildImagePreview(),
                     const SizedBox(height: 32),
-                    _buildSectionTitle('3. Document Number'),
+                    _buildSectionTitle('${_requiresMaritalDocuments() ? '4' : '3'}. Document Number'),
                     const SizedBox(height: 4),
                     const Text(
                       'Enter your document identification number',
@@ -316,6 +536,182 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         ],
       );
   }
+
+  // ─── Marital documents section ────────────────────────────────────────────
+
+  Widget _buildMaritalDocumentsSection() {
+    final docs = _getRequiredMaritalDocuments();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSectionTitle('1. Required Marital Documents'),
+        const SizedBox(height: 6),
+        Text(
+          'Since your marital status is "$_maritalStatus", please upload the supporting document(s) below.',
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF757575),
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFFF8E1),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFFFE082)),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              Icon(Icons.info_outline_rounded,
+                  color: Color(0xFFF57C00), size: 18),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Upload at least one document proving your current marital status. Tap a document to upload.',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      color: Color(0xFF795548),
+                      height: 1.5),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        ...docs.map((doc) => _buildMaritalDocItem(
+              label: doc['label'] as String,
+              icon: doc['icon'] as IconData,
+            )),
+      ],
+    );
+  }
+
+  Widget _buildMaritalDocItem({
+    required String label,
+    required IconData icon,
+  }) {
+    final isUploaded = _maritalDocUploaded[label] == true;
+    final isUploading =
+        _isUploadingMaritalDoc && _activeMaritalDocType == label;
+
+    return GestureDetector(
+      onTap: isUploaded || isUploading
+          ? null
+          : () => _showMaritalDocSourceSelector(label),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: isUploaded
+              ? const Color(0xFFE8F5E9)
+              : const Color(0xFFFAFAFA),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: isUploaded
+                ? AppColors.success
+                : AppColors.primary.withOpacity(0.3),
+            width: isUploaded ? 1.5 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: isUploaded
+                    ? AppColors.success.withOpacity(0.15)
+                    : AppColors.primary.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: isUploaded ? AppColors.success : AppColors.primary,
+                size: 22,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      color: isUploaded
+                          ? const Color(0xFF2E7D32)
+                          : const Color(0xFF212121),
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    isUploaded
+                        ? 'Uploaded successfully'
+                        : 'Tap to upload this document',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isUploaded ? AppColors.success : Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (isUploading)
+              const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                ),
+              )
+            else if (isUploaded)
+              Container(
+                width: 28,
+                height: 28,
+                decoration: const BoxDecoration(
+                  color: AppColors.success,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_rounded,
+                    color: Colors.white, size: 16),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  gradient: AppColors.primaryGradient,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Upload',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   Widget _buildHeroHeader({
     required String title,
