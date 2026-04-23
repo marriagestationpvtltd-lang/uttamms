@@ -379,6 +379,7 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
           userId = data['id']?.toString() ?? '';
         }
       }
+      if (userId.isEmpty) return false; // unknown user — allow the call
 
       _ringTimer?.cancel();
       await _stopRingtone();
