@@ -7,14 +7,15 @@ import 'package:flutter/services.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
     if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
-import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart'
     if (dart.library.html) 'package:ms2026/utils/web_permission_stub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     if (dart.library.html) 'package:ms2026/utils/web_local_notifications_stub.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:provider/provider.dart';
 import '../Chat/ChatlistScreen.dart';
+import '../core/user_state.dart';
 import '../Chat/call_overlay_manager.dart';
 import '../navigation/app_navigation.dart';
 import '../Package/PackageScreen.dart';
@@ -310,6 +311,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     if (callerRole == 'admin') return false; // admin calls are always allowed
 
     try {
+      if (!mounted) return false;
+      // Use the global UserState instead of making a separate API call.
+      // UserState is refreshed on app start and kept in sync by all screens
+      // that call masterdata.php, so this value is always up to date.
+      final hasPackage = context.read<UserState>().hasPackage;
+      if (hasPackage) return false;
+
+      // Free user – determine the userId for the reject event.
       String userId = _currentUserId;
       if (userId.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
@@ -319,31 +328,19 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           userId = data['id']?.toString() ?? '';
         }
       }
-      if (userId.isEmpty) return false; // unknown user — allow
 
-      final response = await http.get(
-        Uri.https('digitallami.com', '/Api2/masterdata.php', {'userid': userId}),
-      ).timeout(const Duration(seconds: 10));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          final usertype = data['data']['usertype']?.toString() ?? 'free';
-          if (usertype == 'free') {
-            _ringTimer?.cancel();
-            await _stopRingtone();
-            // Notify caller that the call was not accepted
-            SocketService().emitCallReject(
-              callerId: _callerId,
-              recipientId: userId,
-              recipientName: _recipientName,
-              channelName: _channel,
-              callType: 'audio',
-            );
-            _showUpgradeCallDialog();
-            return true;
-          }
-        }
-      }
+      _ringTimer?.cancel();
+      await _stopRingtone();
+      // Notify caller that the call was not accepted
+      SocketService().emitCallReject(
+        callerId: _callerId,
+        recipientId: userId,
+        recipientName: _recipientName,
+        channelName: _channel,
+        callType: 'audio',
+      );
+      _showUpgradeCallDialog();
+      return true;
     } catch (e) {
       debugPrint('Membership check error: $e');
     }

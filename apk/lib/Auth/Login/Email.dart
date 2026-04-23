@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -28,6 +29,7 @@ import '../Screen/Signup.dart';
 import '../SuignupModel/signup_model.dart';
 import '../forgetpasswordscreen.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/core/user_state.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
 
 class PrefilledEmailScreen extends StatefulWidget {
@@ -168,6 +170,20 @@ class _PrefilledEmailScreenState extends State<PrefilledEmailScreen> with Single
       userId: userId.toString(),
       activityType: ActivityType.login,
     );
+
+    // Load the global UserState from cache (fast, zero network) before deciding
+    // where to navigate.  A background refresh is also kicked off so that
+    // verification/subscription state is current once the destination screen
+    // loads.
+    if (mounted) {
+      final userState = context.read<UserState>();
+      await userState.loadFromCache();
+      final uid = int.tryParse(userId.toString());
+      if (uid != null) {
+        unawaited(userState.refresh(uid));
+      }
+    }
+
     final pageNo = await PageService.getPageNo(userId);
 
     if (!mounted) return;
@@ -209,7 +225,14 @@ class _PrefilledEmailScreenState extends State<PrefilledEmailScreen> with Single
         destination = const PartnerPreferencesPage();
         break;
       case 8:
-        destination = const IDVerificationScreen();
+        // Only route to the verification screen if the user has not yet
+        // submitted any documents.  If documents are already pending/approved/
+        // rejected (e.g. they logged out mid-review), send them directly to the
+        // home screen so they are never forced back to the upload flow.
+        final idStatus = context.read<UserState>().identityStatus;
+        destination = (idStatus == 'not_uploaded')
+            ? const IDVerificationScreen()
+            : const MainControllerScreen(initialIndex: 0);
         break;
       case 9:
       case 10:

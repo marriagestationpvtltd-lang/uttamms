@@ -269,6 +269,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           name = '${user.firstName} ${user.lastName}'.trim();
           isLoading = false;
         });
+        // Keep UserState in sync with the data already fetched above –
+        // avoids a separate masterdata.php call just for verification/usertype.
+        context.read<UserState>().updateFromMasterData(user.docStatus, user.usertype);
       }
 
       print('=== USER DATA LOADED ===');

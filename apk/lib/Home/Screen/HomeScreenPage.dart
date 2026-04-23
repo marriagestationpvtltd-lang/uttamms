@@ -768,9 +768,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         _userId = userId?.toString() ?? '';
         userid = userId ?? 0;
       });
-      // Also refresh UserState so any package/verification changes are reflected.
-      if (userId != null) {
-        unawaited(context.read<UserState>().refresh(userId));
+      // Keep UserState in sync using the data already fetched above –
+      // avoids a second masterdata.php call just for verification/usertype.
+      if (mounted) {
+        context
+            .read<UserState>()
+            .updateFromMasterData(user.docStatus, user.usertype);
       }
     } catch (e) {
       debugPrint("Error: $e");
