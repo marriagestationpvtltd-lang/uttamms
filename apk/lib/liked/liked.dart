@@ -18,6 +18,7 @@ import '../main.dart';
 import '../pushnotification/pushservice.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/service/verification_service.dart';
 
 class FavoritePeoplePage extends StatefulWidget {
   const FavoritePeoplePage({super.key});
