@@ -694,6 +694,22 @@ class _DocumentsPageState extends State<DocumentsPage>
                             color: _kRejected,
                             onTap: () => _rejectDocument(doc),
                           ),
+                        ] else if (doc.isApproved) ...[
+                          const SizedBox(width: 4),
+                          Tooltip(
+                            message: 'Document is permanently locked after verification',
+                            child: Container(
+                              padding: const EdgeInsets.all(6),
+                              decoration: BoxDecoration(
+                                color: _kApproved.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                    color: _kApproved.withOpacity(0.20)),
+                              ),
+                              child: const Icon(Icons.lock_rounded,
+                                  size: 16, color: _kApproved),
+                            ),
+                          ),
                         ],
                       ],
                     );
@@ -743,10 +759,13 @@ class _DocumentsPageState extends State<DocumentsPage>
             ? _kRejected
             : _kPending;
     final icon = status == 'approved'
-        ? Icons.verified_outlined
+        ? Icons.lock_rounded
         : status == 'rejected'
             ? Icons.cancel_outlined
             : Icons.pending_outlined;
+    final label = status == 'approved'
+        ? 'VERIFIED + LOCKED'
+        : status.toUpperCase();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
@@ -760,7 +779,7 @@ class _DocumentsPageState extends State<DocumentsPage>
           Icon(icon, size: 13, color: color),
           const SizedBox(width: 4),
           Text(
-            status.toUpperCase(),
+            label,
             style: TextStyle(
                 fontSize: 11, fontWeight: FontWeight.w700, color: color),
           ),

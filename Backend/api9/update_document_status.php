@@ -38,15 +38,26 @@ try {
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
     );
 
-    // Check document exists
-    $check = $pdo->prepare("SELECT id FROM user_documents WHERE id = ?");
+    // Check document exists and fetch current status
+    $check = $pdo->prepare("SELECT id, status FROM user_documents WHERE id = ?");
     $check->execute([$documentId]);
+    $existingDoc = $check->fetch(PDO::FETCH_ASSOC);
 
-    if (!$check->fetch()) {
+    if (!$existingDoc) {
         http_response_code(404);
         echo json_encode([
             'success' => false,
             'message' => 'Document not found'
+        ]);
+        exit;
+    }
+
+    // Lock check: once approved, a document cannot be modified
+    if ($existingDoc['status'] === 'approved') {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'This document has already been verified and is permanently locked. No further status changes are allowed.'
         ]);
         exit;
     }

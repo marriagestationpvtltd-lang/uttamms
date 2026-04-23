@@ -48,6 +48,26 @@ if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
     }
 }
 
+// ---------------- LOCK CHECK: reject re-upload of verified documents ----------------
+$lockCheck = $conn->prepare(
+    "SELECT status FROM user_documents WHERE userid = ? AND documenttype = ? LIMIT 1"
+);
+$lockCheck->bind_param("is", $userid, $documenttype);
+$lockCheck->execute();
+$lockCheck->bind_result($existingStatus);
+$lockCheck->fetch();
+$lockCheck->close();
+
+if ($existingStatus === 'approved') {
+    http_response_code(403);
+    echo json_encode([
+        "status"  => "error",
+        "message" => "This document has already been verified and is permanently locked. It cannot be replaced or re-uploaded."
+    ]);
+    $conn->close();
+    exit;
+}
+
 // ---------------- UPSERT: one row per (userid, documenttype) ----------------
 // On duplicate key reset status to pending and clear reject_reason so the
 // admin re-reviews the freshly uploaded document.
