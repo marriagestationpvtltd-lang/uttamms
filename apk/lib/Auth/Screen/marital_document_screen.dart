@@ -527,8 +527,17 @@ class _MaritalDocumentUploadScreenState
                   children: [
                     Icon(Icons.verified_rounded,
                         color: Color(0xFF2E7D32), size: 16),
-                    SizedBox(width: 6),
+                    SizedBox(width: 4),
                     Text('Verified',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2E7D32))),
+                    SizedBox(width: 6),
+                    Icon(Icons.lock_rounded,
+                        color: Color(0xFF2E7D32), size: 14),
+                    SizedBox(width: 4),
+                    Text('Locked',
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,

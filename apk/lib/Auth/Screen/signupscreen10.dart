@@ -687,7 +687,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         borderColor = AppColors.success;
         iconBgColor = AppColors.success.withOpacity(0.15);
         iconColor = AppColors.success;
-        statusLabel = 'Verified';
+        statusLabel = 'Verified + Locked';
         break;
       case 'rejected':
         cardColor = const Color(0xFFFFF5F5);
@@ -782,6 +782,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                             fontWeight: FontWeight.w500,
                           ),
                         ),
+                        if (status == 'approved') ...[
+                          const SizedBox(width: 6),
+                          const Icon(Icons.lock_rounded,
+                              size: 12, color: AppColors.success),
+                        ],
                       ],
                     ),
                   ],
@@ -1463,9 +1468,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
 
   /// Decides whether to show the upload form or a status card for the identity doc.
   Widget _buildIdentityDocSection() {
-    final showForm = _documentStatus == 'not_uploaded' ||
-        _showIdentityUploadForm ||
-        _documentStatus == 'rejected';
+    // Never allow editing a verified (approved) document – it is permanently locked.
+    final showForm = _documentStatus != 'approved' &&
+        (_documentStatus == 'not_uploaded' ||
+            _showIdentityUploadForm ||
+            _documentStatus == 'rejected');
 
     if (showForm) {
       return Column(
@@ -1605,8 +1612,17 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   children: [
                     Icon(Icons.verified_rounded,
                         color: Color(0xFF2E7D32), size: 16),
-                    SizedBox(width: 6),
+                    SizedBox(width: 4),
                     Text('Verified',
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2E7D32))),
+                    SizedBox(width: 6),
+                    Icon(Icons.lock_rounded,
+                        color: Color(0xFF2E7D32), size: 14),
+                    SizedBox(width: 4),
+                    Text('Locked',
                         style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -1616,8 +1632,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               ],
             ),
           ),
-          const SizedBox(width: 8),
-          _buildChangeButton(),
         ],
       ),
     );
