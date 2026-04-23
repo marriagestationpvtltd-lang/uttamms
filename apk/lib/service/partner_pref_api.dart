@@ -20,23 +20,37 @@ class UserPartnerPreferenceService {
           .get(Uri.parse('$fetchUrl?userid=$userId'))
           .timeout(const Duration(seconds: 30));
 
+      // Log full response details
+      debugPrint('[fetchPartnerPreference] HTTP ${response.statusCode}');
+      final rawBody = response.body.trim();
+      debugPrint('[fetchPartnerPreference] Raw body (first 500 chars): ${rawBody.substring(0, rawBody.length.clamp(0, 500))}');
+
       if (response.statusCode != 200) {
-        debugPrint('[fetchPartnerPreference] HTTP ${response.statusCode}: ${response.body.substring(0, response.body.length.clamp(0, 200))}');
+        debugPrint('[fetchPartnerPreference] Non-200 status code');
         return null;
       }
 
-      final rawBody = response.body.trim();
       if (rawBody.isEmpty) {
-        debugPrint('[fetchPartnerPreference] Empty body (HTTP ${response.statusCode}).');
+        debugPrint('[fetchPartnerPreference] Empty body received.');
+        return null;
+      }
+
+      // Check if response looks like HTML
+      if (rawBody.startsWith('<') || rawBody.toLowerCase().contains('<!doctype') || rawBody.toLowerCase().contains('<html')) {
+        debugPrint('[fetchPartnerPreference] HTML response detected instead of JSON');
         return null;
       }
 
       // Extract JSON even if PHP warning/notice text is prepended.
       final jsonStart = rawBody.indexOf('{');
       final jsonEnd = rawBody.lastIndexOf('}');
-      final jsonCandidate = (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart)
-          ? rawBody.substring(jsonStart, jsonEnd + 1)
-          : rawBody;
+
+      if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart) {
+        debugPrint('[fetchPartnerPreference] No valid JSON object found in response');
+        return null;
+      }
+
+      final jsonCandidate = rawBody.substring(jsonStart, jsonEnd + 1);
 
       if (jsonCandidate != rawBody) {
         debugPrint('[fetchPartnerPreference] Non-JSON prefix detected. Extracted candidate: $jsonCandidate');
@@ -45,10 +59,14 @@ class UserPartnerPreferenceService {
       try {
         final data = json.decode(jsonCandidate);
         if (data is Map<String, dynamic>) {
+          debugPrint('[fetchPartnerPreference] Successfully parsed JSON response');
           return data;
         }
+        debugPrint('[fetchPartnerPreference] Unexpected decoded type: ${data.runtimeType}');
+        return null;
       } on FormatException catch (e) {
-        debugPrint('[fetchPartnerPreference] FormatException: $e\nCandidate: $jsonCandidate');
+        debugPrint('[fetchPartnerPreference] FormatException: $e');
+        debugPrint('[fetchPartnerPreference] JSON candidate that failed: $jsonCandidate');
         return null;
       }
     } catch (e) {
@@ -132,10 +150,13 @@ class UserPartnerPreferenceService {
           )
           .timeout(const Duration(seconds: 30));
 
-      if (response.statusCode == 200) {
-        final rawBody = response.body.trim();
-        debugPrint('[savePartnerPreference] HTTP 200. Raw body: $rawBody');
+      // Log full response details
+      debugPrint('[savePartnerPreference] HTTP ${response.statusCode}');
+      debugPrint('[savePartnerPreference] Response headers: ${response.headers}');
+      final rawBody = response.body.trim();
+      debugPrint('[savePartnerPreference] Raw body (first 500 chars): ${rawBody.substring(0, rawBody.length.clamp(0, 500))}');
 
+      if (response.statusCode == 200) {
         if (rawBody.isEmpty) {
           debugPrint('[savePartnerPreference] Empty body received.');
           return {
@@ -144,14 +165,30 @@ class UserPartnerPreferenceService {
           };
         }
 
+        // Check if response looks like HTML (common error response format)
+        if (rawBody.startsWith('<') || rawBody.toLowerCase().contains('<!doctype') || rawBody.toLowerCase().contains('<html')) {
+          debugPrint('[savePartnerPreference] HTML response detected instead of JSON');
+          return {
+            'status': 'error',
+            'message': 'Server returned an HTML page. Please contact support.',
+          };
+        }
+
         // Attempt to extract a JSON object even if PHP warning/notice text is
         // prepended to the response (happens when display_errors is enabled on
         // the server and an undefined array key triggers a notice/warning).
         final jsonStart = rawBody.indexOf('{');
         final jsonEnd = rawBody.lastIndexOf('}');
-        final jsonCandidate = (jsonStart != -1 && jsonEnd != -1 && jsonEnd > jsonStart)
-            ? rawBody.substring(jsonStart, jsonEnd + 1)
-            : rawBody;
+
+        if (jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart) {
+          debugPrint('[savePartnerPreference] No valid JSON object found in response');
+          return {
+            'status': 'error',
+            'message': 'Invalid server response format. Please try again.',
+          };
+        }
+
+        final jsonCandidate = rawBody.substring(jsonStart, jsonEnd + 1);
 
         if (jsonCandidate != rawBody) {
           debugPrint('[savePartnerPreference] Non-JSON prefix detected. Extracted candidate: $jsonCandidate');
@@ -160,22 +197,25 @@ class UserPartnerPreferenceService {
         try {
           final data = json.decode(jsonCandidate);
           if (data is Map<String, dynamic>) {
+            debugPrint('[savePartnerPreference] Successfully parsed JSON response');
             return data;
           }
           debugPrint('[savePartnerPreference] Unexpected decoded type: ${data.runtimeType}. Value: $data');
           return {'status': 'error', 'message': 'Unexpected response format.'};
         } on FormatException catch (e) {
-          debugPrint('[savePartnerPreference] FormatException: $e\nCandidate: $jsonCandidate');
+          debugPrint('[savePartnerPreference] FormatException: $e');
+          debugPrint('[savePartnerPreference] JSON candidate that failed: $jsonCandidate');
           return {
             'status': 'error',
-            'message': 'Server returned an unexpected response. Please try again.',
+            'message': 'Server returned invalid JSON. Please try again or contact support.',
           };
         }
       } else {
-        debugPrint('[savePartnerPreference] HTTP ${response.statusCode}. Body: ${response.body}');
+        debugPrint('[savePartnerPreference] Non-200 status code: ${response.statusCode}');
+        debugPrint('[savePartnerPreference] Response body: ${rawBody.substring(0, rawBody.length.clamp(0, 500))}');
         return {
           'status': 'error',
-          'message': 'Server returned status code ${response.statusCode}'
+          'message': 'Server error (${response.statusCode}). Please try again.',
         };
       }
     } catch (e) {
