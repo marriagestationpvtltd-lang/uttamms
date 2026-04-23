@@ -247,14 +247,23 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   _buildSectionTitle('1. Choose Document Type'),
                   const SizedBox(height: 4),
                   const Text(
-                    'Select a valid government-issued ID',
+                    'Tap a document type to upload',
                     style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
                   ),
                   const SizedBox(height: 16),
                   _buildDocumentTypeGrid(),
-                  if (_selectedDocumentType != null) ...[
+                  if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
                     const SizedBox(height: 32),
-                    _buildSectionTitle('2. Document Number'),
+                    _buildSectionTitle('2. Document Photo'),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Review and edit if needed',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildImagePreview(),
+                    const SizedBox(height: 32),
+                    _buildSectionTitle('3. Document Number'),
                     const SizedBox(height: 4),
                     const Text(
                       'Enter your document identification number',
@@ -262,15 +271,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     ),
                     const SizedBox(height: 16),
                     _buildDocumentNumberField(),
-                    const SizedBox(height: 32),
-                    _buildSectionTitle('3. Upload Document Photo'),
-                    const SizedBox(height: 4),
-                    const Text(
-                      'Take a clear photo or scan your document',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
-                    ),
-                    const SizedBox(height: 16),
-                    _buildPhotoUploadArea(),
                     const SizedBox(height: 24),
                     _buildGuidelinesCard(),
                     const SizedBox(height: 24),
@@ -278,6 +278,30 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     const SizedBox(height: 28),
                     _buildSubmitButton(),
                     const SizedBox(height: 16),
+                  ] else if (_selectedDocumentType != null) ...[
+                    const SizedBox(height: 24),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppColors.primary.withOpacity(0.2)),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(Icons.info_outline_rounded,
+                              color: AppColors.primary, size: 20),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Text(
+                              'Select scan or gallery option from the bottom sheet to continue',
+                              style: TextStyle(fontSize: 13, color: AppColors.primary, height: 1.4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                   ] else ...[
                     const SizedBox(height: 24),
                     _buildInfoBanner(),
@@ -473,8 +497,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       children: _documentTypes.map((doc) {
         final isSelected = _selectedDocumentType == doc['label'];
         return GestureDetector(
-          onTap: () =>
-              setState(() => _selectedDocumentType = doc['label'] as String),
+          onTap: () {
+            setState(() => _selectedDocumentType = doc['label'] as String);
+            // Immediately open bottom sheet to select image source
+            _showImageSourceSelector();
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             decoration: BoxDecoration(

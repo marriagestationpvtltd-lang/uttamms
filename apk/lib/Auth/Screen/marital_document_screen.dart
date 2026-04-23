@@ -260,14 +260,23 @@ class _MaritalDocumentUploadScreenState
                 _buildSectionTitle('1. Choose Document Type'),
                 const SizedBox(height: 4),
                 const Text(
-                  'Select the type of document you want to upload',
+                  'Tap a document type to upload',
                   style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
                 ),
                 const SizedBox(height: 16),
                 _buildDocumentTypeGrid(),
-                if (_selectedDocumentType != null) ...[
+                if (_selectedDocumentType != null && (_selectedImage != null || _scannedImagePath != null)) ...[
                   const SizedBox(height: 32),
-                  _buildSectionTitle('2. Document Number (Optional)'),
+                  _buildSectionTitle('2. Document Photo'),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Review and edit if needed',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+                  ),
+                  const SizedBox(height: 16),
+                  _buildImagePreview(),
+                  const SizedBox(height: 32),
+                  _buildSectionTitle('3. Document Number (Optional)'),
                   const SizedBox(height: 4),
                   const Text(
                     'Enter the document number if available',
@@ -275,15 +284,6 @@ class _MaritalDocumentUploadScreenState
                   ),
                   const SizedBox(height: 16),
                   _buildDocumentNumberField(),
-                  const SizedBox(height: 32),
-                  _buildSectionTitle('3. Upload Document Photo'),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Take a clear photo or scan your document',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
-                  ),
-                  const SizedBox(height: 16),
-                  _buildPhotoUploadArea(),
                   const SizedBox(height: 24),
                   _buildGuidelinesCard(),
                   const SizedBox(height: 24),
@@ -493,8 +493,11 @@ class _MaritalDocumentUploadScreenState
       children: _documentTypes.map((doc) {
         final isSelected = _selectedDocumentType == doc['label'];
         return GestureDetector(
-          onTap: () =>
-              setState(() => _selectedDocumentType = doc['label'] as String),
+          onTap: () {
+            setState(() => _selectedDocumentType = doc['label'] as String);
+            // Immediately open bottom sheet to select image source
+            _showImageSourceSelector();
+          },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 180),
             decoration: BoxDecoration(
