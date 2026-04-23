@@ -20,8 +20,8 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'package:uuid/uuid.dart';
-import '../Auth/Screen/signupscreen10.dart';
 import '../Calling/OutgoingCall.dart';
+import '../service/verification_service.dart';
 import '../Calling/videocall.dart';
 import '../Calling/call_history_model.dart';
 import '../Calling/call_history_service.dart';
@@ -294,60 +294,17 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     if (!context.mounted) return;
 
     final userState = context.read<UserState>();
-    final docStatus = userState.identityStatus;
-    final userType = userState.usertype;
+    if (!VerificationService.requireVerification(context)) return;
 
-    if (docStatus == 'approved' && userType == 'paid') {
-      if (!context.mounted) return;
-      // Navigate to the profile page so chat request status is checked and the
-      // correct action button is shown (Send Request / Start Chat).
-      // Direct messaging without the other user's permission is not allowed.
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ProfileScreen(userId: userId),
-        ),
-      );
-    } else if (docStatus.isEmpty || docStatus == 'not_uploaded') {
-      _showDocumentUploadRequiredDialog(context);
-    } else if (docStatus == 'pending') {
-      _showDocumentPendingDialog(context);
-    } else if (docStatus == 'rejected') {
-      _showDocumentRejectedDialog(context);
-    } else if (userType == 'free' && docStatus == 'approved') {
+    if (userState.usertype != 'paid') {
       _showUpgradeChatDialog(context);
-    } else if (userType == 'paid' && docStatus != 'approved') {
-      _showDocumentVerificationDialog(context);
-    } else {
-      _showUpgradeChatDialog(context);
+      return;
     }
-  }
 
-  void _showDocumentUploadRequiredDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Verify Documents First'),
-        content: const Text(
-          'Please verify your documents before you can start a chat.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Later'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-              );
-            },
-            child: const Text('Verify Now'),
-          ),
-        ],
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(userId: userId),
       ),
     );
   }
@@ -355,22 +312,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   Future<void> _handleProfileCardViewProfile(BuildContext context, String userId) async {
     if (!context.mounted) return;
 
-    final docStatus = context.read<UserState>().identityStatus;
-    if (docStatus == 'approved') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)),
-      );
-    } else if (docStatus == 'pending') {
-      _showDocumentPendingDialog(context);
-    } else if (docStatus == 'rejected') {
-      _showDocumentRejectedDialog(context);
-    } else {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-      );
-    }
+    if (!VerificationService.requireVerification(context)) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)),
+    );
   }
 
   void _showUpgradeChatDialog(BuildContext context) {
@@ -397,76 +344,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
               );
             },
             child: const Text('Upgrade'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDocumentVerificationDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Document Verification Pending'),
-        content: const Text(
-          'Your document verification is in progress. '
-          'Please wait for approval before starting a chat.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDocumentPendingDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Document Under Review'),
-        content: const Text(
-          'Your document is currently under review. '
-          'You will be able to chat once it has been verified.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDocumentRejectedDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Document Rejected'),
-        content: const Text(
-          'Your document was rejected. '
-          'Please upload a valid document to continue.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-              );
-            },
-            child: const Text('Re-upload'),
           ),
         ],
       ),

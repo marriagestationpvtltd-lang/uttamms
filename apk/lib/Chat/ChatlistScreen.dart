@@ -11,8 +11,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import '../Auth/Screen/signupscreen10.dart';
 import '../Models/masterdata.dart';
+import '../service/verification_service.dart';
 import '../Package/PackageScreen.dart';
 import '../core/user_state.dart';
 import '../online/onlineservice.dart';
@@ -911,13 +911,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<void> _handleAcceptChatRequest(ProposalModel proposal) async {
     final userState = context.read<UserState>();
     // Step 1: Check document status
-    if (!userState.isVerified) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IDVerificationScreen()),
-      );
-      return;
-    }
+    if (!VerificationService.requireVerification(context)) return;
 
     // Step 2: Check payment / subscription
     if (!userState.hasPackage) {
@@ -2376,10 +2370,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                   );
                 }
               } else if (!isVerified) {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => IDVerificationScreen()));
+                VerificationService.requireVerification(context);
               } else {
                 // Verified but no package
                 showUpgradeDialog(context);

@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 
 import '../Auth/Screen/signupscreen10.dart';
+import '../service/verification_service.dart';
 import '../Chat/adminchat.dart';
 import '../Models/masterdata.dart';
 import '../Package/PackageScreen.dart';
@@ -2802,14 +2803,9 @@ class _ContactInfoSection extends StatelessWidget {
                 }
               }
 
-              // ❌ DOCUMENT NOT UPLOADED AND FREE MEMBER → Show ID Verification
+              // ❌ DOCUMENT NOT UPLOADED AND FREE MEMBER → Show Verification Dialog
               else if (docStatus == "not_uploaded" && userType == 'free') {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => IDVerificationScreen()
-                    )
-                );
+                VerificationService.requireVerification(context);
               }
 
               // ❌ FREE MEMBER BUT DOCUMENT APPROVED → Show Upgrade Dialog

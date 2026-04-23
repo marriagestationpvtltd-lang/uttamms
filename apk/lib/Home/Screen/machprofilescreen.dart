@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../Auth/Screen/signupscreen10.dart';
+import '../../service/verification_service.dart';
 import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../pushnotification/pushservice.dart';
@@ -710,27 +711,13 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
   }
 
   void _navigateToProfile(int userId) {
-    final docstatus = context.read<UserState>().identityStatus;
-    switch (docstatus) {
-      case 'approved':
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ProfileLoader(userId: userId.toString(), myId: userId.toString(),),
-          ),
-        );
-        break;
-      case 'not_uploaded':
-      case 'pending':
-      case 'rejected':
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => IDVerificationScreen(),
-          ),
-        );
-        break;
-    }
+    if (!VerificationService.requireVerification(context)) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ProfileLoader(userId: userId.toString(), myId: userId.toString(),),
+      ),
+    );
   }
 
   @override

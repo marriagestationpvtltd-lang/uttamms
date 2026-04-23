@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:ms2026/Auth/Screen/signupscreen10.dart';
+import '../service/verification_service.dart';
 import 'package:ms2026/Chat/ChatdetailsScreen.dart';
 import 'package:ms2026/Models/masterdata.dart';
 import 'package:ms2026/Notification/notification_inbox_service.dart';
@@ -384,8 +384,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
               ),
             );
           } else if (!userState.isVerified) {
-            Navigator.push(context,
-                MaterialPageRoute(builder: (_) => IDVerificationScreen()));
+            VerificationService.requireVerification(context);
           } else {
             Navigator.push(context,
                 MaterialPageRoute(builder: (context) => SubscriptionPage()));
@@ -519,11 +518,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
   Future<void> _handleAcceptRequest() async {
     final userState = context.read<UserState>();
     // Step 1: Check document verification
-    if (!userState.isVerified) {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => IDVerificationScreen()));
-      return;
-    }
+    if (!VerificationService.requireVerification(context)) return;
 
     // Step 2: Check payment / subscription
     if (!userState.hasPackage) {
@@ -938,8 +933,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
           ),
         );
       } else if (!userState.isVerified) {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => IDVerificationScreen()));
+        VerificationService.requireVerification(context);
       } else {
         showUpgradeDialog(context);
       }
