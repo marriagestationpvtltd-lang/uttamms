@@ -3142,26 +3142,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
   void _openPhotoRequestProfile(String profileUserId) {
     if (!VerificationService.requireVerification(context)) return;
-
-    if (!context.read<UserState>().hasPackage) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => SubscriptionPage()),
-      );
-      return;
-    }
-
     _openProfile(profileUserId);
   }
 
   Future<void> _openChatRequest(ProposalModel request) async {
     try {
       if (!VerificationService.requireVerification(context)) return;
-
-      if (!context.read<UserState>().hasPackage) {
-        showUpgradeDialog(context);
-        return;
-      }
 
       final prefs = await SharedPreferences.getInstance();
       final userDataString = prefs.getString('user_data');

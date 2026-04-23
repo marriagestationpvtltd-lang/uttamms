@@ -377,7 +377,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         color: const Color(0xFF6A1B9A),
         onTap: () {
           final userState = context.read<UserState>();
-          if (userState.isVerified && userState.hasPackage) {
+          if (userState.isVerified) {
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -386,11 +386,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
                 ),
               ),
             );
-          } else if (!userState.isVerified) {
-            VerificationService.requireVerification(context);
           } else {
-            Navigator.push(context,
-                MaterialPageRoute(builder: (context) => SubscriptionPage()));
+            VerificationService.requireVerification(context);
           }
         },
       );
@@ -523,13 +520,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
     // Step 1: Check document verification
     if (!VerificationService.requireVerification(context)) return;
 
-    // Step 2: Check payment / subscription
-    if (!userState.hasPackage) {
-      _showUpgradeDialog();
-      return;
-    }
-
-    // Step 3: Confirm and accept
+    // Step 2: Confirm and accept
     bool confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -912,7 +903,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       // No need to pre-create it in Firestore.
 
       final userState = context.read<UserState>();
-      if (userState.isVerified && userState.hasPackage) {
+      if (userState.isVerified) {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -935,10 +926,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
             ),
           ),
         );
-      } else if (!userState.isVerified) {
-        VerificationService.requireVerification(context);
       } else {
-        showUpgradeDialog(context);
+        VerificationService.requireVerification(context);
       }
     } catch (e) {
       print("Error navigating to chat: $e");

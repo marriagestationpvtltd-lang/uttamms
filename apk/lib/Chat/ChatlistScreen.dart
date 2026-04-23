@@ -916,13 +916,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     // Step 1: Check document status
     if (!VerificationService.requireVerification(context)) return;
 
-    // Step 2: Check payment / subscription
-    if (!userState.hasPackage) {
-      showUpgradeDialog(context);
-      return;
-    }
-
-    // Step 3: Confirm and accept
+    // Step 2: Confirm and accept
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

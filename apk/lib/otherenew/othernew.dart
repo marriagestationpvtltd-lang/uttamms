@@ -1335,76 +1335,6 @@ class _ProfileHeaderSection extends StatelessWidget {
   }
 
   Widget _buildPhotoRequestButton(BuildContext context) {
-    // ❌ NOT PAID
-    if (!userProfile.isCurrentUserPaid) {
-      return Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.blue.shade400, Colors.blue.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.blue.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onUpgradePressed,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.star, color: Colors.white, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Premium Feature',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Upgrade to View Photos',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
     // 🔥 RECEIVED REQUEST → Accept/Reject with beautiful design
     if (userProfile.isPhotoRequestReceived) {
       return Container(
@@ -2392,76 +2322,6 @@ class _ContactInfoSection extends StatelessWidget {
 
 
   Widget _buildChatButton(BuildContext context) {
-    // ❌ NOT PAID - Premium Upgrade Card
-    if (!userProfile.isCurrentUserPaid) {
-      return Container(
-        width: double.infinity,
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Colors.blue.shade400, Colors.blue.shade600],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.blue.withOpacity(0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            onTap: onUpgradePressed,
-            borderRadius: BorderRadius.circular(16),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(Icons.chat, color: Colors.white, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: const [
-                        Text(
-                          'Premium Feature',
-                          style: TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text(
-                          'Upgrade to Start Chat',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const Icon(Icons.arrow_forward_ios, color: Colors.white, size: 16),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
     // 🔥 RECEIVED REQUEST → Accept/Reject with beautiful design
     if (userProfile.isChatRequestReceived) {
       return Container(
@@ -2765,8 +2625,8 @@ class _ContactInfoSection extends StatelessWidget {
           color: Colors.transparent,
           child: InkWell(
             onTap: () async {
-              // ✅ VERIFIED DOCUMENT AND PAID MEMBER → Can chat
-              if (docStatus == "approved" && userType == "paid") {
+              // ✅ VERIFIED DOCUMENT → Can chat (request already accepted)
+              if (docStatus == "approved") {
                 try {
                   // Generate chatRoomId (sorted)
                   List<String> ids = [currentUserId, userId];
@@ -2806,21 +2666,6 @@ class _ContactInfoSection extends StatelessWidget {
                 }
               }
 
-              // ❌ DOCUMENT NOT UPLOADED AND FREE MEMBER → Show Verification Dialog
-              else if (docStatus == "not_uploaded" && userType == 'free') {
-                VerificationService.requireVerification(context);
-              }
-
-              // ❌ FREE MEMBER BUT DOCUMENT APPROVED → Show Upgrade Dialog
-              else if (userType == "free" && docStatus == 'approved') {
-                _showUpgradeChatDialog(context);
-              }
-
-              // ❌ PAID MEMBER BUT DOCUMENT NOT APPROVED → Show Document Verification
-              else if (userType == "paid" && docStatus != 'approved') {
-                _showDocumentVerificationDialog(context);
-              }
-
               // ❌ DOCUMENT PENDING → Show Pending Status
               else if (docStatus == "pending") {
                 _showDocumentPendingDialog(context);
@@ -2831,9 +2676,9 @@ class _ContactInfoSection extends StatelessWidget {
                 _showDocumentRejectedDialog(context);
               }
 
-              // ❌ ANY OTHER CASE → Default to Upgrade
+              // ❌ DOCUMENT NOT UPLOADED → Show Verification Dialog
               else {
-                _showUpgradeChatDialog(context);
+                VerificationService.requireVerification(context);
               }
             },
             borderRadius: BorderRadius.circular(16),
@@ -3195,21 +3040,7 @@ class _PhotosAlbumSection extends StatelessWidget {
   }
 
   Widget _buildOverlay(BuildContext context) {
-    // Case 1: User is not paid
-    if (!userProfile.isCurrentUserPaid) {
-      return _RequestButton(
-        text: "Upgrade to View Photos",
-        icon: Icons.upgrade,
-        onPressed: onUpgradePressed,
-        color: Colors.blue,
-        isPending: false,
-        isRejected: false,
-        isAccepted: false,
-        isUpgrade: true,
-      );
-    }
-
-    // Case 2: Request is pending
+    // Case 1: Request is pending
     if (userProfile.isPhotoRequestPending) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -3260,7 +3091,7 @@ class _PhotosAlbumSection extends StatelessWidget {
       );
     }
 
-    // Case 4: Request not sent yet (paid user)
+    // Case 3: Request not sent yet → Show request button
     if (userProfile.isPhotoRequestNotSent) {
       return _RequestButton(
         text: "Send Photo Request",
