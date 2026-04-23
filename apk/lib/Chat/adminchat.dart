@@ -22,6 +22,7 @@ import 'dart:async';
 import 'package:uuid/uuid.dart';
 import '../Auth/Screen/signupscreen10.dart';
 import '../Calling/OutgoingCall.dart';
+import '../service/verification_service.dart';
 import '../Calling/videocall.dart';
 import '../Calling/call_history_model.dart';
 import '../Calling/call_history_service.dart';
@@ -294,33 +295,19 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     if (!context.mounted) return;
 
     final userState = context.read<UserState>();
-    final docStatus = userState.identityStatus;
-    final userType = userState.usertype;
+    if (!VerificationService.requireVerification(context)) return;
 
-    if (docStatus == 'approved' && userType == 'paid') {
-      if (!context.mounted) return;
-      // Navigate to the profile page so chat request status is checked and the
-      // correct action button is shown (Send Request / Start Chat).
-      // Direct messaging without the other user's permission is not allowed.
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => ProfileScreen(userId: userId),
-        ),
-      );
-    } else if (docStatus.isEmpty || docStatus == 'not_uploaded') {
-      _showDocumentUploadRequiredDialog(context);
-    } else if (docStatus == 'pending') {
-      _showDocumentPendingDialog(context);
-    } else if (docStatus == 'rejected') {
-      _showDocumentRejectedDialog(context);
-    } else if (userType == 'free' && docStatus == 'approved') {
+    if (userState.usertype != 'paid') {
       _showUpgradeChatDialog(context);
-    } else if (userType == 'paid' && docStatus != 'approved') {
-      _showDocumentVerificationDialog(context);
-    } else {
-      _showUpgradeChatDialog(context);
+      return;
     }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(userId: userId),
+      ),
+    );
   }
 
   void _showDocumentUploadRequiredDialog(BuildContext context) {
@@ -355,22 +342,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   Future<void> _handleProfileCardViewProfile(BuildContext context, String userId) async {
     if (!context.mounted) return;
 
-    final docStatus = context.read<UserState>().identityStatus;
-    if (docStatus == 'approved') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)),
-      );
-    } else if (docStatus == 'pending') {
-      _showDocumentPendingDialog(context);
-    } else if (docStatus == 'rejected') {
-      _showDocumentRejectedDialog(context);
-    } else {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-      );
-    }
+    if (!VerificationService.requireVerification(context)) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => ProfileScreen(userId: userId)),
+    );
   }
 
   void _showUpgradeChatDialog(BuildContext context) {

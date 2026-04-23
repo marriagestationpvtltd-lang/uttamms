@@ -11,8 +11,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
-import '../Auth/Screen/signupscreen10.dart';
 import '../Models/masterdata.dart';
+import '../service/verification_service.dart';
 import '../Package/PackageScreen.dart';
 import '../core/user_state.dart';
 import '../online/onlineservice.dart';
@@ -912,10 +912,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final userState = context.read<UserState>();
     // Step 1: Check document status
     if (!userState.isVerified) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => IDVerificationScreen()),
-      );
+      VerificationService.requireVerification(context);
       return;
     }
 
@@ -2376,10 +2373,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                   );
                 }
               } else if (!isVerified) {
-                Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => IDVerificationScreen()));
+                VerificationService.requireVerification(context);
               } else {
                 // Verified but no package
                 showUpgradeDialog(context);

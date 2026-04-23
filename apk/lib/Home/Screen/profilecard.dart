@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'dart:convert';
 import 'package:http/http.dart' as http;
-import 'package:ms2026/Auth/Screen/signupscreen10.dart';
+import '../../service/verification_service.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -818,11 +818,7 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                           ),
                         );
                       } else {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => IDVerificationScreen()),
-                        );
+                        VerificationService.requireVerification(context);
                       }
                     },
                   ),
@@ -1015,12 +1011,7 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                                 ),
                               );
                             } else {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) =>
-                                        IDVerificationScreen()),
-                              );
+                              VerificationService.requireVerification(context);
                             }
                           },
                         ),

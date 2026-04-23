@@ -661,8 +661,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
         _goTo(IDVerificationScreen());
         break;
       case 9:
-        _goTo(const IDVerificationScreen());
-        break;
       case 10:
         _goTo(const MainControllerScreen(initialIndex: 0));
         break;

@@ -7,7 +7,7 @@ import 'package:ms2026/constant/app_dimensions.dart';
 import 'package:ms2026/constant/app_text_styles.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../Auth/Screen/signupscreen10.dart';
+import '../../service/verification_service.dart';
 import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../ReUsable/privacy_aware_profile_card.dart';
@@ -333,10 +333,7 @@ class _RecentMembersPageState extends State<RecentMembersPage> {
             ),
           );
         } else {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => const IDVerificationScreen()),
-          );
+          VerificationService.requireVerification(context);
         }
       },
     );
