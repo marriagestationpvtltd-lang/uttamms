@@ -33,7 +33,22 @@ ALTER TABLE user_documents
     MODIFY COLUMN documenttype VARCHAR(100) NOT NULL;
 
 -- 3. Drop the old single-user unique key (only one doc per user)
-ALTER TABLE user_documents DROP INDEX IF EXISTS uk_userid;
+--    MySQL does not support DROP INDEX IF EXISTS, so we use an
+--    INFORMATION_SCHEMA check with PREPARE/EXECUTE to make this idempotent.
+SET @_drop_idx = (
+    SELECT IF(
+        COUNT(*) > 0,
+        'ALTER TABLE user_documents DROP INDEX uk_userid',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_documents'
+      AND INDEX_NAME   = 'uk_userid'
+);
+PREPARE _stmt FROM @_drop_idx;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- 4. Add composite unique key so one user can have one row per document type
 --    but cannot duplicate the same type.
