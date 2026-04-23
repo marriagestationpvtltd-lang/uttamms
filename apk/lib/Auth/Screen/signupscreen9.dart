@@ -38,6 +38,13 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
   List<String> _selectedDistrict = [];
   List<String> _selectedEducation = [];
   List<String> _selectedOccupation = [];
+
+  // Lifestyle Preferences
+  List<String> _selectedDiet = [];
+  String? _selectedSmokeAcceptance;
+  String? _selectedDrinkAcceptance;
+  final TextEditingController _otherExpectationsController = TextEditingController();
+
   List<String> _countryOptions = ['Any'];
   List<String> _stateOptions = ['Any'];
   List<String> _districtOptions = ['Any'];
@@ -180,6 +187,30 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
     'Other',
   ];
 
+  final List<String> _dietOptions = [
+    'Any',
+    'Vegetarian',
+    'Non-Vegetarian',
+    'Eggetarian',
+    'Vegan',
+    'Jain',
+    'Other',
+  ];
+
+  final List<String> _smokeAcceptanceOptions = [
+    'Any',
+    "Doesn't Smoke",
+    'Occasional Smoker',
+    'Regular Smoker',
+  ];
+
+  final List<String> _drinkAcceptanceOptions = [
+    'Any',
+    "Doesn't Drink",
+    'Social Drinker',
+    'Regular Drinker',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -198,6 +229,7 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
 
   @override
   void dispose() {
+    _otherExpectationsController.dispose();
     super.dispose();
   }
 
@@ -608,7 +640,11 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
       _selectedState = _parsePreferenceList(data['state']);
       _selectedDistrict = _parsePreferenceList(data['city'] ?? data['district']);
       _selectedEducation = _parsePreferenceList(data['qualification'] ?? data['education']);
-      _selectedOccupation = _parsePreferenceList(data['profession']);
+      _selectedOccupation = _parsePreferenceList(data['profession'] ?? data['proffession']);
+      _selectedDiet = _parsePreferenceList(data['diet']);
+      _selectedSmokeAcceptance = data['smokeaccept']?.toString();
+      _selectedDrinkAcceptance = data['drinkaccept']?.toString();
+      _otherExpectationsController.text = data['otherexpectation']?.toString() ?? '';
     });
 
     await _loadStatesForSelectedCountries(preferredSelection: List<String>.from(_selectedState));
@@ -692,6 +728,12 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
         district: _selectedDistrict.isNotEmpty ? _selectedDistrict.join(',') : null,
         education: _selectedEducation.isNotEmpty ? _selectedEducation.join(',') : null,
         occupation: _selectedOccupation.isNotEmpty ? _selectedOccupation.join(',') : null,
+        diet: _selectedDiet.isNotEmpty ? _selectedDiet.join(',') : null,
+        smokeAccept: _selectedSmokeAcceptance,
+        drinkAccept: _selectedDrinkAcceptance,
+        otherExpectation: _otherExpectationsController.text.trim().isNotEmpty
+            ? _otherExpectationsController.text.trim()
+            : null,
       );
 
       setState(() => _isSubmitting = false);
@@ -924,11 +966,154 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
     );
   }
 
+  Widget _buildSingleSelectField({
+    required String label,
+    required String? selectedItem,
+    required IconData icon,
+    required List<String> options,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8, left: 4),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadowLight,
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Icon(icon, color: AppColors.textSecondary, size: 20),
+              ),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: selectedItem,
+                    isExpanded: true,
+                    hint: const Text(
+                      'Select an option',
+                      style: TextStyle(
+                        color: AppColors.textHint,
+                        fontSize: 15,
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary,
+                    ),
+                    icon: const Icon(
+                      Icons.keyboard_arrow_down,
+                      color: AppColors.textSecondary,
+                    ),
+                    items: options.map((option) {
+                      return DropdownMenuItem<String>(
+                        value: option,
+                        child: Text(option),
+                      );
+                    }).toList(),
+                    onChanged: onChanged,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTextAreaField({
+    required String label,
+    required TextEditingController controller,
+    required String hint,
+    required IconData icon,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8, left: 4),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: AppColors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppColors.border, width: 1.5),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.shadowLight,
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: TextField(
+            controller: controller,
+            maxLines: 4,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w400,
+              color: AppColors.textPrimary,
+            ),
+            decoration: InputDecoration(
+              hintText: hint,
+              hintStyle: const TextStyle(
+                color: AppColors.textHint,
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+              ),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 60),
+                child: Icon(icon, color: AppColors.textSecondary, size: 20),
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 14,
+              ),
+              border: InputBorder.none,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      resizeToAvoidBottomInset: false,
+      resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: RegistrationStepContainer(
             onContinue: (_isSubmitting || _isLoadingInitialData) ? null : _validateAndSubmit,
@@ -1400,6 +1585,79 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
                        },
                     );
                   },
+                ),
+
+                const SizedBox(height: 32),
+
+                // Lifestyle Preferences Section
+                SectionHeader(
+                  title: 'Lifestyle Preferences',
+                  subtitle: 'Diet, smoking and drinking habits preferences (Optional)',
+                  icon: Icons.spa_outlined,
+                ),
+
+                const SizedBox(height: 16),
+
+                // Diet Preference
+                _buildMultiSelectField(
+                  label: 'Diet Preference',
+                  selectedItems: _selectedDiet,
+                  icon: Icons.restaurant_outlined,
+                  onTap: () {
+                    _showMultiSelectDialog(
+                      title: 'Select Diet Preference',
+                      options: _dietOptions,
+                      selectedOptions: _selectedDiet,
+                      icon: Icons.restaurant_outlined,
+                      onConfirm: (selected) {
+                        setState(() => _selectedDiet = _normalizeAnySelection(selected));
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Smoke Acceptance
+                _buildSingleSelectField(
+                  label: 'Smoking Acceptance',
+                  selectedItem: _selectedSmokeAcceptance,
+                  icon: Icons.smoke_free_outlined,
+                  options: _smokeAcceptanceOptions,
+                  onChanged: (value) {
+                    setState(() => _selectedSmokeAcceptance = value);
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                // Drink Acceptance
+                _buildSingleSelectField(
+                  label: 'Drinking Acceptance',
+                  selectedItem: _selectedDrinkAcceptance,
+                  icon: Icons.local_bar_outlined,
+                  options: _drinkAcceptanceOptions,
+                  onChanged: (value) {
+                    setState(() => _selectedDrinkAcceptance = value);
+                  },
+                ),
+
+                const SizedBox(height: 32),
+
+                // Other Expectations Section
+                SectionHeader(
+                  title: 'Other Expectations',
+                  subtitle: 'Any additional preferences or expectations (Optional)',
+                  icon: Icons.notes_outlined,
+                ),
+
+                const SizedBox(height: 16),
+
+                _buildTextAreaField(
+                  label: 'Describe your expectations',
+                  controller: _otherExpectationsController,
+                  hint: 'E.g. looking for someone who values family, enjoys travel...',
+                  icon: Icons.edit_note_outlined,
                 ),
 
                 const SizedBox(height: 32),

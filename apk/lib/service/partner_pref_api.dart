@@ -64,6 +64,10 @@ class UserPartnerPreferenceService {
     String? district,
     String? education,
     String? occupation,
+    String? diet,
+    String? smokeAccept,
+    String? drinkAccept,
+    String? otherExpectation,
   }) async {
     final url = Uri.parse(saveUrl);
 
@@ -91,13 +95,13 @@ class UserPartnerPreferenceService {
         'profession': occupation ?? '',
         'workingwith': '',
         'annualincome': '',
-        'diet': '',
-        'smokeaccept': '',
-        'drinkaccept': '',
+        'diet': diet ?? '',
+        'smokeaccept': smokeAccept ?? '',
+        'drinkaccept': drinkAccept ?? '',
         'disabilityaccept': '',
         'complexion': '',
         'bodytype': '',
-        'otherexpectation': '',
+        'otherexpectation': otherExpectation ?? '',
         'country_names': country ?? '',
         'state_names': state ?? '',
         'district_names': district ?? '',
