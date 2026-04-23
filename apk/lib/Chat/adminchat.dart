@@ -20,7 +20,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 import 'package:uuid/uuid.dart';
-import '../Auth/Screen/signupscreen10.dart';
 import '../Calling/OutgoingCall.dart';
 import '../service/verification_service.dart';
 import '../Calling/videocall.dart';
@@ -310,35 +309,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     );
   }
 
-  void _showDocumentUploadRequiredDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Verify Documents First'),
-        content: const Text(
-          'Please verify your documents before you can start a chat.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Later'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-              );
-            },
-            child: const Text('Verify Now'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<void> _handleProfileCardViewProfile(BuildContext context, String userId) async {
     if (!context.mounted) return;
 
@@ -374,76 +344,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
               );
             },
             child: const Text('Upgrade'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDocumentVerificationDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Document Verification Pending'),
-        content: const Text(
-          'Your document verification is in progress. '
-          'Please wait for approval before starting a chat.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDocumentPendingDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Document Under Review'),
-        content: const Text(
-          'Your document is currently under review. '
-          'You will be able to chat once it has been verified.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDocumentRejectedDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Document Rejected'),
-        content: const Text(
-          'Your document was rejected. '
-          'Please upload a valid document to continue.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => IDVerificationScreen()),
-              );
-            },
-            child: const Text('Re-upload'),
           ),
         ],
       ),

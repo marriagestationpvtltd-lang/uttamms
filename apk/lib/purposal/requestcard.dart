@@ -518,10 +518,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
   Future<void> _handleAcceptRequest() async {
     final userState = context.read<UserState>();
     // Step 1: Check document verification
-    if (!userState.isVerified) {
-      VerificationService.requireVerification(context);
-      return;
-    }
+    if (!VerificationService.requireVerification(context)) return;
 
     // Step 2: Check payment / subscription
     if (!userState.hasPackage) {
