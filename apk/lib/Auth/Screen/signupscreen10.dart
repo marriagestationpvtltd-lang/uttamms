@@ -7,8 +7,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 
+import 'package:provider/provider.dart';
+
 import '../../Startup/MainControllere.dart';
 import '../../constant/app_colors.dart';
+import '../../core/user_state.dart';
 import '../../service/updatepage.dart';
 import '../../service/ocr_service.dart';
 import '../../service/document_scanner_service.dart';
@@ -2300,6 +2303,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       if (userId != null) {
         await UpdateService.updatePageNumber(
             userId: userId.toString(), pageNo: 10);
+        // Fetch fresh verification state from the backend so that all screens
+        // immediately reflect the approved status without relying on the cache.
+        if (mounted) {
+          await context.read<UserState>().refresh(userId);
+        }
       }
     }
     _goToHome();
