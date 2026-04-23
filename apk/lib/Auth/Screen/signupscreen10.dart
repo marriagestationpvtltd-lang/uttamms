@@ -326,7 +326,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       request.fields['userid'] = userId.toString();
       request.fields['documenttype'] = docType;
       request.fields['documentidnumber'] = '';
-      request.fields['title'] = 'Marital Status Document';
+      request.fields['title'] = 'Marital Status Document - $docType';
 
       final imageFile = await http.MultipartFile.fromPath('photo', imagePath);
       request.files.add(imageFile);
@@ -570,7 +570,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Upload at least one document proving your current marital status. Tap a document to upload.',
+                  'Upload at least one of the documents below to prove your current marital status. Tap a document tile to upload.',
                   style: TextStyle(
                       fontSize: 12.5,
                       color: Color(0xFF795548),
