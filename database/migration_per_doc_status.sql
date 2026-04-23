@@ -12,8 +12,10 @@ ALTER TABLE user_documents
     AFTER status;
 
 -- 2. Ensure documenttype column is NOT NULL (new uploads always supply it)
---    Update any existing NULL rows to a placeholder first.
-UPDATE user_documents SET documenttype = 'Unknown' WHERE documenttype IS NULL;
+--    Update any existing NULL rows to a descriptive placeholder before
+--    applying the NOT NULL constraint. Records with this value are
+--    pre-migration rows that should be reviewed and corrected manually.
+UPDATE user_documents SET documenttype = 'Legacy_Document' WHERE documenttype IS NULL;
 ALTER TABLE user_documents
     MODIFY COLUMN documenttype VARCHAR(100) NOT NULL;
 
