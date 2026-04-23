@@ -11,7 +11,6 @@ import '../Chat/ChatlistScreen.dart';
 import '../core/user_state.dart';
 import '../profile/myprofile.dart';
 import '../service/socket_service.dart';
-import '../service/verification_service.dart';
 import '../utils/responsive_layout.dart';
 
 class MainControllerScreen extends StatefulWidget {
