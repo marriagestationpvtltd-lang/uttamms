@@ -1305,28 +1305,37 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     return GestureDetector(
       onTap: () => setState(() => _hasConsented = !_hasConsented),
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.all(16),
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
           color: _hasConsented ? const Color(0xFFF1F8E9) : Colors.white,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: _hasConsented
                 ? AppColors.success
                 : const Color(0xFFE0E0E0),
-            width: 1.5,
+            width: 2,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: _hasConsented
+                  ? AppColors.success.withOpacity(0.1)
+                  : Colors.black.withOpacity(0.04),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             AnimatedContainer(
-              duration: const Duration(milliseconds: 180),
-              width: 22,
-              height: 22,
+              duration: const Duration(milliseconds: 200),
+              width: 24,
+              height: 24,
               decoration: BoxDecoration(
                 color: _hasConsented ? AppColors.success : Colors.white,
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: _hasConsented
                       ? AppColors.success
@@ -1335,17 +1344,18 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 ),
               ),
               child: _hasConsented
-                  ? const Icon(Icons.check, color: Colors.white, size: 14)
+                  ? const Icon(Icons.check, color: Colors.white, size: 16)
                   : null,
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 14),
             const Expanded(
               child: Text(
                 'I consent to use of this document solely for identity verification. It will remain confidential and will not be shared with third parties.',
                 style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF616161),
-                    height: 1.5),
+                  fontSize: 14,
+                  color: Color(0xFF424242),
+                  height: 1.6,
+                ),
               ),
             ),
           ],
@@ -2059,13 +2069,13 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               ),
               const SizedBox(height: 20),
               const Text(
-                'Scan or Upload Document',
+                'Choose Upload Method',
                 style: TextStyle(
                     fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
-                'Document scanner detects edges automatically',
+                'Scan, take a photo, or choose from gallery',
                 style: TextStyle(fontSize: 13, color: Colors.grey),
               ),
               const SizedBox(height: 20),
@@ -2089,6 +2099,17 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 onTap: () {
                   Navigator.pop(context);
                   _selectFromGallery();
+                },
+              ),
+              const SizedBox(height: 12),
+              // Camera option
+              _buildSourceOption(
+                icon: Icons.camera_alt_rounded,
+                label: 'Camera',
+                subtitle: 'Take a photo',
+                onTap: () {
+                  Navigator.pop(context);
+                  _selectFromCamera();
                 },
               ),
               const SizedBox(height: 8),
@@ -2145,7 +2166,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               decoration: BoxDecoration(
                 gradient: isRecommended
                     ? AppColors.primaryGradient
-                    : AppColors.primaryGradient,
+                    : null,
+                color: isRecommended ? null : const Color(0xFF9E9E9E),
                 shape: BoxShape.circle,
               ),
               child: Icon(icon, color: Colors.white, size: 28),
@@ -2206,6 +2228,27 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       }
     } catch (e) {
       _showError('Failed to select image: $e');
+    }
+  }
+
+  Future<void> _selectFromCamera() async {
+    try {
+      final XFile? image = await _picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 90,
+      );
+      if (image != null) {
+        setState(() {
+          _selectedImage = image;
+          _scannedImagePath = null; // Clear any previously scanned image
+        });
+        // Auto-scan after image capture
+        await _scanDocumentId();
+      }
+    } catch (e) {
+      _showError('Failed to capture image: $e');
     }
   }
 
