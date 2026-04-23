@@ -1093,9 +1093,13 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
                 fontSize: 14,
                 fontWeight: FontWeight.w400,
               ),
-              prefixIcon: Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 60),
-                child: Icon(icon, color: AppColors.textSecondary, size: 20),
+              prefixIcon: Align(
+                alignment: Alignment.topCenter,
+                heightFactor: 1,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: Icon(icon, color: AppColors.textSecondary, size: 20),
+                ),
               ),
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
