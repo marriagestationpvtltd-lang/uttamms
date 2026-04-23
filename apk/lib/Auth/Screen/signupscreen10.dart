@@ -267,6 +267,21 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   bool _requiresMaritalDocuments() =>
       _maritalStatus != null && _maritalStatus != 'Still Unmarried';
 
+  /// Returns a section title for the marital documents section that reflects
+  /// the user's specific marital status.
+  String _getMaritalSectionTitle() {
+    switch (_maritalStatus) {
+      case 'Widowed':
+        return 'Widowhood Documents';
+      case 'Divorced':
+        return 'Divorce Documents';
+      case 'Waiting Divorce':
+        return 'Separation Documents';
+      default:
+        return 'Marital Documents';
+    }
+  }
+
   /// Returns the ordered list of document types the user must provide based on
   /// their marital status.
   List<Map<String, dynamic>> _getRequiredMaritalDocuments() {
@@ -599,7 +614,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildSectionTitle('2. Marital Documents'),
+        _buildSectionTitle('2. ${_getMaritalSectionTitle()}'),
         const SizedBox(height: 6),
         Text(
           'Since your marital status is "$_maritalStatus", upload all the documents listed below.',
