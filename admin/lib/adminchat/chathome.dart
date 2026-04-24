@@ -2912,16 +2912,10 @@ class _ChatWindowState extends State<ChatWindow> {
                                           ? Map<String, dynamic>.from(data['reactions'] as Map)
                                           : {};
 
-                                  // For non-paid members only the first message is visible;
-                                  // all subsequent messages are replaced with asterisks.
-                                  // Use null-check so that any message with an unmapped ID
-                                  // is shown in full rather than incorrectly masked.
-                                  final int? globalMsgIndex = _messageIndexMap[msgId];
-                                  final bool isMasked = !chatProvider.ispaid &&
-                                      globalMsgIndex != null &&
-                                      globalMsgIndex > 0 &&
-                                      data['deleted'] != true &&
-                                      data['unsent'] != true;
+                                  // The admin (paid member) always sees all messages in full.
+                                  // Message masking for free users is applied in the
+                                  // user-facing app, not here in the admin panel.
+                                  const bool isMasked = false;
                                   final String bubbleMessage = isMasked
                                       ? _kMaskedMessageText
                                       : data['message'];

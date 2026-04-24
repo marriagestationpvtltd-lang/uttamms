@@ -69,6 +69,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   static const String _adminUserId = '1';
   static const String _adminUserName = 'Admin';
+  static const String _kMaskedMessageText = '* * * * * * * * * *';
 
   final SocketService _socketService = SocketService();
   final Uuid _uuid = Uuid();
@@ -1377,7 +1378,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   }
 
 // Updated message builder with swipe-to-reply
-  Widget _buildMessageItem(Map<String, dynamic> data) {
+  Widget _buildMessageItem(Map<String, dynamic> data, {bool isMasked = false}) {
     // Support both Socket.IO field names (senderId) and legacy (senderid)
     final String senderId = data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
     bool isMe = senderId == _mySenderId;
@@ -1429,6 +1430,13 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     double swipeOffset = _swipeOffsets[msgID] ?? 0.0;
     final Map<String, dynamic> reactions =
         (data['reactions'] is Map) ? Map<String, dynamic>.from(data['reactions'] as Map) : {};
+
+    // For free users viewing admin messages after the first: mask content.
+    final String effectiveType = isMasked
+        ? 'text'
+        : (data['messageType']?.toString() ?? data['type']?.toString() ?? 'text');
+    final String effectiveMessage =
+        isMasked ? _kMaskedMessageText : (data['message'] ?? '');
 
     return StatefulBuilder(
       builder: (context, setItemState) {
@@ -1522,7 +1530,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                       ),
                     ),
                   // Profile card: render directly without gradient bubble
-                  if ((data['messageType'] ?? data['type']) == 'profile_card') ...[
+                  if (effectiveType == 'profile_card') ...[
                     _buildProfileCardMessage(_parseProfileCardData(data), isMe),
                     const SizedBox(height: 4),
                     Padding(
@@ -1541,7 +1549,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                         ],
                       ),
                     ),
-                  ] else if ((data['messageType'] ?? data['type']) == 'image') ...[
+                  ] else if (effectiveType == 'image') ...[
                     // Single image: rendered outside the gradient bubble (fixes border issue)
                     _buildChatImageMessage(
                       data['message']?.toString() ?? data['imageUrl']?.toString(),
@@ -1561,7 +1569,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                         ],
                       ),
                     ),
-                  ] else if ((data['messageType'] ?? data['type']) == 'image_gallery') ...[
+                  ] else if (effectiveType == 'image_gallery') ...[
                     // Multiple images: rendered as WhatsApp-style grid outside the gradient bubble
                     _buildChatGalleryGrid(
                       _parseGalleryUrls(data['message']?.toString() ?? '[]'),
@@ -1637,9 +1645,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                           }
                           return const SizedBox.shrink();
                         }),
-                        if ((data['messageType'] ?? data['type']) == 'text')
+                        if (effectiveType == 'text')
                           Text(
-                            data['message'] ?? '',
+                            effectiveMessage,
                             style: TextStyle(
                               color: isMe
                                   ? (isRead
@@ -1652,10 +1660,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                                   : FontWeight.w400,
                             ),
                           ),
-                        if ((data['messageType'] ?? data['type']) == 'voice')
-                          _buildVoiceMessage(data['message'] ?? '', isMe),
-                        if ((data['messageType'] ?? data['type']) == 'doc')
-                          _buildDocumentMessage(data['message'] ?? '', isMe),
+                        if (effectiveType == 'voice')
+                          _buildVoiceMessage(effectiveMessage, isMe),
+                        if (effectiveType == 'doc')
+                          _buildDocumentMessage(effectiveMessage, isMe),
                         const SizedBox(height: 6),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1793,6 +1801,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
   List<Widget> _buildMessagesFromCache() {
     final items = <Widget>[];
+    final bool isCurrentUserPaid = context.read<UserState>().usertype == 'paid';
+    int adminMsgCount = 0;
 
     String? lastDateLabel;
     for (final data in _cachedMessages) {
@@ -1809,7 +1819,24 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           }
         }
       }
-      items.add(_buildMessageItem(data));
+
+      // Determine masking: free users see only the first admin message;
+      // all subsequent admin messages are replaced with asterisks.
+      final String senderId =
+          data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
+      final bool isFromAdmin = senderId == _adminUserId;
+      bool isMasked = false;
+      if (isFromAdmin) {
+        if (!isCurrentUserPaid &&
+            adminMsgCount > 0 &&
+            data['deleted'] != true &&
+            data['unsent'] != true) {
+          isMasked = true;
+        }
+        adminMsgCount++;
+      }
+
+      items.add(_buildMessageItem(data, isMasked: isMasked));
     }
     return items;
   }
