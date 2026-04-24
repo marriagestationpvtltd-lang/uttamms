@@ -729,7 +729,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 onPressed: prov.isSendingNotification ? null : () => _requestPhotoUpload(p),
               ),
             )
-          else if (p.photoRequest.toLowerCase() == 'approved')
+          else if (p.photoRequest == 'approved')
             // Photo already approved — lock it, no re-approval allowed.
             Container(
               width: double.infinity,

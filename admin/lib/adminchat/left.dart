@@ -32,7 +32,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
   List<dynamic> _filteredUsers = [];
   String _searchQuery = "";
 
-  static const int _maxUnreadBadge = 99;
+  static bool _isUserVerified(dynamic rawVerified) =>
+      rawVerified == true || rawVerified == 1 || rawVerified?.toString() == '1';
 
   // Filter options
   bool _showOnlyPaid = false;
@@ -670,11 +671,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
             !_showOnlyUnread || (_unreadCounts[uid] ?? 0) > 0;
 
         // Verified filter
-        final rawVerified = user["is_verified"];
-        final bool userIsVerified = rawVerified == true ||
-            rawVerified == 1 ||
-            rawVerified?.toString() == '1';
-        bool matchesVerified = !_showOnlyVerified || userIsVerified;
+        bool matchesVerified =
+            !_showOnlyVerified || _isUserVerified(user["is_verified"]);
 
         return matchesSearch && matchesPaid && matchesOnline &&
             matchesWithMatches && matchesUnread && matchesVerified;
@@ -1154,9 +1152,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             user["profile_picture"] ?? "",
                             isSelected,
                             _unreadCounts[user["id"].toString()] ?? 0,
-                            user["is_verified"] == true ||
-                                user["is_verified"] == 1 ||
-                                user["is_verified"]?.toString() == '1',
+                            _isUserVerified(user["is_verified"]),
                             () {
                               setState(() {
                                 _selectedChat = user;
