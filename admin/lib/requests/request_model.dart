@@ -68,16 +68,16 @@ class RequestItem {
   }
 
   String get senderInitials {
-    final parts = senderName.trim().split(' ');
+    final parts = senderName.trim().split(' ').where((p) => p.isNotEmpty).toList();
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    if (senderName.isNotEmpty) return senderName[0].toUpperCase();
+    if (parts.isNotEmpty) return parts[0][0].toUpperCase();
     return '?';
   }
 
   String get receiverInitials {
-    final parts = receiverName.trim().split(' ');
+    final parts = receiverName.trim().split(' ').where((p) => p.isNotEmpty).toList();
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    if (receiverName.isNotEmpty) return receiverName[0].toUpperCase();
+    if (parts.isNotEmpty) return parts[0][0].toUpperCase();
     return '?';
   }
 

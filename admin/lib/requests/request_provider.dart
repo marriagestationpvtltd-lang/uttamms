@@ -77,22 +77,16 @@ class RequestProvider with ChangeNotifier {
 
   Future<void> forceUpdateStatus(
       int requestId, String action, BuildContext context) async {
+    // The API expects 'accept'/'reject'; the resulting status is 'accepted'/'rejected'
+    final apiAction = action == 'accepted' ? 'accept' : 'reject';
     try {
       final success = await _service.updateRequestStatus(
         requestId: requestId,
-        action: action,
+        action: apiAction,
       );
       if (success) {
-        final idx = _requests.indexWhere((r) => r.id == requestId);
-        if (idx != -1) {
-          _requests = List<RequestItem>.from(_requests)
-            ..[idx] = _requests[idx].copyWith(status: action);
-          // Refresh stats after status change
-          if (_stats != null) {
-            await fetchRequests(reset: true);
-          }
-        }
-        notifyListeners();
+        // Refresh to get updated stats and list from server
+        await fetchRequests(reset: true);
       }
     } on UnauthorizedException {
       if (context.mounted) {

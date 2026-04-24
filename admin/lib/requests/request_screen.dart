@@ -156,41 +156,46 @@ class _RequestsPageState extends State<RequestsPage> {
     return Container(
       color: cardBg,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      child: TextField(
-        controller: _searchController,
-        onChanged: (v) => provider.setSearch(v.trim()),
-        decoration: InputDecoration(
-          hintText: 'Search by name or email…',
-          hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
-          prefixIcon: Icon(Icons.search_rounded,
-              color: Colors.grey.shade400, size: 18),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: Colors.grey.shade200),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide(color: Colors.grey.shade200),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: _kPrimary, width: 1.5),
-          ),
-          filled: true,
-          fillColor: Colors.grey.shade50,
-          contentPadding:
-              const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
-          isDense: true,
-          suffixIcon: _searchController.text.isNotEmpty
-              ? IconButton(
-                  icon: const Icon(Icons.clear_rounded, size: 16),
-                  onPressed: () {
-                    _searchController.clear();
-                    provider.setSearch('');
-                  },
-                )
-              : null,
-        ),
+      child: ValueListenableBuilder<TextEditingValue>(
+        valueListenable: _searchController,
+        builder: (context, value, _) {
+          return TextField(
+            controller: _searchController,
+            onChanged: (v) => provider.setSearch(v.trim()),
+            decoration: InputDecoration(
+              hintText: 'Search by name or email…',
+              hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+              prefixIcon: Icon(Icons.search_rounded,
+                  color: Colors.grey.shade400, size: 18),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: Colors.grey.shade200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: _kPrimary, width: 1.5),
+              ),
+              filled: true,
+              fillColor: Colors.grey.shade50,
+              contentPadding:
+                  const EdgeInsets.symmetric(vertical: 9, horizontal: 12),
+              isDense: true,
+              suffixIcon: value.text.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear_rounded, size: 16),
+                      onPressed: () {
+                        _searchController.clear();
+                        provider.setSearch('');
+                      },
+                    )
+                  : null,
+            ),
+          );
+        },
       ),
     );
   }
@@ -351,6 +356,9 @@ class _RequestsPageState extends State<RequestsPage> {
       default:
         color = _kSlate500;
     }
+    final label = status.isNotEmpty
+        ? status[0].toUpperCase() + status.substring(1)
+        : '—';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
@@ -359,7 +367,7 @@ class _RequestsPageState extends State<RequestsPage> {
         border: Border.all(color: color.withOpacity(0.35)),
       ),
       child: Text(
-        status[0].toUpperCase() + status.substring(1),
+        label,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
