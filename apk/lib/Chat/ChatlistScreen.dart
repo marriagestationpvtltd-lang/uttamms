@@ -560,20 +560,21 @@ class _ChatListScreenState extends State<ChatListScreen>
     return DateFormat('hh:mm a').format(time.toLocal());
   }
 
-  /// Extract the first N words from a message and append "..." if there are more words.
-  /// Used to show a preview of messages for non-paid users in the chat list.
-  String _getFirstWords(String message, int wordCount) {
+  /// Placeholder used to mask the tail of a message preview for non-premium users.
+  static const String _previewMask = '****';
+
+  /// Masks all words after the first one with [_previewMask].
+  ///
+  /// Applied in the [_MessageViewContext.listPreview] context for non-premium
+  /// users so they see only the first word and a single placeholder for the
+  /// rest.  Returns the original message unchanged when it is a single word.
+  ///
+  /// Example: "Hello world how are you" → "Hello ****"
+  String _maskMessagePreview(String message) {
     if (message.isEmpty) return message;
-
-    // Split by whitespace and filter out empty strings
     final words = message.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
-
-    if (words.length <= wordCount) {
-      return message;
-    }
-
-    // Take first N words and append "..."
-    return '${words.take(wordCount).join(' ')}...';
+    if (words.length <= 1) return message;
+    return '${words.first} $_previewMask';
   }
 
   String _formatConversationPreview({
@@ -2323,9 +2324,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           );
 
           // This block executes in the [_MessageViewContext.listPreview] context.
-          // Non-premium users see only the first 4 words of text messages received
-          // from the other person, giving a preview while encouraging upgrade.
-          // Media/call labels are shown as-is since they convey no private text content.
+          // Non-premium users see only the first word of text messages received
+          // from the other person; the rest is masked with "****".
+          // Media/call labels are shown as-is since they convey no private text.
           //
           // NOTE: The [chat] context (ChatDetailScreen) NEVER applies masking –
           // full message text is always shown there regardless of premium status.
@@ -2338,7 +2339,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
 
           final String displayPreview =
-              shouldMaskPreview ? _getFirstWords(formattedPreview, 4) : formattedPreview;
+              shouldMaskPreview ? _maskMessagePreview(formattedPreview) : formattedPreview;
 
           final String messagePreview =
               isLastMessageFromMe && displayPreview.isNotEmpty
@@ -2378,15 +2379,18 @@ class _ChatListScreenState extends State<ChatListScreen>
                 return;
               }
               final userState = context.read<UserState>();
-              final isVerified = userState.isVerified;
 
-              // Document verification is the only gate for opening an existing
-              // chat conversation.  Premium membership (hasPackage) only affects
-              // the conversation-list preview text (masking) — it does NOT block
-              // access to the chat screen.  The chat screen always shows full
-              // message text regardless of subscription status.
-              if (!isVerified) {
+              // Gate 1: user must be document-verified before entering any chat.
+              if (!userState.isVerified) {
                 VerificationService.requireVerification(context);
+                return;
+              }
+
+              // Gate 2: user must have an active package to open chat.
+              // "Free users can ACCEPT requests but cannot OPEN chat without package."
+              // Show upgrade dialog BEFORE navigation to prevent navigation loops.
+              if (!userState.hasPackage) {
+                _showUpgradeDialog(context);
                 return;
               }
               final chatData = {

@@ -227,3 +227,44 @@ enum FeatureType {
   audioCall,
   videoCall,
 }
+
+// ── Centralized named sync helpers (use before navigation) ─────────────────
+//
+// These four functions are the single source of truth for all feature gates.
+// Call them synchronously **before** any navigation push so that the app
+// never lands on a screen the user is not allowed to use.
+
+/// Returns `true` when the user can access the main app (browse / search
+/// profiles).  Requires both identity AND marital documents to be approved.
+///
+/// STATE 1 (not verified) → `false`
+/// STATE 2–4 (verified)   → `true`
+bool canAccessApp(UserState user) => user.isVerified;
+
+/// Returns `true` when the user can send a request to another user.
+///
+/// Requires: verified (STATE 2) AND active membership package (STATE 3).
+bool userCanSendRequest(UserState user) =>
+    user.isVerified && user.hasPackage;
+
+/// Returns `true` when the user can open a chat conversation.
+///
+/// Requires:
+///   * verified (STATE 2)
+///   * active membership package (STATE 3)
+///   * chat request accepted by the other party (STATE 4)
+///
+/// "Free users can accept requests but cannot OPEN chat without package."
+bool canOpenChat(UserState user, {required bool hasAcceptedRequest}) =>
+    user.isVerified && user.hasPackage && hasAcceptedRequest;
+
+/// Returns `true` when the user can view another user's photos.
+///
+/// Photo access is granted once the photo request is accepted (STATE 4).
+/// The viewer must also be verified (STATE 2+): unverified users are blocked
+/// from viewing photos even if a photo request somehow exists.
+/// A package is required to *send* the photo request in the first place, so
+/// by definition any accepted photo request already went through the package
+/// gate on the sender's side.
+bool canViewPhoto(UserState user, {required bool hasAcceptedRequest}) =>
+    user.isVerified && hasAcceptedRequest;

@@ -36,14 +36,19 @@ if ($userid <= 0 || $myid <= 0) {
 ============================= */
 
 $current_plan = "free";
+$viewer_is_verified = false;
 
-$planStmt = $conn->prepare("SELECT usertype FROM users WHERE id=?");
+$planStmt = $conn->prepare("SELECT usertype, isVerified FROM users WHERE id=?");
 $planStmt->bind_param("i",$myid);
 $planStmt->execute();
 $planRes = $planStmt->get_result();
 if($planRes->num_rows>0){
     $p = $planRes->fetch_assoc();
     if($p['usertype']=="paid") $current_plan="paid";
+    // isVerified is a persisted column in the users table.  It is updated by
+    // masterdata.php whenever document status changes (approved / rejected).
+    // !empty() treats 0, NULL, and "" all as false, matching MySQL TINYINT(1).
+    $viewer_is_verified = !empty($p['isVerified']);
 }
 $planStmt->close();
 
@@ -115,9 +120,11 @@ if($chatRes->num_rows>0){
     }
 }
 
-// A paid user may always chat; an unpaid user may chat when the chat
-// request has been accepted (i.e. a paid user reached out to them).
-if($current_plan=="paid" || $chat_request=="accepted"){
+// Chat requires both: viewer has a paid package AND the chat request is accepted.
+// A package alone does not unlock direct messaging — an accepted request is
+// always required.  Free users can still accept incoming requests (the request
+// system is open to all verified users) but cannot open the chat screen itself.
+if($current_plan=="paid" && $chat_request=="accepted"){
     $can_chat=true;
 }
 $chatStmt->close();
@@ -358,7 +365,8 @@ echo json_encode([
   "current_user_plan"=>$current_plan,
   "can_view_photo"=>$can_view_photo,
   "can_chat"=>$can_chat,
-  "can_send_requests"=>($current_plan=="paid")
+  // Sending a request requires: viewer is document-verified AND has a paid package.
+  "can_send_requests"=>($current_plan=="paid" && $viewer_is_verified)
  ]
 ]);
 
