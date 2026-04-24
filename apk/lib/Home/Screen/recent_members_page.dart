@@ -319,9 +319,9 @@ class _RecentMembersPageState extends State<RecentMembersPage> {
         if (userDataString == null) return;
         final userData = jsonDecode(userDataString);
         final myUserId = int.tryParse(userData['id'].toString());
-        if (!mounted) return;
+        if (!context.mounted) return;
         if (await VerificationService.requireVerification(context)) {
-          if (!mounted) return;
+          if (!context.mounted) return;
           Navigator.push(
             context,
             MaterialPageRoute(

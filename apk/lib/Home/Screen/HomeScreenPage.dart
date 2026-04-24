@@ -3162,7 +3162,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   Future<void> _openPhotoRequestProfile(String profileUserId) async {
     if (!await VerificationService.requireVerification(context)) return;
     if (!mounted) return;
-    _openProfile(profileUserId);
+    await _openProfile(profileUserId);
   }
 
   Future<void> _openChatRequest(ProposalModel request) async {
