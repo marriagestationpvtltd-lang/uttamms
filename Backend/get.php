@@ -167,7 +167,7 @@ while ($user = $userResult->fetch_assoc()) {
    STEP 2: Return response
 ---------------------------------------------------------- */
 echo json_encode([
-    "status" => "success",
+    "status" => true,
     "data" => $responseData
 ], JSON_PRETTY_PRINT);
 
