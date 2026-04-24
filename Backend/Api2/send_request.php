@@ -1,20 +1,9 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 
-// Database configuration
-$dbHost = "127.0.0.1";
-$dbName = "ms";
-$dbUser = "ms";
-$dbPass = "ms";
+require_once __DIR__ . '/db_config.php';
 
 try {
-    $pdo = new PDO(
-        "mysql:host=$dbHost;dbname=$dbName;charset=utf8",
-        $dbUser,
-        $dbPass
-    );
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
     // ===============================
     // 🔥 SUPPORT JSON + FORM DATA
     // ===============================
@@ -61,23 +50,54 @@ try {
     }
 
     // ===============================
-    // 🔒 REQUIRE SENDER IDENTITY VERIFICATION
+    // 🔒 REQUIRE FULL SENDER VERIFICATION
+    // (identity doc + all required marital docs)
     // ===============================
     $maritalDocTypes = ['Death Certificate', 'Marriage Certificate', 'Divorce Decree', 'Court Order', 'Separation Document'];
-    $placeholders    = implode(',', array_fill(0, count($maritalDocTypes), '?'));
 
-    $verifyStmt = $pdo->prepare("
-        SELECT id
-        FROM user_documents
-        WHERE userid = ?
-          AND status = 'approved'
-          AND documenttype NOT IN ($placeholders)
-        LIMIT 1
+    // Fetch sender's marital status to determine required documents
+    $msStmt = $pdo->prepare("
+        SELECT upd.maritalStatusId, ms.name AS marital_status_name
+        FROM users u
+        LEFT JOIN userpersonaldetail upd ON u.id = upd.userid
+        LEFT JOIN maritalstatus ms ON upd.maritalStatusId = ms.id
+        WHERE u.id = ?
     ");
-    $verifyParams = array_merge([$sender_id], $maritalDocTypes);
-    $verifyStmt->execute($verifyParams);
+    $msStmt->execute([$sender_id]);
+    $msRow             = $msStmt->fetch(PDO::FETCH_ASSOC);
+    $maritalStatusName = $msRow['marital_status_name'] ?? '';
+    $maritalStatusId   = (int)($msRow['maritalStatusId'] ?? 0);
+    $nameIsEmpty       = ($maritalStatusName === '');
 
-    if ($verifyStmt->rowCount() === 0) {
+    // Determine required marital documents
+    $requiredMaritalDocs = [];
+    if ($maritalStatusName === 'Widowed' || ($nameIsEmpty && $maritalStatusId === 2)) {
+        $requiredMaritalDocs = ['Death Certificate'];
+    } elseif ($maritalStatusName === 'Divorced' || ($nameIsEmpty && $maritalStatusId === 3)) {
+        $requiredMaritalDocs = ['Divorce Decree'];
+    } elseif (in_array($maritalStatusName, ['Awaiting Divorce', 'Waiting Divorce'], true)
+           || ($nameIsEmpty && $maritalStatusId === 4)) {
+        $requiredMaritalDocs = ['Separation Document'];
+    }
+
+    // Fetch all approved documents for the sender
+    $docsStmt = $pdo->prepare("
+        SELECT documenttype FROM user_documents
+        WHERE userid = ? AND status = 'approved'
+    ");
+    $docsStmt->execute([$sender_id]);
+    $approvedDocs = $docsStmt->fetchAll(PDO::FETCH_COLUMN);
+
+    // Check: at least one approved identity document (not a marital doc type)
+    $hasApprovedIdentity = false;
+    foreach ($approvedDocs as $docType) {
+        if (!in_array($docType, $maritalDocTypes, true)) {
+            $hasApprovedIdentity = true;
+            break;
+        }
+    }
+
+    if (!$hasApprovedIdentity) {
         echo json_encode([
             "success"    => false,
             "message"    => "Identity verification required to send requests. Please upload and get your identity document approved first.",
@@ -86,10 +106,28 @@ try {
         exit;
     }
 
+    // Check: all required marital documents are approved
+    foreach ($requiredMaritalDocs as $requiredDoc) {
+        if (!in_array($requiredDoc, $approvedDocs, true)) {
+            echo json_encode([
+                "success"    => false,
+                "message"    => "Full verification required. Please upload and get your $requiredDoc approved.",
+                "error_code" => "VERIFICATION_REQUIRED",
+            ]);
+            exit;
+        }
+    }
+
     // ===============================
-    // 🔒 REQUIRE SENDER TO HAVE AN ACTIVE PAID PACKAGE
+    // 🔒 REQUIRE SENDER TO HAVE AN ACTIVE (NON-EXPIRED) PAID PACKAGE
     // ===============================
-    $paidStmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND usertype = 'paid' LIMIT 1");
+    $paidStmt = $pdo->prepare("
+        SELECT up.id
+        FROM user_package up
+        WHERE up.userid = ?
+          AND up.expiredate > NOW()
+        LIMIT 1
+    ");
     $paidStmt->execute([$sender_id]);
 
     if ($paidStmt->rowCount() === 0) {
@@ -173,9 +211,10 @@ try {
     }
 
 } catch (PDOException $e) {
+    error_log('send_request.php DB error: ' . $e->getMessage());
     echo json_encode([
         "success" => false,
-        "message" => "Database error: " . $e->getMessage()
+        "message" => "Server error. Please try again."
     ]);
 }
 ?>

@@ -47,7 +47,8 @@ if (!filter_var($input['email'], FILTER_VALIDATE_EMAIL)) {
 // DB connection
 $mysqli = new mysqli($dbHost, $dbUser, $dbPass, $dbName);
 if ($mysqli->connect_errno) {
-    respond(500, ['success'=>false, 'message'=>'DB connection failed: '.$mysqli->connect_error]);
+    error_log('signin.php connection error: ' . $mysqli->connect_error);
+    respond(500, ['success'=>false, 'message'=>'Database connection failed']);
 }
 $mysqli->set_charset('utf8mb4');
 
@@ -173,6 +174,6 @@ try {
     respond(200, $responseData);
     
 } catch (Exception $e) {
-    respond(500, ['success' => false, 'message' => 'Login failed: ' . $e->getMessage()]);
+    respond(500, ['success' => false, 'message' => 'Login failed. Please try again.']);
 }
 ?>

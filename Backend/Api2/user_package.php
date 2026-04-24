@@ -1,19 +1,11 @@
 <?php
 header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
 
-// Database configuration
-$dbHost = "127.0.0.1";
-$dbName = "ms";
-$dbUser = "ms";
-$dbPass = "ms";
+require_once __DIR__ . '/db_config.php';
 
 try {
-    $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName", $dbUser, $dbPass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
     // Get userid from GET parameters
-    $userid = $_GET['userid'] ?? null;
+    $userid = isset($_GET['userid']) ? intval($_GET['userid']) : 0;
 
     if (!$userid) {
         echo json_encode(["success" => false, "message" => "Missing userid parameter"]);
@@ -50,13 +42,14 @@ try {
     echo json_encode([
         "success" => true,
         "message" => "User packages retrieved successfully",
-        "data" => $packages
+        "data"    => $packages,
     ]);
 
 } catch (PDOException $e) {
+    error_log('user_package.php DB error: ' . $e->getMessage());
     echo json_encode([
         "success" => false,
-        "message" => "Database error: " . $e->getMessage()
+        "message" => "Server error. Please try again."
     ]);
 }
 ?>

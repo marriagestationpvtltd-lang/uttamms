@@ -39,6 +39,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+require_once __DIR__ . '/auth.php';
+requireAdminAuth();
+
 // ── DB connection ────────────────────────────────────────────────────────────
 
 define('DB_HOST', 'localhost');

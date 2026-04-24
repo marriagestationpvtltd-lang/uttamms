@@ -47,7 +47,8 @@ if (empty($input['email'])) {
 // DB connection
 $mysqli = new mysqli($dbHost, $dbUser, $dbPass, $dbName);
 if ($mysqli->connect_errno) {
-    respond(500, ['success'=>false, 'message'=>'DB connection failed: '.$mysqli->connect_error]);
+    error_log('google_auth.php: DB connection failed: ' . $mysqli->connect_error);
+    respond(500, ['success'=>false, 'message'=>'Database connection failed']);
 }
 $mysqli->set_charset('utf8mb4');
 

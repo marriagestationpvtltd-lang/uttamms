@@ -1,12 +1,10 @@
 <?php
 header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, GET");
-header("Access-Control-Allow-Headers: Content-Type");
 
 $conn = new mysqli("localhost", "ms", "ms", "ms");
 if ($conn->connect_error) {
-    die(json_encode(["status" => "error", "message" => $conn->connect_error]));
+    error_log('get_partner_preferences.php: ' . $conn->connect_error);
+    die(json_encode(["status" => "error", "message" => "Database connection failed"]));
 }
 
 // Handle both GET and POST requests
