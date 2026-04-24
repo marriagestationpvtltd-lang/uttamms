@@ -94,6 +94,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   final String currentIOSVersion = '1.0.0';     // Your current iOS version
 
   // Animation controllers - simplified
+  // _entranceController drives _animationCompleted, which gates navigation
+  // in _proceedWithNavigation (see initState). It also drives _logoOpacity
+  // for the logo fade-in effect.
   AnimationController? _entranceController;
 
   // Entrance animations - simplified
