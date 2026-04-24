@@ -1,3 +1,4 @@
+import 'dart:async' show unawaited;
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -1184,7 +1185,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       final data = jsonDecode(userData) as Map<String, dynamic>;
       final userId = int.tryParse(data['id']?.toString() ?? '');
       if (userId == null || !mounted) return;
-      context.read<UserState>().refresh(userId);
+      unawaited(context.read<UserState>().refresh(userId));
     } catch (e) {
       debugPrint('MyApp: UserState resume refresh error: $e');
     }
