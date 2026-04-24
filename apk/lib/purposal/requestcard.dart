@@ -352,10 +352,13 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
 
     // For accepted chat requests
     if (widget.data.status == 'accepted' && widget.data.requestType == 'Chat') {
+      final userState = context.watch<UserState>();
+      final hasPackage = userState.hasPackage;
+
       return _actionButton(
-        label: 'Chat',
-        icon: Icons.chat_bubble_outline_rounded,
-        color: const Color(0xFF1565C0),
+        label: hasPackage ? 'Open Chat' : 'Upgrade',
+        icon: hasPackage ? Icons.chat_bubble_outline_rounded : Icons.lock_outline,
+        color: hasPackage ? const Color(0xFF1565C0) : const Color(0xFFF57C00),
         onTap: _handleChatNavigation,
       );
     }
