@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/activity_helper.php';
 
 // Marital status IDs (must match the maritalstatus table)
 define('MARITAL_STATUS_WIDOWED',         2);
@@ -183,11 +184,7 @@ try {
             ':id' => $row['id']
         ]);
 
-        echo json_encode([
-            "success" => true,
-            "message" => "",
-            "proposal_id" => $row['id']
-        ]);
+        $proposal_id = $row['id'];
 
     } else {
         // ===============================
@@ -208,12 +205,16 @@ try {
             ':created_at' => $created_at
         ]);
 
-        echo json_encode([
-            "success" => true,
-            "message" => "",
-            "proposal_id" => $pdo->lastInsertId()
-        ]);
+        $proposal_id = (int) $pdo->lastInsertId();
     }
+
+    logActivity($sender_id, 'request_sent', "$request_type request sent", $receiver_id);
+
+    echo json_encode([
+        "success" => true,
+        "message" => "",
+        "proposal_id" => $proposal_id
+    ]);
 
 } catch (PDOException $e) {
     error_log('send_request.php DB error: ' . $e->getMessage());

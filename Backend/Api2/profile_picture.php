@@ -2,6 +2,7 @@
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/activity_helper.php';
 
 // Check if user ID is provided
 $userid = isset($_POST['userid']) ? intval($_POST['userid']) : 0;
@@ -72,6 +73,8 @@ if (move_uploaded_file($file['tmp_name'], $destPath)) {
     try {
         $stmt = $pdo->prepare("UPDATE users SET profile_picture = ? WHERE id = ?");
         $stmt->execute([$relativePath, $userid]);
+
+        logActivity($userid, 'photo_uploaded', 'Profile picture updated');
 
         echo json_encode([
             "status"  => "success",
