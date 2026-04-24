@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
+import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 import 'package:adminmrz/users/service/userservice.dart';
 import 'package:adminmrz/users/userdetails/detailmodel.dart';
 import 'package:adminmrz/users/userdetails/userdetailservice.dart';
@@ -22,6 +23,11 @@ class UserProvider with ChangeNotifier {
   String _statusFilter = 'all';
   String _userTypeFilter = 'all';
   bool _isSelectAll = false;
+  bool _isSessionExpired = false;
+
+  // Pagination state
+  final int _pageSize = 50;
+  int _displayPage = 1;
 
   final AdminSocketService _socketService = AdminSocketService();
   StreamSubscription<Map<String, dynamic>>? _presenceSub;
@@ -41,8 +47,13 @@ class UserProvider with ChangeNotifier {
   Set<int> get selectedUserIds => _selectedUserIds;
   bool get isSelectAll => _isSelectAll;
   int get selectedCount => _selectedUserIds.length;
+  bool get isSessionExpired => _isSessionExpired;
   ActivityStats? activityFor(int userId) => _activityByUser[userId];
   bool isActivityLoading(int userId) => _activityLoading.contains(userId);
+
+  // Pagination getters
+  List<User> get pagedUsers => _filteredUsers.take(_displayPage * _pageSize).toList();
+  bool get hasMoreToShow => _filteredUsers.length > _displayPage * _pageSize;
 
   final Set<int> _photoActioning = {};
   bool isPhotoActioning(int userId) => _photoActioning.contains(userId);
@@ -66,6 +77,7 @@ class UserProvider with ChangeNotifier {
   Future<void> fetchUsers() async {
     _isLoading = true;
     _error = '';
+    _isSessionExpired = false;
     notifyListeners();
 
     try {
@@ -76,6 +88,9 @@ class UserProvider with ChangeNotifier {
       _startPresenceListener();
       _activityByUser.clear();
       _activityLoading.clear();
+    } on UnauthorizedException {
+      _isSessionExpired = true;
+      _error = 'Session expired. Please log in again.';
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -373,8 +388,18 @@ class UserProvider with ChangeNotifier {
       filtered = filtered.where((user) => user.usertype == _userTypeFilter).toList();
     }
 
+    resetPaging();
     _filteredUsers = filtered;
     notifyListeners();
+  }
+
+  void loadMoreUsers() {
+    _displayPage++;
+    notifyListeners();
+  }
+
+  void resetPaging() {
+    _displayPage = 1;
   }
 
   void clearFilters() {

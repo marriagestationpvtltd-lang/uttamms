@@ -1,6 +1,7 @@
 import 'package:adminmrz/users/userdetails/detailscreen.dart';
 import 'package:adminmrz/users/userdetails/userdetailprovider.dart';
 import 'package:adminmrz/users/userprovider.dart';
+import 'package:adminmrz/auth/service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -594,6 +595,7 @@ class _UsersPageState extends State<UsersPage> {
                                     ? _kAmber
                                     : Colors.grey.shade500,
                               ),
+                              _accessLevelChip(user),
                               if (user.expiryDate != null &&
                                   user.expiryDate!.isNotEmpty &&
                                   user.expiryDate != 'null')
@@ -966,6 +968,26 @@ class _UsersPageState extends State<UsersPage> {
         ],
       ),
     );
+  }
+
+  Widget _accessLevelChip(User user) {
+    final String label;
+    final Color color;
+    final IconData icon;
+    if (user.isVerified != 1) {
+      label = 'Docs Required';
+      color = _kRose;
+      icon = Icons.description_outlined;
+    } else if (user.isActive != 1) {
+      label = 'Browse Only';
+      color = _kAmber;
+      icon = Icons.lock_outline;
+    } else {
+      label = 'Full Access';
+      color = _kEmerald;
+      icon = Icons.verified_user_outlined;
+    }
+    return _infoChip(icon, label, color);
   }
 
   Widget _actionIconBtn(
@@ -1687,11 +1709,16 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── Build ───────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final provider = context.watch<UserProvider>();
+
+    // Handle session expiry — redirect to login.
+    if (provider.isSessionExpired) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) context.read<AuthProvider>().logout();
+      });
+    }
 
     // Plain Column — no Scaffold/AppBar to avoid duplicating the "Members"
     // title already shown in dashboard.dart's top bar.
@@ -1718,24 +1745,53 @@ class _UsersPageState extends State<UsersPage> {
                         SliverToBoxAdapter(
                           child: _buildEmptyState(provider),
                         )
-                      else
+                      else ...[
                         SliverPadding(
-                          padding: const EdgeInsets.only(bottom: 24),
+                          padding: EdgeInsets.zero,
                           sliver: SliverList(
                             delegate: SliverChildBuilderDelegate(
                               (context, index) => _buildUserCard(
-                                provider.filteredUsers[index],
+                                provider.pagedUsers[index],
                                 provider,
                               ),
-                              childCount: provider.filteredUsers.length,
+                              childCount: provider.pagedUsers.length,
                             ),
                           ),
                         ),
+                        SliverToBoxAdapter(
+                          child: _buildLoadMoreFooter(provider),
+                        ),
+                      ],
                     ],
                   ),
                 ),
         ),
       ],
+    );
+  }
+
+  Widget _buildLoadMoreFooter(UserProvider provider) {
+    if (!provider.hasMoreToShow) {
+      return const SizedBox(height: 24);
+    }
+    final remaining = provider.filteredCount - provider.pagedUsers.length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: provider.loadMoreUsers,
+          icon: const Icon(Icons.expand_more_rounded, size: 18),
+          label: Text('Load More ($remaining remaining)'),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: _kPrimary,
+            side: const BorderSide(color: _kPrimary),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
