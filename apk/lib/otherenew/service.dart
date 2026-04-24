@@ -163,7 +163,7 @@ class ProfileService {
   }
 
   /// Fetch matched profiles
-  Future<List<MatchedProfile>> fetchMatchedProfiles({
+  Future<List<models.MatchedProfile>> fetchMatchedProfiles({
     required dynamic userId,
   }) async {
     // Ensure userId is converted to string explicitly
@@ -179,7 +179,7 @@ class ProfileService {
         if (jsonResponse['success'] == true) {
           final List<dynamic> matchedUsersJson = jsonResponse['matched_users'] ?? [];
           final matchedProfiles = matchedUsersJson
-              .map((json) => MatchedProfile.fromJson(json))
+              .map((json) => models.MatchedProfile.fromJson(json))
               .toList();
           matchedProfiles.sort((a, b) {
             final matchCompare = b.matchPercent.compareTo(a.matchPercent);
