@@ -548,6 +548,10 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           _showIdentityUploadForm = false;
         });
         _showSuccess("Document submitted! We'll notify you once it's verified.");
+        // Redirect to Home immediately – user does not need to wait on this
+        // screen for admin verification to complete.
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (mounted) _goToHome();
       } else {
         _showError('Upload failed. Please try again.');
       }

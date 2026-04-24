@@ -961,6 +961,45 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   AppSpacing.verticalSM,
+                  Consumer<UserState>(
+                    builder: (context, userState, _) {
+                      if (userState.isVerified) return const SizedBox.shrink();
+                      final isPending = userState.identityStatus == 'pending';
+                      if (!isPending) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF8E1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: const Color(0xFFF57C00).withOpacity(0.5)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.hourglass_top_rounded,
+                                  color: Color(0xFFF57C00), size: 20),
+                              const SizedBox(width: 10),
+                              const Expanded(
+                                child: Text(
+                                  'Account under review – some features are limited '
+                                  'until your verification is complete.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF795548),
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                   if (pageno != 10)
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -661,13 +661,14 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
         _goTo(PartnerPreferencesPage());
         break;
       case 8:
-        // Navigate to home only when the user is fully verified (identity +
-        // all required marital documents approved). UserState is preloaded from
-        // cache in _preloadNavData() so this read is zero-cost and always
-        // available at navigation time.
-        final isVerified =
-            mounted ? context.read<UserState>().isVerified : false;
-        _goTo(isVerified
+        // Navigate to home if the user has submitted documents (pending or
+        // approved) or is fully verified. Only show IDVerificationScreen when
+        // no documents have ever been uploaded so the user can complete the
+        // initial submission step. Rejected documents also redirect to home –
+        // the user can re-upload from their profile without being blocked here.
+        final userState = mounted ? context.read<UserState>() : null;
+        final identityStatus = userState?.identityStatus ?? 'not_uploaded';
+        _goTo(identityStatus != 'not_uploaded'
             ? const MainControllerScreen(initialIndex: 0)
             : const IDVerificationScreen());
         break;
