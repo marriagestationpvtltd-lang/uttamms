@@ -86,6 +86,21 @@ try {
         exit;
     }
 
+    // ===============================
+    // 🔒 REQUIRE SENDER TO HAVE AN ACTIVE PAID PACKAGE
+    // ===============================
+    $paidStmt = $pdo->prepare("SELECT id FROM users WHERE id = ? AND usertype = 'paid' LIMIT 1");
+    $paidStmt->execute([$sender_id]);
+
+    if ($paidStmt->rowCount() === 0) {
+        echo json_encode([
+            "success"    => false,
+            "message"    => "Package purchase required to send requests. Please purchase a package to continue.",
+            "error_code" => "PACKAGE_REQUIRED",
+        ]);
+        exit;
+    }
+
     $status = 'pending';
     $created_at = date('Y-m-d H:i:s');
 

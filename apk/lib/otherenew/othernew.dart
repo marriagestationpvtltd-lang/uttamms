@@ -683,6 +683,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               userid: widget.userId,
               isOnline: _isOtherUserOnline,
               lastSeen: _otherUserLastSeen,
+              isCurrentUserPaid: context.read<UserState>().usertype == 'paid',
             ),
             const SizedBox(height: 16),
             _ContactInfoSection(
@@ -705,6 +706,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               userProfile: userProfile,
               onUpgradePressed: () => _showUpgradeDialog(context),
               onPhotoRequestPressed: () => _handlePhotoRequest(context),
+              isCurrentUserPaid: context.read<UserState>().usertype == 'paid',
             ),
             const SizedBox(height: 16),
             if (userProfile.personalDetails.isNotEmpty)
@@ -836,6 +838,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handlePhotoRequest(BuildContext context) async {
+    // Require a paid package before sending a photo request
+    final userProfile = Provider.of<UserProfile>(context, listen: false);
+    if (!userProfile.canSendRequests) {
+      _showUpgradeDialog(context);
+      return;
+    }
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -979,6 +987,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _handleChatRequest(BuildContext context) async {
+    // Require a paid package before sending a chat request
+    final userProfile = Provider.of<UserProfile>(context, listen: false);
+    if (!userProfile.canSendRequests) {
+      _showUpgradeDialog(context);
+      return;
+    }
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -1163,6 +1177,7 @@ class _ProfileHeaderSection extends StatelessWidget {
   final VoidCallback onUpgradePressed;
   final bool isOnline;
   final DateTime? lastSeen;
+  final bool isCurrentUserPaid;
 
    _ProfileHeaderSection({
     required this.userProfile,
@@ -1173,6 +1188,7 @@ class _ProfileHeaderSection extends StatelessWidget {
     required this.userid,
     this.isOnline = false,
     this.lastSeen,
+    this.isCurrentUserPaid = false,
   });
 
   @override
@@ -1633,8 +1649,89 @@ class _ProfileHeaderSection extends StatelessWidget {
       );
     }
 
-    // 🔥 BOTH SIDE NOT SENT → SHOW REQUEST BUTTON
+    // 🔥 BOTH SIDE NOT SENT → SHOW REQUEST BUTTON (paid) or UPGRADE BUTTON (free)
     if (userProfile.isPhotoRequestNone) {
+      if (!isCurrentUserPaid) {
+        // Free user: prompt to purchase a package
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade400, Colors.deepOrange.shade500],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.orange.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onUpgradePressed,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.workspace_premium, color: Colors.white, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Package Required',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Text(
+                            'Purchase Package to View Photos',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -2805,8 +2902,89 @@ class _ContactInfoSection extends StatelessWidget {
       );
     }
 
-    // 🔥 BOTH SIDE NOT SENT → SEND REQUEST BUTTON
+    // 🔥 BOTH SIDE NOT SENT → SEND REQUEST BUTTON (paid) or UPGRADE BUTTON (free)
     if (userProfile.isChatRequestNone) {
+      if (userType != 'paid') {
+        // Free user: prompt to purchase a package
+        return Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [Colors.orange.shade400, Colors.deepOrange.shade500],
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.orange.withOpacity(0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: onUpgradePressed,
+              borderRadius: BorderRadius.circular(16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.workspace_premium, color: Colors.white, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Package Required',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          Text(
+                            'Purchase Package to Send Messages',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.2),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.arrow_forward,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+
       return Container(
         width: double.infinity,
         decoration: BoxDecoration(
@@ -2954,6 +3132,7 @@ class _PhotosAlbumSection extends StatelessWidget {
   final UserProfile userProfile;
   final VoidCallback onUpgradePressed;
   final VoidCallback onPhotoRequestPressed;
+  final bool isCurrentUserPaid;
 
   const _PhotosAlbumSection({
     required this.photoAlbumUrls,
@@ -2962,6 +3141,7 @@ class _PhotosAlbumSection extends StatelessWidget {
     required this.userProfile,
     required this.onUpgradePressed,
     required this.onPhotoRequestPressed,
+    this.isCurrentUserPaid = false,
   });
 
   @override
@@ -3097,8 +3277,20 @@ class _PhotosAlbumSection extends StatelessWidget {
       );
     }
 
-    // Case 3: Request not sent yet → Show request button
+    // Case 3: Request not sent yet → Show request button (paid) or upgrade button (free)
     if (userProfile.isPhotoRequestNotSent) {
+      if (!isCurrentUserPaid) {
+        return _RequestButton(
+          text: "Purchase Package to View Photos",
+          icon: Icons.workspace_premium,
+          onPressed: onUpgradePressed,
+          color: Colors.orange.shade600,
+          isPending: false,
+          isRejected: false,
+          isAccepted: false,
+          isUpgrade: true,
+        );
+      }
       return _RequestButton(
         text: "Send Photo Request",
         icon: Icons.photo_camera,

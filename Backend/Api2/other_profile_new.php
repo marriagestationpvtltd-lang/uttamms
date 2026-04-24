@@ -77,7 +77,7 @@ if($photoRes->num_rows>0){
     }
 }
 
-if($current_plan=="paid" || $photo_request=="accepted"){
+if($current_plan=="paid" && $photo_request=="accepted"){
     $can_view_photo=true;
 }
 $photoStmt->close();
@@ -112,7 +112,7 @@ if($chatRes->num_rows>0){
     }
 }
 
-if($current_plan=="paid" || $chat_request=="accepted"){
+if($current_plan=="paid" && $chat_request=="accepted"){
     $can_chat=true;
 }
 $chatStmt->close();
@@ -352,7 +352,8 @@ echo json_encode([
  "access_control"=>[
   "current_user_plan"=>$current_plan,
   "can_view_photo"=>$can_view_photo,
-  "can_chat"=>$can_chat
+  "can_chat"=>$can_chat,
+  "can_send_requests"=>($current_plan=="paid")
  ]
 ]);
 
