@@ -12,7 +12,7 @@ class UnauthorizedException implements Exception {
 }
 
 class DashboardService {
-  static const String _baseUrl = '${kAdminApiBaseUrl}/api9';
+  static const String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();

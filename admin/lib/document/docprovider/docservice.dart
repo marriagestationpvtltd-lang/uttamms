@@ -54,7 +54,7 @@ class DocumentsProvider with ChangeNotifier {
         return false;
       }
 
-      final url = Uri.parse('${kAdminApiBaseUrl}/api9/get_documents.php');
+      final url = Uri.parse('$kAdminApi9BaseUrl/get_documents.php');
 
       final response = await http.get(
         url,
@@ -114,7 +114,7 @@ class DocumentsProvider with ChangeNotifier {
         return false;
       }
 
-      final url = Uri.parse('${kAdminApiBaseUrl}/api9/update_document_status.php');
+      final url = Uri.parse('$kAdminApi9BaseUrl/update_document_status.php');
 
       final Map<String, dynamic> body = {
         'document_id': documentId,

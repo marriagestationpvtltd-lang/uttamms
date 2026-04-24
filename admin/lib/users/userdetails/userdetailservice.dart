@@ -7,7 +7,7 @@ import 'package:adminmrz/config/app_endpoints.dart';
 
 class UserDetailsService {
   static const String _baseUrl = '${kAdminApiBaseUrl}/Api2';
-  static const String _adminBaseUrl = '${kAdminApiBaseUrl}/api9';
+  static const String _adminBaseUrl = kAdminApi9BaseUrl;
 
   Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();

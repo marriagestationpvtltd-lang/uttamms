@@ -89,10 +89,13 @@ class ChatProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // You'll need to create this API endpoint on your server
-      final url = Uri.parse('${kAdminApiBaseUrl}/get_matches.php?user_id=$userId');
+      final url = Uri.parse('${kAdminApiBaseUrl}/matched.php');
 
-      final response = await http.get(url);
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'user_id': userId}),
+      );
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> responseData = json.decode(response.body);

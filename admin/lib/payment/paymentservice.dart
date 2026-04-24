@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 
 class PaymentService {
-  static const String _baseUrl = '${kAdminApiBaseUrl}/api9';
+  static const String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();
