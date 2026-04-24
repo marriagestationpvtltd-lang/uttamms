@@ -70,6 +70,8 @@ if (empty($_FILES['tone']) || $_FILES['tone']['error'] !== UPLOAD_ERR_OK) {
 $allowedMimes = [
     'audio/mpeg', 'audio/mp3', 'audio/aac', 'audio/ogg',
     'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a',
+    // Flutter Web sends files as application/octet-stream; extension check below handles safety
+    'application/octet-stream',
 ];
 
 $fileMime = mime_content_type($_FILES['tone']['tmp_name']);
