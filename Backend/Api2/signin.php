@@ -2,6 +2,8 @@
 // signin.php - FIXED VERSION
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/activity_helper.php';
+
 // ==== CONFIG ====
 $dbHost = 'localhost';
 $dbUser = 'ms';
@@ -170,7 +172,9 @@ try {
     if ($expiresAt) {
         $responseData['token_expires'] = $expiresAt;
     }
-    
+
+    logActivity((int)$user['id'], 'login', 'User logged in');
+
     respond(200, $responseData);
     
 } catch (Exception $e) {

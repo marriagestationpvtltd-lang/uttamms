@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/activity_helper.php';
 
 try {
     // Get input data
@@ -60,6 +61,8 @@ try {
     $pdo->prepare("UPDATE users SET usertype = 'paid' WHERE id = ?")->execute([$userid]);
 
     $pdo->commit();
+
+    logActivity($userid, 'package_bought', "Package purchased", null);
 
     echo json_encode([
         "success" => true,

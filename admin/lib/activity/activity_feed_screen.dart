@@ -58,7 +58,7 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
     super.initState();
     _fetchActivities(reset: true);
     _refreshTimer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 10),
       (_) { if (mounted) _fetchActivities(reset: true, silent: true); },
     );
     _scrollController.addListener(_onScroll);

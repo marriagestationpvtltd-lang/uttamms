@@ -18,6 +18,8 @@ try {
         ]
     );
 
+    require_once __DIR__ . '/activity_helper.php';
+
     /* ================= INPUT ================= */
     $sender_id   = isset($_REQUEST['sender_id']) ? intval($_REQUEST['sender_id']) : 0;
     $receiver_id = isset($_REQUEST['receiver_id']) ? intval($_REQUEST['receiver_id']) : 0;
@@ -71,6 +73,8 @@ try {
             ":receiver" => $receiver_id
         ]);
 
+        logActivity($sender_id, 'like_sent', 'Liked a profile', $receiver_id);
+
         echo json_encode([
             "success" => true,
             "message" => "Liked successfully",
@@ -90,6 +94,8 @@ try {
             ":sender" => $sender_id,
             ":receiver" => $receiver_id
         ]);
+
+        logActivity($sender_id, 'like_removed', 'Removed like from a profile', $receiver_id);
 
         echo json_encode([
             "success" => true,

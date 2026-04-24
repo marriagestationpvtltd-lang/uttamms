@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/activity_helper.php';
 
 try {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -121,6 +122,8 @@ try {
         VALUES (?, ?, 1)
         ON DUPLICATE KEY UPDATE unread_count = unread_count + 1
     ")->execute([$chat_room_id, (string)$receiver_id]);
+
+    logActivity($sender_id, 'message_sent', 'Message sent', $receiver_id);
 
     echo json_encode([
         'success'    => true,
