@@ -713,19 +713,9 @@ async function getMessages({ chatRoomId, page = 1, limit = 20, userId = null }) 
   );
   const hasMore = rows.length > limit;
 
-  // Check if requesting user has an active package (uses cache)
-  const userHasPackage = userId ? await getCachedPackageStatus(userId) : false;
-
   const messages = rows.slice(0, limit).reverse().map(row => {
     try {
-      const msg = toMessageMap(row);
-
-      // Apply message masking for free users
-      if (!userHasPackage) {
-        msg.message = maskMessage(msg.message, msg.messageType);
-      }
-
-      return msg;
+      return toMessageMap(row);
     } catch (err) {
       console.error(`Failed to transform message ${row.message_id}:`, err.message);
       // Return a safe fallback message object
@@ -734,7 +724,7 @@ async function getMessages({ chatRoomId, page = 1, limit = 20, userId = null }) 
         chatRoomId: row.chat_room_id || chatRoomId,
         senderId: row.sender_id || '',
         receiverId: row.receiver_id || '',
-        message: userHasPackage ? 'Error loading message' : '****',
+        message: 'Error loading message',
         messageType: 'text',
         isRead: false,
         isDelivered: false,
@@ -997,22 +987,16 @@ io.on('connection', (socket) => {
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
 
-    // Check if receiver has an active package to determine if we should mask the message (uses cache)
-    const receiverHasPackage = await getCachedPackageStatus(receiverId.toString());
-
     // Emit to sender (always full message)
     const senderSocketId = userSockets.get(senderId.toString());
     if (senderSocketId) {
       io.to(senderSocketId).emit('new_message', clientMsg);
     }
 
-    // Emit to receiver (masked if they're a free user)
+    // Emit to receiver (full message — preview masking for unpaid users is handled client-side in the chat list)
     const receiverSocketId = userSockets.get(receiverId.toString());
     if (receiverSocketId) {
-      const receiverMsg = receiverHasPackage
-        ? clientMsg
-        : { ...clientMsg, message: maskMessage(clientMsg.message, clientMsg.messageType) };
-      io.to(receiverSocketId).emit('new_message', receiverMsg);
+      io.to(receiverSocketId).emit('new_message', clientMsg);
     }
   });
 
