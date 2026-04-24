@@ -55,7 +55,8 @@ class OnlineStatusService {
       // Connect to Socket.IO if not already connected
       final socketService = SocketService();
       if (!socketService.isConnected) {
-        socketService.connect(userId);
+        final token = prefs.getString('bearer_token');
+        socketService.connect(userId, token: token);
       }
 
       // Update HTTP API (best-effort, non-blocking for UI)

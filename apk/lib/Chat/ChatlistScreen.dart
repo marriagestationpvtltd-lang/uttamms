@@ -454,7 +454,12 @@ class _ChatListScreenState extends State<ChatListScreen>
   void _initChatRoomsStream() {
     if (userId.isEmpty) return;
     final socketService = SocketService();
-    if (!socketService.isConnected) socketService.connect(userId);
+    if (!socketService.isConnected) {
+      SharedPreferences.getInstance().then((prefs) {
+        final token = prefs.getString('bearer_token');
+        socketService.connect(userId, token: token);
+      });
+    }
 
     // Load from cache first so the list appears instantly without a spinner
     _loadChatRoomsFromCache().then((_) {

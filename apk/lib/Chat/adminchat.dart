@@ -253,7 +253,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
     // Connect / ensure socket is authenticated for this user
     if (!_socketService.isConnected) {
-      _socketService.connect(_mySenderId);
+      SharedPreferences.getInstance().then((prefs) {
+        final token = prefs.getString('bearer_token');
+        _socketService.connect(_mySenderId, token: token);
+      });
       // Load messages once the socket successfully connects
       StreamSubscription<bool>? connSub;
       connSub = _socketService.onConnectionChange.listen((connected) {
@@ -407,7 +410,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       if (!_socketService.isConnected) {
-        _socketService.connect(_mySenderId);
+        SharedPreferences.getInstance().then((prefs) {
+          final token = prefs.getString('bearer_token');
+          _socketService.connect(_mySenderId, token: token);
+        });
       }
       ScreenStateManager().onChatScreenOpened(
         _chatRoomId,
