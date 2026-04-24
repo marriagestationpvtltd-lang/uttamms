@@ -34,9 +34,9 @@ try {
     $norm = strtolower(trim($rawGender));
     $opposite = ($norm === 'male') ? 'female' : 'male';
 
-    // FETCH OPPOSITE GENDER + PAID + INCLUDE isVerified + AGE + CITY
+    // FETCH OPPOSITE GENDER + PAID + INCLUDE isVerified + AGE + CITY + PRIVACY
     $sql = "
-        SELECT 
+        SELECT
             u.id,
             u.firstName,
             u.lastName,
@@ -45,6 +45,7 @@ try {
             u.usertype,
             u.isVerified,
             u.profile_picture,
+            u.privacy,
             ud.birthDate,
             TIMESTAMPDIFF(YEAR, ud.birthDate, CURDATE()) AS age,
             pa.city
@@ -65,10 +66,59 @@ try {
 
     $rows = $stmt2->fetchAll(PDO::FETCH_ASSOC);
 
+    // Enrich each row with photo_request and can_view_photo
+    $enrichedRows = [];
+    foreach ($rows as $row) {
+        $photo_request = "not sent";
+        $can_view_photo = false;
+
+        // Check proposals table for photo request status
+        $stmtPhoto = $pdo->prepare("
+            SELECT status
+            FROM proposals
+            WHERE request_type = 'Photo'
+            AND (
+                (sender_id = :me AND receiver_id = :other)
+                OR
+                (sender_id = :other AND receiver_id = :me)
+            )
+            ORDER BY id DESC
+            LIMIT 1
+        ");
+        $stmtPhoto->execute([
+            ":me" => $userId,
+            ":other" => $row['id']
+        ]);
+
+        if ($photoRow = $stmtPhoto->fetch(PDO::FETCH_ASSOC)) {
+            $photo_request = ($photoRow['status'] === 'accepted') ? 'accepted' : 'pending';
+        }
+
+        // Determine can_view_photo based on privacy and photo_request
+        $privacy = strtolower(trim($row['privacy'] ?? ''));
+        if ($privacy === 'public') {
+            $can_view_photo = true;
+        } elseif ($photo_request === 'accepted') {
+            $can_view_photo = true;
+        }
+
+        $row['photo_request'] = $photo_request;
+        $row['can_view_photo'] = $can_view_photo;
+
+        $enrichedRows[] = $row;
+    }
+
+    // Add debug info
+    error_log("Premium members API - User ID: $userId, Total premium users: " . count($enrichedRows));
+
     echo json_encode([
         "success" => true,
         "message" => "fetched successfully",
-        "data" => $rows
+        "data" => $enrichedRows,
+        "debug" => [
+            "total_users" => count($enrichedRows),
+            "user_id" => $userId
+        ]
     ]);
 
 } catch (Exception $e) {
