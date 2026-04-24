@@ -27,12 +27,17 @@ CREATE TABLE IF NOT EXISTS maritalstatus (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Seed data
-INSERT IGNORE INTO maritalstatus (id, name) VALUES
-    (1, 'Never Married'),
-    (2, 'Divorced'),
-    (3, 'Widowed'),
-    (4, 'Awaiting Divorce'),
-    (5, 'Annulled');
+-- These IDs must match the index-based mapping used by the Flutter app
+-- (signupscreen2.dart: _maritalStatusOptions.indexOf(selected) + 1).
+-- ID 1 = Still Unmarried, ID 2 = Widowed, ID 3 = Divorced, ID 4 = Waiting Divorce
+-- ON DUPLICATE KEY UPDATE ensures existing rows are corrected, not skipped.
+INSERT INTO maritalstatus (id, name) VALUES
+    (1, 'Still Unmarried'),
+    (2, 'Widowed'),
+    (3, 'Divorced'),
+    (4, 'Waiting Divorce'),
+    (5, 'Annulled')
+ON DUPLICATE KEY UPDATE name = VALUES(name);
 
 -- ----------------------------------------------------------------------------
 -- religion
