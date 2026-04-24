@@ -653,18 +653,22 @@ class AccessControl {
   final String currentUserPlan;
   final bool canViewPhoto;
   final bool canChat;
+  final bool canSendRequests;
 
   AccessControl({
     required this.currentUserPlan,
     required this.canViewPhoto,
     required this.canChat,
+    required this.canSendRequests,
   });
 
   factory AccessControl.fromJson(Map<String, dynamic> json) {
+    final plan = json['current_user_plan'] ?? '';
     return AccessControl(
-      currentUserPlan: json['current_user_plan'] ?? '',
+      currentUserPlan: plan,
       canViewPhoto: json['can_view_photo'] ?? false,
       canChat: json['can_chat'] ?? false,
+      canSendRequests: json['can_send_requests'] ?? false,
     );
   }
 
@@ -673,6 +677,7 @@ class AccessControl {
       'current_user_plan': currentUserPlan,
       'can_view_photo': canViewPhoto,
       'can_chat': canChat,
+      'can_send_requests': canSendRequests,
     };
   }
 }
@@ -867,6 +872,8 @@ class UserProfile extends ChangeNotifier {
   bool get isCurrentUserPaid => usertype == 'paid';
 
   bool get canViewPhoto => profileResponse?.accessControl.canViewPhoto ?? false;
+
+  bool get canSendRequests => profileResponse?.accessControl.canSendRequests ?? false;
 
   int get matchedPreferencesCount => profileResponse?.partnerMatch.matchedCount ?? 0;
 
