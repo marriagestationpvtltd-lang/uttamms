@@ -104,6 +104,8 @@ class AndroidNotificationDetails {
     this.priority = Priority.defaultPriority,
     this.ticker,
     this.playSound = true,
+    this.sound,
+    this.audioAttributesUsage,
     this.enableVibration = true,
     this.vibrationPattern,
     this.enableLights = false,
@@ -138,6 +140,8 @@ class AndroidNotificationDetails {
   final Priority priority;
   final String? ticker;
   final bool playSound;
+  final AndroidNotificationSound? sound;
+  final AudioAttributesUsage? audioAttributesUsage;
   final bool enableVibration;
   final Int64List? vibrationPattern;
   final bool enableLights;
@@ -173,6 +177,7 @@ class DarwinNotificationDetails {
     this.presentSound = true,
     this.presentBanner = true,
     this.presentList = true,
+    this.sound,
     this.categoryIdentifier,
     this.interruptionLevel,
     this.threadIdentifier,
@@ -182,6 +187,7 @@ class DarwinNotificationDetails {
   final bool presentSound;
   final bool presentBanner;
   final bool presentList;
+  final String? sound;
   final String? categoryIdentifier;
   final InterruptionLevel? interruptionLevel;
   final String? threadIdentifier;
@@ -200,6 +206,37 @@ enum Priority { min, low, defaultPriority, high, max }
 enum NotificationVisibility { secret, private, public }
 
 enum InterruptionLevel { passive, active, timeSensitive, critical }
+
+enum AudioAttributesUsage {
+  unknown,
+  media,
+  voiceCommunication,
+  voiceCommunicationSignalling,
+  alarm,
+  notification,
+  notificationRingtone,
+  notificationEvent,
+  assistanceAccessibility,
+  assistanceNavigationGuidance,
+  assistanceSonification,
+  game,
+}
+
+// ── Sound types ───────────────────────────────────────────────────────────────
+
+abstract class AndroidNotificationSound {
+  const AndroidNotificationSound();
+}
+
+class RawResourceAndroidNotificationSound extends AndroidNotificationSound {
+  const RawResourceAndroidNotificationSound(this.sound);
+  final String sound;
+}
+
+class UriAndroidNotificationSound extends AndroidNotificationSound {
+  const UriAndroidNotificationSound(this.sound);
+  final String sound;
+}
 
 // ── Supporting types ──────────────────────────────────────────────────────────
 
@@ -344,6 +381,8 @@ class AndroidNotificationChannel {
     this.description,
     this.importance = Importance.defaultImportance,
     this.playSound = true,
+    this.sound,
+    this.audioAttributesUsage,
     this.enableVibration = true,
     this.enableLights = false,
     this.ledColor,
@@ -355,6 +394,8 @@ class AndroidNotificationChannel {
   final String? description;
   final Importance importance;
   final bool playSound;
+  final AndroidNotificationSound? sound;
+  final AudioAttributesUsage? audioAttributesUsage;
   final bool enableVibration;
   final bool enableLights;
   final Color? ledColor;
