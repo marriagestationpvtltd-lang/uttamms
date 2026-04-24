@@ -16,7 +16,7 @@ function verifyAdminToken(): ?array {
         ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION']
         ?? '';
 
-    if (empty($authHeader) || !str_starts_with($authHeader, 'Bearer ')) {
+    if (empty($authHeader) || strncmp($authHeader, 'Bearer ', 7) !== 0) {
         return null;
     }
 
