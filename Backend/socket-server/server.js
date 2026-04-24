@@ -205,6 +205,45 @@ const MAX_RETRIES     = 3;      // retry failed batch inserts up to this many ti
 /** socketId → { count, windowStart } */
 const socketRateLimits = new Map();
 
+// ──────────────────────────────────────────────────────────────────────────────
+// User package cache (LRU with TTL)
+// ──────────────────────────────────────────────────────────────────────────────
+const PACKAGE_CACHE_TTL = 60000; // 60 seconds - balance freshness vs DB load
+const PACKAGE_CACHE_MAX_SIZE = 5000; // Max users cached
+
+/** userId → { hasPackage: boolean, timestamp: number } */
+const packageCache = new Map();
+
+/**
+ * Get user package status from cache or DB.
+ * Implements LRU eviction when cache is full.
+ */
+async function getCachedPackageStatus(userId) {
+  if (!userId) return false;
+
+  const now = Date.now();
+  const cached = packageCache.get(userId);
+
+  // Return cached value if fresh (within TTL)
+  if (cached && (now - cached.timestamp) < PACKAGE_CACHE_TTL) {
+    return cached.hasPackage;
+  }
+
+  // Fetch from DB
+  const hasPackage = await hasActivePackage(userId);
+
+  // Evict oldest entry if cache is full (LRU)
+  if (packageCache.size >= PACKAGE_CACHE_MAX_SIZE) {
+    const oldestKey = packageCache.keys().next().value;
+    packageCache.delete(oldestKey);
+  }
+
+  // Update cache
+  packageCache.set(userId, { hasPackage, timestamp: now });
+
+  return hasPackage;
+}
+
 /**
  * Returns true if the socket has exceeded RATE_LIMIT_MAX messages in the
  * current RATE_LIMIT_WIN window.  Increments the counter otherwise.
@@ -674,8 +713,8 @@ async function getMessages({ chatRoomId, page = 1, limit = 20, userId = null }) 
   );
   const hasMore = rows.length > limit;
 
-  // Check if requesting user has an active package
-  const userHasPackage = userId ? await hasActivePackage(userId) : false;
+  // Check if requesting user has an active package (uses cache)
+  const userHasPackage = userId ? await getCachedPackageStatus(userId) : false;
 
   const messages = rows.slice(0, limit).reverse().map(row => {
     try {
@@ -958,8 +997,8 @@ io.on('connection', (socket) => {
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
 
-    // Check if receiver has an active package to determine if we should mask the message
-    const receiverHasPackage = await hasActivePackage(receiverId.toString());
+    // Check if receiver has an active package to determine if we should mask the message (uses cache)
+    const receiverHasPackage = await getCachedPackageStatus(receiverId.toString());
 
     // Emit to sender (always full message)
     const senderSocketId = userSockets.get(senderId.toString());
