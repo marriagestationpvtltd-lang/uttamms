@@ -30,11 +30,7 @@ function verifyAdminToken(): ?array {
 
     [$payloadB64, $sig] = $parts;
 
-    $secret = getAdminJwtSecret();
-    if (!$secret) {
-        error_log('[verifyAdminToken] Could not resolve JWT secret (env var not set and file-based secret unavailable)');
-        return null;
-    }
+    $secret = ADMIN_JWT_SECRET;
     $expectedSig = hash_hmac('sha256', $payloadB64, $secret);
 
     // Constant-time comparison to prevent timing attacks
