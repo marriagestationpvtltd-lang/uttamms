@@ -7,7 +7,7 @@
  * with the new custom tone URL.
  *
  * POST multipart/form-data:
- *   file (audio file) – required – mp3, aac, ogg, wav, or m4a (max 5 MB)
+ *   file (audio file) – required – mp3, aac, ogg, wav, m4a, webm (max 5 MB)
  *
  * Response:
  *   {
@@ -20,7 +20,7 @@
  *   }
  */
 
-ini_set('display_errors', 0);
+ini_set('display_errors', 1);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
@@ -44,13 +44,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 // ── DB credentials ────────────────────────────────────────────────────────────
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+$dbHost = 'localhost';
+$dbName = 'ms';
+$dbUser = 'ms';
+$dbPass = 'ms';
 
 // ── Validate uploaded file ────────────────────────────────────────────────────
-if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
     $uploadErrors = [
         UPLOAD_ERR_INI_SIZE   => 'File exceeds server upload limit',
         UPLOAD_ERR_FORM_SIZE  => 'File exceeds form upload limit',
@@ -60,24 +60,41 @@ if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
         UPLOAD_ERR_EXTENSION  => 'Upload stopped by PHP extension',
     ];
-    $code    = $_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE;
-    $message = $uploadErrors[$code]     ?? 'Upload error';
+    $code    = isset($_FILES['file']['error']) ? $_FILES['file']['error'] : UPLOAD_ERR_NO_FILE;
+    $message = isset($uploadErrors[$code])     ? $uploadErrors[$code]     : 'Upload error';
     http_response_code(422);
     echo json_encode(['success' => false, 'message' => $message]);
     exit;
 }
 
-// Allowed MIME types
+// Allowed MIME types (includes webm for Flutter Web compatibility)
 $allowedMimes = [
     'audio/mpeg', 'audio/mp3', 'audio/aac', 'audio/ogg',
     'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a',
+    'audio/webm', 'audio/x-ms-wma',
 ];
 
-$fileMime = mime_content_type($_FILES['file']['tmp_name']);
-if (!in_array($fileMime, $allowedMimes, true)) {
-    http_response_code(422);
-    echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, aac, ogg, wav, m4a']);
-    exit;
+// Derive extension early so we can use it as a fallback for MIME detection
+$originalName = basename($_FILES['file']['name']);
+$ext          = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
+$allowedExts  = ['mp3', 'aac', 'ogg', 'wav', 'm4a', 'webm', 'mp4'];
+
+// Use mime_content_type() when available; fall back to extension-based check
+if (function_exists('mime_content_type')) {
+    $fileMime = mime_content_type($_FILES['file']['tmp_name']);
+    if ($fileMime === false || !in_array($fileMime, $allowedMimes, true)) {
+        error_log('upload_call_tone: rejected MIME type: ' . var_export($fileMime, true));
+        http_response_code(422);
+        echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, aac, ogg, wav, m4a, webm']);
+        exit;
+    }
+} else {
+    error_log('upload_call_tone: mime_content_type() unavailable, falling back to extension check');
+    if (!in_array($ext, $allowedExts, true)) {
+        http_response_code(422);
+        echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, aac, ogg, wav, m4a, webm']);
+        exit;
+    }
 }
 
 // Max 5 MB
@@ -87,20 +104,41 @@ if ($_FILES['file']['size'] > 5 * 1024 * 1024) {
     exit;
 }
 
+// ── Connect to DB first (before moving file to avoid orphaned uploads) ────────
+try {
+    $pdo = new PDO(
+        'mysql:host=' . $dbHost . ';dbname=' . $dbName . ';charset=utf8mb4',
+        $dbUser,
+        $dbPass,
+        [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]
+    );
+} catch (PDOException $e) {
+    error_log('upload_call_tone DB connect error: ' . $e->getMessage());
+    http_response_code(503);
+    echo json_encode(['success' => false, 'message' => 'Database connection failed. Please try again.']);
+    exit;
+}
+
 // ── Save file ─────────────────────────────────────────────────────────────────
 $uploadDir = __DIR__ . '/../../uploads/admin_tones/';
 if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
+    if (!mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+        error_log('upload_call_tone: failed to create upload directory: ' . $uploadDir);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Server configuration error. Please contact support.']);
+        exit;
+    }
 }
 
-$originalName = basename($_FILES['file']['name']);
-$ext          = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-$allowedExts  = ['mp3', 'aac', 'ogg', 'wav', 'm4a'];
 if (!in_array($ext, $allowedExts, true)) {
     $ext = 'mp3';
 }
 
-$filename = 'admin_tone_' . time() . '.' . $ext;
+$filename = 'admin_tone_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
 $destPath = $uploadDir . $filename;
 
 if (!move_uploaded_file($_FILES['file']['tmp_name'], $destPath)) {
@@ -115,18 +153,6 @@ $toneName  = pathinfo($originalName, PATHINFO_FILENAME);
 
 // ── Persist settings in DB ────────────────────────────────────────────────────
 try {
-    $pdo = new PDO(
-        'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
-        DB_USER,
-        DB_PASS,
-        [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
-        ]
-    );
-
-    // Ensure table exists
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS app_settings (
             `setting_key`   VARCHAR(100) NOT NULL PRIMARY KEY,
