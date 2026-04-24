@@ -4,8 +4,6 @@ require('dotenv').config();
 const express   = require('express');
 const http      = require('http');
 const { Server } = require('socket.io');
-const { createAdapter } = require('@socket.io/redis-adapter');
-const { Redis } = require('ioredis');
 const mysql     = require('mysql2/promise');
 const cors      = require('cors');
 const multer    = require('multer');
@@ -19,16 +17,6 @@ const { v4: uuidv4 } = require('uuid');
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
-
-// The admin user's ID in the database.  Admin is always permitted to send
-// messages to any user, bypassing the package and chat-request checks.
-const ADMIN_USER_ID = process.env.ADMIN_USER_ID || '1';
-
-// Redis configuration
-const REDIS_HOST     = process.env.REDIS_HOST || '127.0.0.1';
-const REDIS_PORT     = parseInt(process.env.REDIS_PORT || '6379', 10);
-const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
-const REDIS_ENABLED  = process.env.REDIS_ENABLED !== 'false'; // enabled by default
 
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
@@ -217,45 +205,6 @@ const MAX_RETRIES     = 3;      // retry failed batch inserts up to this many ti
 /** socketId → { count, windowStart } */
 const socketRateLimits = new Map();
 
-// ──────────────────────────────────────────────────────────────────────────────
-// User package cache (LRU with TTL)
-// ──────────────────────────────────────────────────────────────────────────────
-const PACKAGE_CACHE_TTL = 60000; // 60 seconds - balance freshness vs DB load
-const PACKAGE_CACHE_MAX_SIZE = 5000; // Max users cached
-
-/** userId → { hasPackage: boolean, timestamp: number } */
-const packageCache = new Map();
-
-/**
- * Get user package status from cache or DB.
- * Implements LRU eviction when cache is full.
- */
-async function getCachedPackageStatus(userId) {
-  if (!userId) return false;
-
-  const now = Date.now();
-  const cached = packageCache.get(userId);
-
-  // Return cached value if fresh (within TTL)
-  if (cached && (now - cached.timestamp) < PACKAGE_CACHE_TTL) {
-    return cached.hasPackage;
-  }
-
-  // Fetch from DB
-  const hasPackage = await hasActivePackage(userId);
-
-  // Evict oldest entry if cache is full (LRU)
-  if (packageCache.size >= PACKAGE_CACHE_MAX_SIZE) {
-    const oldestKey = packageCache.keys().next().value;
-    packageCache.delete(oldestKey);
-  }
-
-  // Update cache
-  packageCache.set(userId, { hasPackage, timestamp: now });
-
-  return hasPackage;
-}
-
 /**
  * Returns true if the socket has exceeded RATE_LIMIT_MAX messages in the
  * current RATE_LIMIT_WIN window.  Increments the counter otherwise.
@@ -289,63 +238,9 @@ const io     = new Server(server, {
     origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
     methods: ['GET', 'POST'],
   },
-  transports:        ['websocket'],   // WebSocket only — no polling
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
-});
-
-// ── Redis Adapter (multi-instance sync) ───────────────────────────────────────
-// When REDIS_ENABLED=true (default), attach the Redis adapter so all Node.js
-// instances share the same rooms/events.  Falls back to the default in-memory
-// adapter if Redis is unreachable, so a single-instance dev setup still works.
-if (REDIS_ENABLED) {
-  const redisOpts = {
-    host:     REDIS_HOST,
-    port:     REDIS_PORT,
-    password: REDIS_PASSWORD,
-    // Reconnect on connection loss so we don't silently fall back to
-    // single-instance mode after a transient Redis blip.
-    retryStrategy: (times) => Math.min(times * 100, 3000),
-    lazyConnect: true,
-  };
-  const pubClient = new Redis(redisOpts);
-  const subClient = pubClient.duplicate();
-
-  Promise.all([pubClient.connect(), subClient.connect()])
-    .then(() => {
-      io.adapter(createAdapter(pubClient, subClient));
-      console.log('✅ Redis adapter attached (multi-instance mode)');
-    })
-    .catch(err => {
-      console.warn(`⚠️  Redis unavailable (${err.message}) — running in single-instance mode`);
-    });
-
-  pubClient.on('error', err => console.error('Redis pub error:', err.message));
-  subClient.on('error', err => console.error('Redis sub error:', err.message));
-}
-
-// ── Socket.IO auth middleware ──────────────────────────────────────────────────
-// Validates the token and userId sent in socket.handshake.auth during connect.
-// Assigns socket.userId so all subsequent event handlers can trust it without
-// waiting for the legacy 'authenticate' event.
-io.use((socket, next) => {
-  const { userId, token } = socket.handshake.auth || {};
-
-  if (!userId) {
-    // Allow the connection but mark as unauthenticated; the client can still
-    // emit the legacy 'authenticate' event to identify itself.
-    return next();
-  }
-
-  // Basic sanitisation — userId must be a non-empty alphanumeric-ish string.
-  const safeUserId = String(userId).replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 50);
-  if (!safeUserId) return next(new Error('Invalid userId'));
-
-  // Attach to socket so event handlers can use it immediately.
-  socket.userId = safeUserId;
-  socket.authToken = token ? String(token).slice(0, 512) : null;
-  return next();
 });
 
 app.use(cors({
@@ -593,89 +488,6 @@ async function isEitherBlocked(userA, userB) {
   }
 }
 
-/**
- * Check if there is an accepted 'Chat' request between two users.
- * Defaults to false on DB error to block messaging safely.
- */
-async function hasChatRequestAccepted(userA, userB) {
-  if (!userA || !userB) return false;
-  try {
-    const [[row]] = await pool.query(
-      `SELECT 1 FROM proposals
-        WHERE request_type = 'Chat'
-          AND status = 'accepted'
-          AND (
-            (sender_id = ? AND receiver_id = ?)
-            OR
-            (sender_id = ? AND receiver_id = ?)
-          )
-        LIMIT 1`,
-      [userA, userB, userB, userA],
-    );
-    return !!row;
-  } catch (err) {
-    console.error(`hasChatRequestAccepted error for users=${userA},${userB}:`, err.message);
-    return false;
-  }
-}
-
-/**
- * Check if a user has an active paid package.
- * First checks the user_package table (consistent with send_message.php REST API),
- * then falls back to checking users.usertype === 'paid'.
- * Defaults to false on DB error to be safe (deny access on failure).
- */
-async function hasActivePackage(userId) {
-  if (!userId) return false;
-  try {
-    // Primary check: user_package table with expiry (mirrors send_message.php logic)
-    const [[pkgRow]] = await pool.query(
-      `SELECT 1 FROM user_package WHERE userid = ? AND expiredate > NOW() LIMIT 1`,
-      [userId],
-    );
-    if (pkgRow) return true;
-    // Fallback: check usertype column on users table
-    const [[row]] = await pool.query(
-      `SELECT usertype FROM users WHERE id = ? LIMIT 1`,
-      [userId],
-    );
-    return row && row.usertype === 'paid';
-  } catch (err) {
-    console.error(`hasActivePackage error for userId=${userId}:`, err.message);
-    return false;
-  }
-}
-
-/**
- * Mask message content for free users.
- * Shows only the first word, replaces remaining words with asterisks (****).
- * For non-text messages (image, voice, video, etc.), returns a placeholder.
- */
-function maskMessage(message, messageType) {
-  // For non-text message types, return a generic placeholder
-  if (messageType !== 'text') {
-    return '****';
-  }
-
-  // Handle empty or whitespace-only messages
-  if (!message || typeof message !== 'string' || message.trim() === '') {
-    return '****';
-  }
-
-  // Split message into words (by whitespace)
-  const words = message.trim().split(/\s+/);
-
-  // If only one word, show it entirely
-  if (words.length === 1) {
-    return words[0];
-  }
-
-  // Show first word, mask the rest
-  const firstWord = words[0];
-  const maskedRest = words.slice(1).map(() => '****').join(' ');
-  return `${firstWord} ${maskedRest}`;
-}
-
 /** Returns the sender_id for a message, or null if not found / IDs invalid. */
 async function getMessageSender(messageId, chatRoomId) {
   if (!messageId || !chatRoomId) return null;
@@ -802,7 +614,7 @@ async function getChatRooms(userId) {
   }));
 }
 
-async function getMessages({ chatRoomId, page = 1, limit = 20, userId = null }) {
+async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
   const [rows] = await pool.query(
     `SELECT * FROM chat_messages
@@ -812,7 +624,6 @@ async function getMessages({ chatRoomId, page = 1, limit = 20, userId = null }) 
     [chatRoomId, limit + 1, offset],
   );
   const hasMore = rows.length > limit;
-
   const messages = rows.slice(0, limit).reverse().map(row => {
     try {
       return toMessageMap(row);
@@ -967,86 +778,42 @@ function toMessageMap(row) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Socket.IO events
 // ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Internal helper: register a user as authenticated, join their personal room,
- * update online status, and re-deliver any pending calls.
- * Called both from the auth middleware path (on connect) and the legacy
- * 'authenticate' event so both flows share identical behaviour.
- */
-async function _handleAuthentication(socket, userId, authenticatedUserIdRef) {
-  const uid = userId.toString();
-  authenticatedUserIdRef.value = uid;
-  userSockets.set(uid, socket.id);
-
-  // Join a personal room so we can push status changes to this user
-  socket.join(`user:${uid}`);
-
-  await upsertOnlineStatus(uid, true);
-
-  // Notify contacts
-  socket.broadcast.emit('user_status_change', {
-    userId:   uid,
-    isOnline: true,
-    lastSeen: new Date().toISOString(),
-  });
-
-  socket.emit('authenticated', { success: true, userId: uid });
-  console.log(`✅ Authenticated: userId=${uid}`);
-
-  // Re-deliver any pending calls
-  _cleanExpiredPendingCalls();
-  const now = Date.now();
-  for (const [channelName, call] of activePendingCalls) {
-    if (call.recipientId === uid && now - call.createdAt <= PENDING_CALL_TTL_MS) {
-      socket.emit('incoming_call', call.data);
-      console.log(`📞 Re-delivered pending call to userId=${uid}, channel=${channelName}`);
-    }
-  }
-}
-
-io.on('connection', async (socket) => {
+io.on('connection', (socket) => {
   console.log(`🔌 Socket connected: ${socket.id}`);
+  let authenticatedUserId = null;
 
-  // Mutable reference so nested event closures can read the current value.
-  const userIdRef = { value: null };
-
-  // If the auth middleware already validated the userId from handshake.auth,
-  // complete authentication immediately without waiting for the 'authenticate' event.
-  if (socket.userId) {
-    try {
-      await _handleAuthentication(socket, socket.userId, userIdRef);
-    } catch (err) {
-      console.error('Auto-auth error:', err.message);
-    }
-  }
-
-  // Helper so event handlers can consistently resolve the authenticated user.
-  const getAuthUserId = () => userIdRef.value;
-
-  // ── authenticate (legacy / fallback event) ───────────────────────────────
-  // Kept for backward compatibility with older clients that send userId only
-  // after the connect event rather than in handshake.auth.
+  // ── authenticate ──────────────────────────────────────────────────────────
   socket.on('authenticate', async ({ userId }) => {
     if (!userId) return;
-    // Skip if already authenticated via middleware with the same user.
-    if (userIdRef.value === userId.toString()) return;
-    try {
-      await _handleAuthentication(socket, userId, userIdRef);
-    } catch (err) {
-      console.error('authenticate event error:', err.message);
+    authenticatedUserId = userId.toString();
+    userSockets.set(authenticatedUserId, socket.id);
+
+    // Join a personal room so we can push status changes to this user
+    socket.join(`user:${authenticatedUserId}`);
+
+    await upsertOnlineStatus(authenticatedUserId, true);
+
+    // Notify the user's contacts that they are online
+    socket.broadcast.emit('user_status_change', {
+      userId:   authenticatedUserId,
+      isOnline: true,
+      lastSeen: new Date().toISOString(),
+    });
+
+    socket.emit('authenticated', { success: true, userId: authenticatedUserId });
+    console.log(`✅ Authenticated: userId=${authenticatedUserId}`);
+
+    // Re-deliver any pending calls that arrived while this user was offline.
+    // Only calls younger than PENDING_CALL_TTL_MS are considered still active.
+    _cleanExpiredPendingCalls();
+    const now = Date.now();
+    for (const [channelName, call] of activePendingCalls) {
+      if (call.recipientId === authenticatedUserId && now - call.createdAt <= PENDING_CALL_TTL_MS) {
+        socket.emit('incoming_call', call.data);
+        console.log(`📞 Re-delivered pending call to userId=${authenticatedUserId}, channel=${channelName}`);
+      }
     }
   });
-
-  // Expose authenticatedUserId via closure variable for the rest of the handlers.
-  // authenticatedUserId is a convenience alias used throughout the event handlers
-  // below. It always reflects the current authenticated user via the ref.
-  Object.defineProperty(socket, 'authenticatedUserId', {
-    get: () => userIdRef.value,
-    configurable: true,
-  });
-  // Declare a local getter for use inside this closure.
-  const getAUId = () => userIdRef.value;
 
   // ── join_room ─────────────────────────────────────────────────────────────
   socket.on('join_room', ({ chatRoomId }) => {
@@ -1060,7 +827,7 @@ io.on('connection', async (socket) => {
 
   // ── set_active_chat ───────────────────────────────────────────────────────
   socket.on('set_active_chat', async ({ userId, chatRoomId, isActive }) => {
-    const uid = (userId || getAUId() || '').toString();
+    const uid = (userId || authenticatedUserId || '').toString();
     if (!uid) return;
 
     const activeChatRoomId = isActive && chatRoomId ? chatRoomId : null;
@@ -1083,44 +850,10 @@ io.on('connection', async (socket) => {
 
     if (!chatRoomId || !senderId || !receiverId) return;
 
-    // Normalise IDs to strings once; reused throughout this handler.
-    const senderIdStr   = senderId.toString();
-    const receiverIdStr = receiverId.toString();
-
-    // Admin is always permitted to send messages to any user.
-    const isAdminSender = senderIdStr === ADMIN_USER_ID;
-
     // ── Block check ───────────────────────────────────────────────────────
     // Drop the message silently if either party has blocked the other.
-    if (await isEitherBlocked(senderIdStr, receiverIdStr)) {
-      console.log(`🚫 send_message blocked: sender=${senderIdStr} receiver=${receiverIdStr}`);
-      return;
-    }
-
-    // ── Package check ─────────────────────────────────────────────────────
-    // Sender must have an active paid package to send messages.
-    // Admin is exempt from this check.
-    if (!isAdminSender && !(await getCachedPackageStatus(senderIdStr))) {
-      console.log(`🚫 send_message denied (no active package): sender=${senderIdStr}`);
-      socket.emit('message_error', {
-        messageId,
-        error: 'Upgrade membership required',
-        error_code: 'PACKAGE_REQUIRED',
-      });
-      return;
-    }
-
-    // ── Chat request check ────────────────────────────────────────────────
-    // There must be an accepted 'Chat' request between the two users.
-    // Admin is exempt from this check — admin can initiate a conversation
-    // with any user without a prior accepted proposal.
-    if (!isAdminSender && !(await hasChatRequestAccepted(senderIdStr, receiverIdStr))) {
-      console.log(`🚫 send_message denied (no accepted chat request): sender=${senderIdStr} receiver=${receiverIdStr}`);
-      socket.emit('message_error', {
-        messageId,
-        error: 'Chat request not accepted',
-        error_code: 'REQUEST_NOT_ACCEPTED',
-      });
+    if (await isEitherBlocked(senderId.toString(), receiverId.toString())) {
+      console.log(`🚫 send_message blocked: sender=${senderId} receiver=${receiverId}`);
       return;
     }
 
@@ -1134,10 +867,10 @@ io.on('connection', async (socket) => {
 
     const timestamp = new Date().toISOString();
     const isReceiverCurrentlyViewing = isReceiverViewing ||
-      userActiveChatRoom.get(receiverIdStr) === chatRoomId;
+      userActiveChatRoom.get(receiverId.toString()) === chatRoomId;
 
     const msgDoc = {
-      messageId, chatRoomId, senderId: senderIdStr, receiverId: receiverIdStr,
+      messageId, chatRoomId, senderId, receiverId,
       message:    safeMessage,
       messageType: safeMessageType,
       timestamp,
@@ -1164,26 +897,13 @@ io.on('connection', async (socket) => {
     // ── Immediate broadcast (optimistic, no DB wait) ──────────────────────
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
-
-    // Emit to sender (always full message)
-    const senderSocketId = userSockets.get(senderIdStr);
-    if (senderSocketId) {
-      io.to(senderSocketId).emit('new_message', clientMsg);
-    }
-
-    // Emit to receiver (full message — preview masking for unpaid users is handled client-side in the chat list)
-    const receiverSocketId = userSockets.get(receiverIdStr);
-    if (receiverSocketId) {
-      io.to(receiverSocketId).emit('new_message', clientMsg);
-    }
+    io.to(chatRoomId).emit('new_message', clientMsg);
   });
 
   // ── get_messages ──────────────────────────────────────────────────────────
-  socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20, userId }, ack) => {
+  socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20 }, ack) => {
     try {
-      // Use authenticated user ID if not provided in request
-      const requestingUserId = userId || getAUId();
-      const result = await getMessages({ chatRoomId, page, limit, userId: requestingUserId });
+      const result = await getMessages({ chatRoomId, page, limit });
       if (typeof ack === 'function') ack({ success: true, ...result });
     } catch (err) {
       console.error('get_messages error:', err.message);
@@ -1194,7 +914,7 @@ io.on('connection', async (socket) => {
   // ── get_chat_rooms ────────────────────────────────────────────────────────
   socket.on('get_chat_rooms', async ({ userId }, ack) => {
     try {
-      const uid = (userId || getAUId() || '').toString();
+      const uid = (userId || authenticatedUserId || '').toString();
       if (!uid) { if (typeof ack === 'function') ack({ success: false, error: 'No userId' }); return; }
       const chatRooms = await getChatRooms(uid);
       if (typeof ack === 'function') ack({ success: true, chatRooms });
@@ -1237,11 +957,11 @@ io.on('connection', async (socket) => {
   socket.on('edit_message', async ({ chatRoomId, messageId, newMessage }) => {
     try {
       if (!chatRoomId || !messageId || !newMessage) return;
-      if (!getAUId()) return; // require authentication
+      if (!authenticatedUserId) return; // require authentication
 
       // Only allow the original sender to edit their own message
       const senderId = await getMessageSender(messageId, chatRoomId);
-      if (!senderId || senderId !== getAUId()) return;
+      if (!senderId || senderId !== authenticatedUserId) return;
 
       // Enforce edited message length limit
       const safeNewMessage = typeof newMessage === 'string' ? newMessage.slice(0, 65536) : '';
@@ -1258,8 +978,8 @@ io.on('connection', async (socket) => {
   socket.on('delete_message', async ({ chatRoomId, messageId, userId, deleteForEveryone }) => {
     try {
       if (!chatRoomId || !messageId) return;
-      if (!getAUId()) return; // require authentication
-      const uid = getAUId();
+      if (!authenticatedUserId) return; // require authentication
+      const uid = authenticatedUserId;
 
       // For "delete for everyone", only the sender may do so
       if (deleteForEveryone) {
@@ -1279,7 +999,7 @@ io.on('connection', async (socket) => {
   socket.on('toggle_like', async ({ chatRoomId, messageId }) => {
     try {
       if (!chatRoomId || !messageId) return;
-      if (!getAUId()) return; // Require authentication
+      if (!authenticatedUserId) return; // Require authentication
 
       // Verify the authenticated user is a participant in the chat room
       // (uses JSON_CONTAINS since participants is stored as a JSON array)
@@ -1287,7 +1007,7 @@ io.on('connection', async (socket) => {
         `SELECT 1 FROM chat_rooms
           WHERE id = ? AND JSON_CONTAINS(participants, JSON_QUOTE(?))
           LIMIT 1`,
-        [chatRoomId, getAUId()],
+        [chatRoomId, authenticatedUserId],
       );
       if (!room) return; // Not a participant — silently ignore
 
@@ -1319,7 +1039,7 @@ io.on('connection', async (socket) => {
   socket.on('add_reaction', async ({ chatRoomId, messageId, emoji }) => {
     try {
       if (!chatRoomId || !messageId) return;
-      const uid = getAUId();
+      const uid = authenticatedUserId;
       if (!uid) return;
 
       // Verify participant
@@ -1373,7 +1093,7 @@ io.on('connection', async (socket) => {
   socket.on('unsend_message', async ({ chatRoomId, messageId, userId }) => {
     try {
       if (!chatRoomId || !messageId) return;
-      const uid = (userId || getAUId() || '').toString();
+      const uid = (userId || authenticatedUserId || '').toString();
       if (!uid) return;
 
       // Only allow the sender to unsend
@@ -1713,19 +1433,18 @@ io.on('connection', async (socket) => {
   socket.on('disconnect', async () => {
     console.log(`🔌 Socket disconnected: ${socket.id}`);
     socketRateLimits.delete(socket.id);
-    const uid = getAUId();
-    if (!uid) return;
+    if (!authenticatedUserId) return;
 
-    userSockets.delete(uid);
-    userActiveChatRoom.delete(uid);
+    userSockets.delete(authenticatedUserId);
+    userActiveChatRoom.delete(authenticatedUserId);
     // If this user was in an active call, remove them from busy tracking.
-    activeCallUsers.delete(uid);
+    activeCallUsers.delete(authenticatedUserId);
 
-    await upsertOnlineStatus(uid, false);
+    await upsertOnlineStatus(authenticatedUserId, false);
 
     // Notify contacts
     socket.broadcast.emit('user_status_change', {
-      userId:   uid,
+      userId:   authenticatedUserId,
       isOnline: false,
       lastSeen: new Date().toISOString(),
     });
