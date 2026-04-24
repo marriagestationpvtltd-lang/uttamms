@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../adminchat/chatprovider.dart';
+import '../auth/service.dart';
 import 'dashmodel.dart';
 import 'dashservice.dart';
 
@@ -76,6 +77,10 @@ class _DashboardHomeState extends State<DashboardHome> {
       } else {
         setState(() => _error = 'Failed to load dashboard data');
       }
+    } on UnauthorizedException {
+      if (!mounted) return;
+      // Token is invalid/expired — log out and return to login screen.
+      await context.read<AuthProvider>().logout();
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Unable to load dashboard data. Please try again.');
