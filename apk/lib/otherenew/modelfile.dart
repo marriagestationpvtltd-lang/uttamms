@@ -668,7 +668,7 @@ class AccessControl {
       currentUserPlan: plan,
       canViewPhoto: json['can_view_photo'] ?? false,
       canChat: json['can_chat'] ?? false,
-      canSendRequests: json['can_send_requests'] ?? (plan == 'paid'),
+      canSendRequests: json['can_send_requests'] ?? false,
     );
   }
 
