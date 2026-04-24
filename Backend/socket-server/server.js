@@ -528,6 +528,32 @@ async function isEitherBlocked(userA, userB) {
 }
 
 /**
+ * Check if there is an accepted 'Chat' request between two users.
+ * Defaults to false on DB error to block messaging safely.
+ */
+async function hasChatRequestAccepted(userA, userB) {
+  if (!userA || !userB) return false;
+  try {
+    const [[row]] = await pool.query(
+      `SELECT 1 FROM proposals
+        WHERE request_type = 'Chat'
+          AND status = 'accepted'
+          AND (
+            (sender_id = ? AND receiver_id = ?)
+            OR
+            (sender_id = ? AND receiver_id = ?)
+          )
+        LIMIT 1`,
+      [userA, userB, userB, userA],
+    );
+    return !!row;
+  } catch (err) {
+    console.error(`hasChatRequestAccepted error for users=${userA},${userB}:`, err.message);
+    return false;
+  }
+}
+
+/**
  * Check if a user has an active paid package.
  * Returns true if user has 'paid' usertype, false otherwise.
  * Defaults to false on DB error to be safe (deny access on failure).
@@ -943,6 +969,30 @@ io.on('connection', (socket) => {
     // Drop the message silently if either party has blocked the other.
     if (await isEitherBlocked(senderId.toString(), receiverId.toString())) {
       console.log(`🚫 send_message blocked: sender=${senderId} receiver=${receiverId}`);
+      return;
+    }
+
+    // ── Package check ─────────────────────────────────────────────────────
+    // Sender must have an active paid package to send messages.
+    if (!(await getCachedPackageStatus(senderId.toString()))) {
+      console.log(`🚫 send_message denied (no active package): sender=${senderId}`);
+      socket.emit('message_error', {
+        messageId,
+        error: 'Upgrade membership required',
+        error_code: 'PACKAGE_REQUIRED',
+      });
+      return;
+    }
+
+    // ── Chat request check ────────────────────────────────────────────────
+    // There must be an accepted 'Chat' request between the two users.
+    if (!(await hasChatRequestAccepted(senderId.toString(), receiverId.toString()))) {
+      console.log(`🚫 send_message denied (no accepted chat request): sender=${senderId} receiver=${receiverId}`);
+      socket.emit('message_error', {
+        messageId,
+        error: 'Chat request not accepted',
+        error_code: 'REQUEST_NOT_ACCEPTED',
+      });
       return;
     }
 
