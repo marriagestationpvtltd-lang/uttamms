@@ -7,7 +7,7 @@ import '../model/usermodel.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 
 class UserService {
-  static const String baseUrl = '${kAdminApiBaseUrl}/api9';
+  static const String baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();

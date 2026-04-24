@@ -2198,14 +2198,16 @@ class _ChatWindowState extends State<ChatWindow> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token') ?? '';
-      final response = await http.post(
-        Uri.parse('$kAdminApi2BaseUrl/getusers.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'access_token': token}),
+      final response = await http.get(
+        Uri.parse('$kAdminApi9BaseUrl/get_users.php'),
+        headers: {
+          'Content-Type': 'application/json',
+          if (token.isNotEmpty) 'Authorization': 'Bearer $token',
+        },
       );
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
-        allUsers = ((data['users'] as List<dynamic>?) ?? [])
+        allUsers = ((data['data'] as List<dynamic>?) ?? [])
             .where((u) => u['id']?.toString() != currentParticipantId)
             .map((u) => Map<String, dynamic>.from(u as Map))
             .toList();

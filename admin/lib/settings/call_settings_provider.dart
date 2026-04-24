@@ -32,8 +32,8 @@ class CallSettingsProvider extends ChangeNotifier {
   static const _keyCustomToneName = 'custom_call_tone_name';
   static const _keyRepeatInterval = 'call_repeat_interval';
   static const _settingsUrl = '${kAdminApiBaseUrl}/Api2/app_settings.php';
-  static const _updateSettingsUrl = '${kAdminApiBaseUrl}/api9/update_app_settings.php';
-  static const _uploadToneUrl = '${kAdminApiBaseUrl}/api9/upload_call_tone.php';
+  static const _updateSettingsUrl = '$kAdminApi9BaseUrl/update_app_settings.php';
+  static const _uploadToneUrl = '$kAdminApi9BaseUrl/upload_call_tone.php';
 
   static const List<RingtoneTone> availableTones = [
     RingtoneTone(

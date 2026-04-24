@@ -37,9 +37,7 @@ class AuthProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final url = Uri.parse('${kAdminApiBaseUrl}/api9/login.php');
-
-      // Try with mode: 'cors' for web
+      final url = Uri.parse('$kAdminApi9BaseUrl/login.php');
       final response = await http.post(
         url,
         headers: {
@@ -89,8 +87,7 @@ class AuthProvider with ChangeNotifier {
   // Method 2: Alternative approach for CORS issues
   Future<bool> _loginWithAlternativeMethod(String email, String password) async {
     try {
-      // Try using a different approach
-      final url = Uri.parse('${kAdminApiBaseUrl}/api9/login.php');
+      final url = Uri.parse('$kAdminApi9BaseUrl/login.php');
 
       // Create a more compatible request
       final request = http.Request('POST', url);
@@ -136,7 +133,7 @@ class AuthProvider with ChangeNotifier {
   Future<bool> _loginWithProxy(String email, String password) async {
     try {
       // If you have a proxy server, use it here
-      final proxyUrl = Uri.parse('https://cors-anywhere.herokuapp.com/${kAdminApiBaseUrl}/api9/login.php');
+      final proxyUrl = Uri.parse('https://cors-anywhere.herokuapp.com/$kAdminApi9BaseUrl/login.php');
 
       final response = await http.post(
         proxyUrl,
