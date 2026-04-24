@@ -410,6 +410,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         if (data['success'] == true && data['data'] != null) {
           final List members = data['data'];
 
+          // Debug log: received data from backend
+          debugPrint('Premium members API response - Total users: ${members.length}');
+
           final membersList = members.map<Map<String, dynamic>>((member) {
             // Construct full profile picture URL
             final rawImage = member['profile_picture'] ?? '';
@@ -429,6 +432,17 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               'photo_request': member['photo_request']?.toString().toLowerCase() ?? '',
               'can_view_photo': PrivacyUtils.canViewPhotoFromJson(member),
             };
+          }).toList();
+
+          // Debug log: filtered premium users
+          debugPrint('Premium members processed - Total filtered: ${membersList.length}');
+
+          // Cache and update state
+          _cache[cacheKey] = CachedData(membersList, DateTime.now());
+
+          if (!mounted) return;
+          setState(() {
+            _premiumMembers = membersList;
             _isLoading = false;
             _premiumMembersLoaded = true;
           });
