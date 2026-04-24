@@ -42,6 +42,12 @@ class ChatListScreen extends StatefulWidget {
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
 
+/// Distinguishes between the two message-display contexts so that masking
+/// rules can be applied correctly:
+///   [listPreview] – conversation list thumbnail; non-premium users see masked text.
+///   [chat]        – full chat screen; messages are ALWAYS shown unmasked.
+enum _MessageViewContext { listPreview, chat }
+
 class _ChatListScreenState extends State<ChatListScreen>
     with WidgetsBindingObserver {
   static const String _kMaskedPreviewText = '* * * * * * * * * *';
@@ -2302,15 +2308,18 @@ class _ChatListScreenState extends State<ChatListScreen>
             messageType: lastMessageType,
           );
 
-          // Non-premium users see masked text for messages received from the
-          // other person; media/call labels are shown as-is since they convey
-          // no private text content.
+          // [listPreview] context: non-premium users see masked text for
+          // messages received from the other person.  Media/call labels are
+          // shown as-is since they convey no private text content.
+          // [chat] context (ChatDetailScreen) NEVER applies masking – full
+          // message text is always shown there regardless of premium status.
+          const viewContext = _MessageViewContext.listPreview;
           final bool isCurrentUserPaid =
               context.read<UserState>().usertype == 'paid';
           final String normalizedMsgType = lastMessageType.trim().toLowerCase();
           final bool isTextType =
               normalizedMsgType == 'text' || normalizedMsgType.isEmpty;
-          final bool shouldMaskPreview =
+          final bool shouldMaskPreview = viewContext == _MessageViewContext.listPreview &&
               !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
 
           final String displayPreview =
@@ -2355,21 +2364,16 @@ class _ChatListScreenState extends State<ChatListScreen>
               }
               final userState = context.read<UserState>();
               final isVerified = userState.isVerified;
-              final hasPackage = userState.hasPackage;
 
-              // Check verification first
+              // Document verification is the only gate for opening an existing
+              // chat conversation.  Premium membership (hasPackage) only affects
+              // the conversation-list preview text (masking) — it does NOT block
+              // access to the chat screen.  The chat screen always shows full
+              // message text regardless of subscription status.
               if (!isVerified) {
                 VerificationService.requireVerification(context);
                 return;
               }
-
-              // Check membership before opening chat
-              if (!hasPackage) {
-                _showUpgradeDialog(context);
-                return;
-              }
-
-              // User has both verification and membership - allow chat access
               final chatData = {
                 'chatRoomId': data['chatRoomId']?.toString() ?? '',
                 'receiverId': otherParticipantId,

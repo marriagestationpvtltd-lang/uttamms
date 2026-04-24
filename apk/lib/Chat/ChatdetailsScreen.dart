@@ -80,6 +80,12 @@ class _AudioPlaybackState {
   static const Object _sentinel = Object();
 }
 
+/// Full chat screen – always operates in the "chat" view context.
+///
+/// This screen NEVER masks message text regardless of the user's premium or
+/// verification status.  Masking is a list-preview-only concern handled by
+/// [ChatListScreen].  Any gating on access (e.g. document verification) is
+/// enforced by the calling screen before navigating here.
 class ChatDetailScreen extends StatefulWidget {
   final String chatRoomId;
   final String receiverId;
