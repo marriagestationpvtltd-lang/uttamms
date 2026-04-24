@@ -44,6 +44,8 @@ class ChatListScreen extends StatefulWidget {
 
 class _ChatListScreenState extends State<ChatListScreen>
     with WidgetsBindingObserver {
+  static const String _kMaskedPreviewText = '* * * * * * * * * *';
+
   String userimage = '';
   var pageno;
   String userId = '';
@@ -2305,14 +2307,14 @@ class _ChatListScreenState extends State<ChatListScreen>
           // no private text content.
           final bool isCurrentUserPaid =
               context.read<UserState>().usertype == 'paid';
+          final String normalizedMsgType = lastMessageType.trim().toLowerCase();
           final bool isTextType =
-              lastMessageType.trim().toLowerCase() == 'text' ||
-              lastMessageType.trim().isEmpty;
+              normalizedMsgType == 'text' || normalizedMsgType.isEmpty;
           final bool shouldMaskPreview =
               !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
 
           final String displayPreview =
-              shouldMaskPreview ? '* * * * * * * * * *' : formattedPreview;
+              shouldMaskPreview ? _kMaskedPreviewText : formattedPreview;
 
           final String messagePreview =
               isLastMessageFromMe && displayPreview.isNotEmpty
