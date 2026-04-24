@@ -89,10 +89,19 @@ class CallSettingsService {
     required File file,
   }) async {
     try {
-      final uri = Uri.parse(kEndpointUploadCustomTone);
+      final uri = Uri.parse(kEndpointUploadCallTone);
+      final fileBytes = await file.readAsBytes();
+      final filename = file.uri.pathSegments.last;
+
       final request = http.MultipartRequest('POST', uri)
         ..fields['user_id'] = userId
-        ..files.add(await http.MultipartFile.fromPath('tone', file.path));
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            'tone',
+            fileBytes,
+            filename: filename,
+          ),
+        );
 
       final streamed  = await request.send().timeout(const Duration(seconds: 60));
       final response  = await http.Response.fromStream(streamed);

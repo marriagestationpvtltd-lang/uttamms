@@ -31,6 +31,7 @@ const String kEndpointLogActivity = '$kApi2BaseUrl/log_activity.php';
 /// Call settings
 const String kEndpointCallSettings     = '$kApi2BaseUrl/call_settings.php';
 const String kEndpointUploadCustomTone = '$kApi2BaseUrl/upload_custom_tone.php';
+const String kEndpointUploadCallTone   = '$kApi9BaseUrl/upload_call_tone.php';
 const String kEndpointGetCallRingtone  = '$kApi2BaseUrl/get_call_ringtone.php';
 
 // ---------------------------------------------------------------------------
