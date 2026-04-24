@@ -44,14 +44,12 @@ class ChatListScreen extends StatefulWidget {
 
 /// Distinguishes between the two message-display contexts so that masking
 /// rules can be applied correctly:
-///   [listPreview] – conversation list thumbnail; non-premium users see masked text.
+///   [listPreview] – conversation list thumbnail; non-premium users see first 4 words.
 ///   [chat]        – full chat screen; messages are ALWAYS shown unmasked.
 enum _MessageViewContext { listPreview, chat }
 
 class _ChatListScreenState extends State<ChatListScreen>
     with WidgetsBindingObserver {
-  static const String _kMaskedPreviewText = '* * * * * * * * * *';
-
   String userimage = '';
   var pageno;
   String userId = '';
@@ -560,6 +558,22 @@ class _ChatListScreenState extends State<ChatListScreen>
   String _formatTime(DateTime? time) {
     if (time == null) return '';
     return DateFormat('hh:mm a').format(time.toLocal());
+  }
+
+  /// Extract the first N words from a message and append "..." if there are more words.
+  /// Used to show a preview of messages for non-paid users in the chat list.
+  String _getFirstWords(String message, int wordCount) {
+    if (message.isEmpty) return message;
+
+    // Split by whitespace and filter out empty strings
+    final words = message.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+
+    if (words.length <= wordCount) {
+      return message;
+    }
+
+    // Take first N words and append "..."
+    return '${words.take(wordCount).join(' ')}...';
   }
 
   String _formatConversationPreview({
@@ -2309,9 +2323,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           );
 
           // This block executes in the [_MessageViewContext.listPreview] context.
-          // Non-premium users see masked text for messages received from the
-          // other person.  Media/call labels are shown as-is since they convey
-          // no private text content.
+          // Non-premium users see only the first 4 words of text messages received
+          // from the other person, giving a preview while encouraging upgrade.
+          // Media/call labels are shown as-is since they convey no private text content.
           //
           // NOTE: The [chat] context (ChatDetailScreen) NEVER applies masking –
           // full message text is always shown there regardless of premium status.
@@ -2324,7 +2338,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
 
           final String displayPreview =
-              shouldMaskPreview ? _kMaskedPreviewText : formattedPreview;
+              shouldMaskPreview ? _getFirstWords(formattedPreview, 4) : formattedPreview;
 
           final String messagePreview =
               isLastMessageFromMe && displayPreview.isNotEmpty
