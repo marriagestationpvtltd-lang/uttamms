@@ -164,6 +164,7 @@ class _ChatWindowState extends State<ChatWindow> {
   static const String _kDeletedMessageText = 'This message was deleted.';
   static const String _kUnsentMessageText = 'This message was unsent.';
   static const String _kDefaultMessageText = 'Message';
+  static const String _kMaskedMessageText = '* * * * * * * * * *';
   // Approximate chat row height used for the initial jump before ensureVisible
   // performs the precise final alignment on the mounted target widget.
   static const double _kEstimatedMessageExtent = 112;
@@ -2910,6 +2911,41 @@ class _ChatWindowState extends State<ChatWindow> {
                                       (data['reactions'] is Map)
                                           ? Map<String, dynamic>.from(data['reactions'] as Map)
                                           : {};
+
+                                  // For non-paid members only the first message is visible;
+                                  // all subsequent messages are replaced with asterisks.
+                                  // Use null-check so that any message with an unmapped ID
+                                  // is shown in full rather than incorrectly masked.
+                                  final int? globalMsgIndex = _messageIndexMap[msgId];
+                                  final bool isMasked = !chatProvider.ispaid &&
+                                      globalMsgIndex != null &&
+                                      globalMsgIndex > 0 &&
+                                      data['deleted'] != true &&
+                                      data['unsent'] != true;
+                                  final String bubbleMessage = isMasked
+                                      ? _kMaskedMessageText
+                                      : data['message'];
+                                  final String? bubbleType =
+                                      isMasked ? 'text' : data['type'];
+                                  final Map<String, dynamic>? bubbleProfileData =
+                                      isMasked
+                                          ? null
+                                          : (data.containsKey('profileData')
+                                              ? data['profileData']
+                                              : null);
+                                  final String? bubbleImageUrl = isMasked
+                                      ? null
+                                      : (data.containsKey('imageUrl')
+                                          ? data['imageUrl']
+                                          : null);
+                                  final Map<String, dynamic>? bubbleReportData =
+                                      isMasked
+                                          ? null
+                                          : (data.containsKey('reportData')
+                                              ? data['reportData']
+                                                  as Map<String, dynamic>
+                                              : null);
+
                                   return Column(
                                     crossAxisAlignment: isSentByAdmin
                                         ? CrossAxisAlignment.end
@@ -2919,14 +2955,12 @@ class _ChatWindowState extends State<ChatWindow> {
                                         key: _messageKeyFor(msgId),
                                         isHighlighted: _highlightedMessageId == msgId,
                                         child: _buildChatBubble(
-                                          data['message'],
+                                          bubbleMessage,
                                           isSentByAdmin,
                                           timestamp,
-                                          data['type'],
-                                          data.containsKey('profileData')
-                                              ? data['profileData']
-                                              : null,
-                                          data.containsKey('imageUrl') ? data['imageUrl'] : null,
+                                          bubbleType,
+                                          bubbleProfileData,
+                                          bubbleImageUrl,
                                           data['seen'] == true,
                                           data['callType']?.toString(),
                                           data['callStatus']?.toString(),
@@ -2941,9 +2975,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                           canEdit,
                                           canMutate,
                                           replyPayload,
-                                          data.containsKey('reportData')
-                                              ? data['reportData'] as Map<String, dynamic>
-                                              : null,
+                                          bubbleReportData,
                                         ),
                                       ),
                                       if (reactions.isNotEmpty)
