@@ -668,7 +668,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
         // the user can re-upload from their profile without being blocked here.
         final userState = mounted ? context.read<UserState>() : null;
         final identityStatus = userState?.identityStatus ?? 'not_uploaded';
-        _goTo(identityStatus != 'not_uploaded'
+        _goTo(identityStatus != UserState.statusNotUploaded
             ? const MainControllerScreen(initialIndex: 0)
             : const IDVerificationScreen());
         break;

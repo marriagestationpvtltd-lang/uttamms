@@ -17,7 +17,10 @@ import '../config/app_endpoints.dart';
 class UserState extends ChangeNotifier {
   static const String _cacheKey = 'user_state_cache';
 
-  String _identityStatus = 'not_uploaded';
+  /// Canonical value for an identity document that has never been submitted.
+  static const String statusNotUploaded = 'not_uploaded';
+
+  String _identityStatus = statusNotUploaded;
   String _usertype = 'free';
   bool _isVerified = false;
 
@@ -132,7 +135,7 @@ class UserState extends ChangeNotifier {
   // ── Clear on sign-out ────────────────────────────────────────────────────
 
   Future<void> clear() async {
-    _identityStatus = 'not_uploaded';
+    _identityStatus = statusNotUploaded;
     _isVerified = false;
     _usertype = 'free';
     try {
