@@ -606,14 +606,12 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     _buildMaritalDocumentsSection(),
                   ],
 
-                  // ── Continue button (all required docs submitted) ──
+                  // ── Continue button (all required docs approved) ──
                   if (_canProceed()) ...[
                     const SizedBox(height: 32),
                     _buildContinueButton(),
                   ],
 
-                  const SizedBox(height: 12),
-                  _buildSkipButton(),
                   const SizedBox(height: 32),
                 ],
               ),
@@ -919,15 +917,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     onTap: () => Navigator.pop(context),
                     child: const Icon(Icons.arrow_back_ios_new,
                         color: Colors.white, size: 20),
-                  ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: _skipVerification,
-                    icon: const Icon(Icons.skip_next_rounded,
-                        color: Colors.white70, size: 18),
-                    label: const Text('Skip',
-                        style:
-                            TextStyle(color: Colors.white70, fontSize: 13)),
                   ),
                 ],
               ),
@@ -1464,20 +1453,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     );
   }
 
-  Widget _buildSkipButton() {
-    return Center(
-      child: TextButton.icon(
-        onPressed: _skipVerification,
-        icon: const Icon(Icons.arrow_forward_ios_rounded,
-            size: 13, color: Colors.grey),
-        label: const Text(
-          'Skip for now — verify later',
-          style: TextStyle(fontSize: 13, color: Colors.grey),
-        ),
-      ),
-    );
-  }
-
   // ─── IDENTITY DOCUMENT SECTION ───────────────────────────────────────────
 
   /// Decides whether to show the upload form or a status card for the identity doc.
@@ -1789,49 +1764,36 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
 
   // ─── CONTINUE BUTTON ──────────────────────────────────────────────────────
 
-  /// Returns true when all required documents have been at least submitted
-  /// (identity status != 'not_uploaded' and all marital docs != 'not_uploaded').
+  /// Returns true when ALL required documents are approved (identity +
+  /// all required marital documents). This is the condition used by the
+  /// Continue button — navigation to home is only allowed after full
+  /// verification (is_verified = true).
   bool _canProceed() {
-    if (_documentStatus == 'not_uploaded') return false;
+    if (_documentStatus != 'approved') return false;
     if (!_requiresMaritalDocuments()) return true;
     final requiredDocs = _getRequiredMaritalDocuments();
     return requiredDocs.every((doc) {
       final label = doc['label'] as String;
       final state = _maritalDocStates[label];
-      return state != null && state['status'] != 'not_uploaded';
+      return state?['status'] == 'approved';
     });
   }
 
   Widget _buildContinueButton() {
-    final allApproved = _documentStatus == 'approved' &&
-        (!_requiresMaritalDocuments() ||
-            _getRequiredMaritalDocuments().every((doc) {
-              final state = _maritalDocStates[doc['label'] as String];
-              return state?['status'] == 'approved';
-            }));
-
     return SizedBox(
       width: double.infinity,
       child: ElevatedButton.icon(
-        onPressed: allApproved ? _completeRegistration : _goToHome,
-        icon: Icon(
-            allApproved
-                ? Icons.check_circle_rounded
-                : Icons.home_rounded,
-            size: 20),
-        label: Text(allApproved ? 'Continue to App' : 'Go to Home'),
+        onPressed: _completeRegistration,
+        icon: const Icon(Icons.check_circle_rounded, size: 20),
+        label: const Text('Continue to App'),
         style: ElevatedButton.styleFrom(
-          backgroundColor:
-              allApproved ? const Color(0xFF2E7D32) : AppColors.primary,
+          backgroundColor: const Color(0xFF2E7D32),
           foregroundColor: Colors.white,
           padding: const EdgeInsets.symmetric(vertical: 16),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           elevation: 4,
-          shadowColor: (allApproved
-                  ? const Color(0xFF2E7D32)
-                  : AppColors.primary)
-              .withOpacity(0.4),
+          shadowColor: const Color(0xFF2E7D32).withOpacity(0.4),
         ),
       ),
     );
@@ -2274,43 +2236,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       return;
     }
     _uploadDocument();
-  }
-
-  void _skipVerification() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
-        title: const Text('Skip Verification?',
-            style:
-                TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-        content: const Text(
-          'You can verify your identity later from your profile. Some features may be limited until verified.',
-          style: TextStyle(fontSize: 14, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _goToHome();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text('Skip',
-                style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
   }
 
   void _goToHome() {

@@ -15,7 +15,7 @@ import '../Auth/Screen/Edit/edit5.dart';
 import '../Auth/Screen/Edit/edit6.dart';
 import '../Auth/Screen/Edit/edit7.dart';
 import '../Auth/Screen/Edit/edit8.dart';
-import '../Auth/Screen/marital_document_screen.dart';
+import '../Auth/Screen/signupscreen10.dart';
 import '../Auth/SuignupModel/signup_model.dart';
 import '../DeleteAccount/deleteAccointScreen.dart';
 import '../Package/PackageScreen.dart';
@@ -58,7 +58,6 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
   String? _activePackageName;
   String? _activePackageExpiry;
   String _docStatus = 'not_uploaded';
-  bool _docUploadSkipped = false;
   bool _isCheckingConnectivity = false;
   bool? _lastConnectivityState;
   ConnectivityService? _connectivityService;
@@ -123,7 +122,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
         if (data['status'] == 'success') {
           setState(() {
             profileData = data['data'];
-            isProfileVerified = profileData?['personalDetail']?['isVerified'] == 1;
+            isProfileVerified = context.read<UserState>().isVerified;
             memberType = _getMemberType(profileData?['personalDetail']?['usertype'] ?? 'free');
             // Store backend-calculated completion percentage
             _backendProfileCompletion = data['profileCompletion'];
@@ -202,23 +201,22 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   /// Syncs `_docStatus` and `isProfileVerified` from the global [UserState]
   /// provider instead of making an extra API call to `check_document_status.php`.
+  ///
+  /// `isProfileVerified` is set from [UserState.isVerified] — the single
+  /// flag that combines both identity and marital document approval.
   void _syncDocStatusFromUserState() {
     if (!mounted) return;
     try {
-      final status = context.read<UserState>().identityStatus;
-      final maritalStatusName =
-          profileData?['personalDetail']?['maritalStatusName']?.toString() ?? '';
-      final requiresDoc = _requiresMaritalStatusDocument(maritalStatusName);
+      final userState = context.read<UserState>();
       setState(() {
-        _docStatus = status;
-        if (requiresDoc) {
-          isProfileVerified = status == 'approved';
-        }
+        _docStatus = userState.identityStatus;
+        isProfileVerified = userState.isVerified;
       });
     } catch (e) {
       debugPrint('_syncDocStatusFromUserState error: $e');
     }
   }
+
 
   Future<void> _fetchActivePackage(String userId) async {
     try {
@@ -1788,78 +1786,50 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     return !_maritalStatusesWithoutRequiredDocument.contains(normalizedStatus);
   }
 
+  /// Shows a unified verification status banner for users whose marital status
+  /// requires supporting documents.
+  ///
+  /// Uses [UserState.isVerified] — the single flag that covers both identity
+  /// and marital document approval — rather than treating the two separately.
+  /// When not verified, the action directs users to [IDVerificationScreen] so
+  /// that both document types are handled in one unified flow.
   Widget _buildDocumentStatusSection(Map<String, dynamic> personalDetail) {
     final maritalStatus = personalDetail['maritalStatusName']?.toString() ?? '';
-    if (!_requiresMaritalStatusDocument(maritalStatus) ||
-        (_docUploadSkipped && _docStatus == 'not_uploaded')) {
+    if (!_requiresMaritalStatusDocument(maritalStatus)) {
       return const SizedBox.shrink();
     }
 
-    Color bgColor;
-    Color iconColor;
-    IconData icon;
-    String title;
-    String subtitle;
+    final isVerified = context.read<UserState>().isVerified;
+
+    final Color bgColor;
+    final Color iconColor;
+    final IconData icon;
+    final String title;
+    final String subtitle;
     Widget? action;
 
-    switch (_docStatus) {
-      case 'approved':
-        bgColor = const Color(0xFFE8F5E9);
-        iconColor = const Color(0xFF2E7D32);
-        icon = Icons.verified_rounded;
-        title = 'Document Verified';
-        subtitle = 'Your marital status document has been approved. Your profile is verified.';
-        action = null;
-        break;
-      case 'pending':
-        bgColor = const Color(0xFFFFFDE7);
-        iconColor = const Color(0xFFF57F17);
-        icon = Icons.hourglass_top_rounded;
-        title = 'Document Under Review';
-        subtitle = 'Your document has been submitted and is awaiting admin approval.';
-        action = null;
-        break;
-      case 'rejected':
-        bgColor = const Color(0xFFFFEBEE);
-        iconColor = const Color(0xFFD32F2F);
-        icon = Icons.cancel_rounded;
-        title = 'Document Rejected';
-        subtitle = 'Your document was rejected. Please upload a valid document to get verified.';
-        action = TextButton.icon(
-          onPressed: () => _openEditPage(const MaritalDocumentUploadScreen()),
-          icon: const Icon(Icons.upload_file_rounded, size: 18),
-          label: const Text('Re-upload Document'),
-          style: TextButton.styleFrom(foregroundColor: const Color(0xFFD32F2F)),
-        );
-        break;
-      default: // not_uploaded
-        bgColor = const Color(0xFFFCE4EC);
-        iconColor = const Color(0xFFD32F2F);
-        icon = Icons.upload_file_rounded;
-        title = 'Document Required';
-        subtitle = 'Since your marital status is "$maritalStatus", you must upload a supporting document (e.g. death certificate / divorce decree / court order) to get your profile verified.';
-        action = Row(
-          children: [
-            ElevatedButton.icon(
-              onPressed: () => _openEditPage(const MaritalDocumentUploadScreen()),
-              icon: const Icon(Icons.upload_rounded, size: 18, color: Colors.white),
-              label: const Text('Upload Document', style: TextStyle(color: Colors.white)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD32F2F),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Semantics(
-              label: 'Skip document upload for this session',
-              child: TextButton(
-                onPressed: () => setState(() => _docUploadSkipped = true),
-                child: Text('Skip', style: TextStyle(color: Colors.grey[600])),
-              ),
-            ),
-          ],
-        );
+    if (isVerified) {
+      bgColor = const Color(0xFFE8F5E9);
+      iconColor = const Color(0xFF2E7D32);
+      icon = Icons.verified_rounded;
+      title = 'Document Verified';
+      subtitle = 'Your marital status document has been approved. Your profile is verified.';
+    } else {
+      bgColor = const Color(0xFFFCE4EC);
+      iconColor = const Color(0xFFD32F2F);
+      icon = Icons.upload_file_rounded;
+      title = 'Verification Required';
+      subtitle = 'Since your marital status is "$maritalStatus", you must complete document verification to use all features.';
+      action = ElevatedButton.icon(
+        onPressed: () => _openEditPage(IDVerificationScreen()),
+        icon: const Icon(Icons.verified_user_rounded, size: 18, color: Colors.white),
+        label: const Text('Verify Now', style: TextStyle(color: Colors.white)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: const Color(0xFFD32F2F),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        ),
+      );
     }
 
     return Container(
@@ -2250,7 +2220,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
         _firstFilled([personalDetail['country']]),
       ]),
     );
-    final isVerified = _docStatus == 'approved';
+    final isVerified = context.read<UserState>().isVerified;
 
     Widget statRow(String l1, dynamic v1, String l2, dynamic v2) {
       return Padding(
@@ -2811,7 +2781,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     Map<String, dynamic> personalDetail,
   ) {
     final model = context.read<SignupModel>();
-    final isVerified = _docStatus == 'approved';
+    final isVerified = context.read<UserState>().isVerified;
 
     return _buildSection(
       title: 'Personal Details',
@@ -3312,7 +3282,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     _openEditPage(
       PersonalDetailsPagee(
         initialData: _asMap(profileData?['personalDetail']),
-        isVerified: _docStatus == 'approved', // Pass verification status to edit screen
+        isVerified: context.read<UserState>().isVerified, // Pass verification status to edit screen
       ),
     );
   }
