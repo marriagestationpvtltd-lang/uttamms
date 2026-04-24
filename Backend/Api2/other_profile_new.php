@@ -77,7 +77,10 @@ if($photoRes->num_rows>0){
     }
 }
 
-if($current_plan=="paid" && $photo_request=="accepted"){
+// A paid viewer may always see accepted-request photos.
+// An unpaid viewer may see photos when the photo request was accepted
+// (meaning the other side – who is paid – sent the request and it was accepted).
+if($current_plan=="paid" || $photo_request=="accepted"){
     $can_view_photo=true;
 }
 $photoStmt->close();
@@ -112,7 +115,9 @@ if($chatRes->num_rows>0){
     }
 }
 
-if($current_plan=="paid" && $chat_request=="accepted"){
+// A paid user may always chat; an unpaid user may chat when the chat
+// request has been accepted (i.e. a paid user reached out to them).
+if($current_plan=="paid" || $chat_request=="accepted"){
     $can_chat=true;
 }
 $chatStmt->close();

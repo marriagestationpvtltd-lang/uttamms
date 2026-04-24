@@ -2335,8 +2335,11 @@ class _ChatListScreenState extends State<ChatListScreen>
               }
               final userState = context.read<UserState>();
               final isVerified = userState.isVerified;
-              final hasPackage = userState.hasPackage;
-              if (isVerified && hasPackage) {
+              // Package is required to SEND a new chat request, but any
+              // verified user (paid or free) may open an existing accepted
+              // conversation – including unpaid users who received and accepted
+              // a request from a paid member.
+              if (isVerified) {
                 final chatData = {
                   'chatRoomId': data['chatRoomId']?.toString() ?? '',
                   'receiverId': otherParticipantId,
@@ -2366,11 +2369,8 @@ class _ChatListScreenState extends State<ChatListScreen>
                     ),
                   );
                 }
-              } else if (!isVerified) {
-                VerificationService.requireVerification(context);
               } else {
-                // Verified but no package
-                showUpgradeDialog(context);
+                VerificationService.requireVerification(context);
               }
             },
             child: Container(
