@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../Notification/notification_inbox_service.dart';
 import '../pushnotification/pushservice.dart';
-import '../otherenew/modelfile.dart';
+import '../otherenew/modelfile.dart' as models;
 import '../utils/access_control.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
@@ -14,7 +14,7 @@ class ProfileService {
   static const String baseUrl = '${kApiBaseUrl}/Api2';
 
   /// Fetch profile data from API
-  Future<ProfileResponse> fetchProfile({
+  Future<models.ProfileResponse> fetchProfile({
     required dynamic myId,
     required dynamic userId
   }) async {
@@ -31,7 +31,7 @@ class ProfileService {
         final jsonResponse = json.decode(response.body);
 
         if (jsonResponse['status'] == 'success') {
-          return ProfileResponse.fromJson(jsonResponse);
+          return models.ProfileResponse.fromJson(jsonResponse);
         } else {
           throw Exception('API returned error status: ${jsonResponse['status']}');
         }
