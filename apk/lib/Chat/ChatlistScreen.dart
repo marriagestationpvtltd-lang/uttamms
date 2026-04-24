@@ -2299,10 +2299,25 @@ class _ChatListScreenState extends State<ChatListScreen>
             rawMessage: lastMessage,
             messageType: lastMessageType,
           );
+
+          // Non-premium users see masked text for messages received from the
+          // other person; media/call labels are shown as-is since they convey
+          // no private text content.
+          final bool isCurrentUserPaid =
+              context.read<UserState>().usertype == 'paid';
+          final bool isTextType =
+              lastMessageType.trim().toLowerCase() == 'text' ||
+              lastMessageType.trim().isEmpty;
+          final bool shouldMaskPreview =
+              !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
+
+          final String displayPreview =
+              shouldMaskPreview ? '* * * * * * * * * *' : formattedPreview;
+
           final String messagePreview =
-              isLastMessageFromMe && formattedPreview.isNotEmpty
-                  ? 'You: $formattedPreview'
-                  : formattedPreview;
+              isLastMessageFromMe && displayPreview.isNotEmpty
+                  ? 'You: $displayPreview'
+                  : displayPreview;
 
           final String formattedTime = _formatTime(lastMessageTime);
 

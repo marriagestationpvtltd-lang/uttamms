@@ -181,7 +181,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   String? _lastBuiltHighlightId;
   bool _lastBuiltIsLoadingMore = false;
   bool _lastBuiltIsBlockedByReceiver = false;
-  bool _lastBuiltIsCurrentUserPaid = false;
 
   // Lazy loading variables
   bool _isLoadingMore = false;
@@ -281,7 +280,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     begin: Alignment.topCenter,
     end: Alignment.bottomCenter,
   );
-  static const String _kMaskedMessageText = '* * * * * * * * * *';
 
   @override
   void initState() {
@@ -4021,13 +4019,11 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     // Audio playback state (position/duration/isPlaying) is handled via ValueNotifier
     // + ValueListenableBuilder inside each voice bubble, so position ticks no longer
     // invalidate the cache or trigger a full rebuild of the message list.
-    final bool isCurrentUserPaid = context.read<UserState>().usertype == 'paid';
     final canUseCache = _cachedMessageWidgets != null &&
         _lastBuiltVersion == _messagesCacheVersion &&
         _lastBuiltHighlightId == _highlightedMessageId &&
         _lastBuiltIsLoadingMore == _isLoadingMore &&
-        _lastBuiltIsBlockedByReceiver == _isBlockedByReceiver &&
-        _lastBuiltIsCurrentUserPaid == isCurrentUserPaid;
+        _lastBuiltIsBlockedByReceiver == _isBlockedByReceiver;
 
     // IMPORTANT: always return the SAME widget-type hierarchy (RefreshIndicator > ListView)
     // regardless of whether we use the cache or not. Changing the widget type at the same
@@ -4129,10 +4125,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     // Sort date keys in chronological order (oldest first)
     final sortedDateKeys = _sortDateKeysChronologically(groupedMessages.keys.toList());
 
-    // Track how many received (not-mine) messages have been rendered so far.
-    // Free users see only the first received message; the rest are masked.
-    int receivedMsgCount = 0;
-
     // Build widgets for each date group
     for (final dateKey in sortedDateKeys) {
       final messagesForDate = groupedMessages[dateKey]!;
@@ -4189,28 +4181,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           final isMine = data['senderId'] == widget.currentUserId;
           final isDeletedForEveryone = data['deletedForEveryone'] == true;
 
-          // Free users see only the first received message in full;
-          // subsequent messages from the other user are masked with stars.
-          // Own (sent) messages are never masked.
-          bool isMasked = false;
-          if (!isMine && !isDeletedForEveryone) {
-            if (!isCurrentUserPaid && receivedMsgCount > 0) {
-              isMasked = true;
-            }
-            receivedMsgCount++;
-          }
-
           messageWidgets.add(_messageBubble(
             isMine: isMine,
-            text: isMasked ? _kMaskedMessageText : data['message'],
+            text: data['message'],
             timestamp: timestamp,
-            messageType: isMasked ? 'text' : (data['messageType'] ?? 'text'),
+            messageType: data['messageType'] ?? 'text',
             isRead: data['isRead'] ?? false,
             isDelivered: data['isDelivered'] ?? false,
-            duration: isMasked ? null : data['duration']?.toInt(),
+            duration: data['duration']?.toInt(),
             messageData: data,
-            repliedTo: isMasked ? null : data['repliedTo'],
-            isEdited: isMasked ? false : (data['isEdited'] ?? false),
+            repliedTo: data['repliedTo'],
+            isEdited: data['isEdited'] ?? false,
             isDeleted: isDeletedForEveryone,
           ));
         }
@@ -4223,7 +4204,6 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _lastBuiltHighlightId = _highlightedMessageId;
     _lastBuiltIsLoadingMore = _isLoadingMore;
     _lastBuiltIsBlockedByReceiver = _isBlockedByReceiver;
-    _lastBuiltIsCurrentUserPaid = isCurrentUserPaid;
 
     return RefreshIndicator(
       onRefresh: _refreshMessages,
