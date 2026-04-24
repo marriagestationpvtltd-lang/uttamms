@@ -2797,7 +2797,7 @@ class _ContactInfoSection extends StatelessWidget {
 
               // ❌ DOCUMENT NOT UPLOADED → Show Verification Dialog
               else {
-                VerificationService.requireVerification(context);
+                await VerificationService.requireVerification(context);
               }
             },
             borderRadius: BorderRadius.circular(16),

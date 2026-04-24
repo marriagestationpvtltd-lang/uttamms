@@ -710,8 +710,9 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
     );
   }
 
-  void _navigateToProfile(int userId) {
-    if (!VerificationService.requireVerification(context)) return;
+  Future<void> _navigateToProfile(int userId) async {
+    if (!await VerificationService.requireVerification(context)) return;
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(

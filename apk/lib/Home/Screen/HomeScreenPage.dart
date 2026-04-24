@@ -1340,11 +1340,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           ),
         _buildAppBarIcon(
           icon: Icons.search_rounded,
-          onPressed: () {
-            if (context.read<UserState>().isVerified) {
+          onPressed: () async {
+            if (await VerificationService.requireVerification(context)) {
+              if (!context.mounted) return;
               Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
-            } else {
-              VerificationService.requireVerification(context);
             }
           },
         ),
@@ -1611,11 +1610,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         'icon': Icons.search_rounded,
         'label': 'Search',
         'gradient': [const Color(0xFF6C63FF), const Color(0xFF4834D4)],
-        'onTap': () {
-          if (context.read<UserState>().isVerified) {
+        'onTap': () async {
+          if (await VerificationService.requireVerification(context)) {
+            if (!context.mounted) return;
             Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
-          } else {
-            VerificationService.requireVerification(context);
           }
         },
       },
@@ -1877,10 +1875,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           }
 
           return GestureDetector(
-            onTap: () {
+            onTap: () async {
               final profileUserId = profile['userid'];
               if (profileUserId != null) {
-                if (VerificationService.requireVerification(context)) {
+                if (await VerificationService.requireVerification(context)) {
+                  if (!context.mounted) return;
                   Navigator.push(context, MaterialPageRoute(
                       builder: (_) => ProfileLoader(
                           userId: profileUserId.toString(),
@@ -2067,10 +2066,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                 shape: RoundedRectangleBorder(
                                     borderRadius: AppDimensions.borderRadiusMD),
                               ),
-                              onPressed: () {
+                              onPressed: () async {
                                 final profileUserId = profile['userid'];
                                 if (profileUserId != null) {
-                                  if (VerificationService.requireVerification(context)) {
+                                  if (await VerificationService.requireVerification(context)) {
+                                    if (!context.mounted) return;
                                     Navigator.push(
                                         context,
                                         MaterialPageRoute(
@@ -2176,9 +2176,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           }
 
           return GestureDetector(
-            onTap: () {
+            onTap: () async {
               if (receiverId != null) {
-                if (VerificationService.requireVerification(context)) {
+                if (await VerificationService.requireVerification(context)) {
+                  if (!context.mounted) return;
                   Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -2360,8 +2361,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           }
 
           return GestureDetector(
-            onTap: () {
-              if (VerificationService.requireVerification(context)) {
+            onTap: () async {
+              if (await VerificationService.requireVerification(context)) {
+                if (!context.mounted) return;
                 Navigator.push(context, MaterialPageRoute(
                     builder: (_) => ProfileLoader(
                         userId: userIdd.toString(), myId: userid.toString())));
@@ -2508,8 +2510,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                   borderRadius: AppDimensions.borderRadiusLG,
                                 ),
                               ),
-                              onPressed: () {
-                                if (VerificationService.requireVerification(context)) {
+                              onPressed: () async {
+                                if (await VerificationService.requireVerification(context)) {
+                                  if (!context.mounted) return;
                                   Navigator.push(
                                       context,
                                       MaterialPageRoute(
@@ -2586,8 +2589,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final shouldShowClearImage = profile['can_view_photo'] == true;
 
           return GestureDetector(
-            onTap: () {
-              if (VerificationService.requireVerification(context)) {
+            onTap: () async {
+              if (await VerificationService.requireVerification(context)) {
+                if (!context.mounted) return;
                 Navigator.push(context, MaterialPageRoute(
                     builder: (_) => ProfileLoader(
                         userId: userIdd.toString(), myId: userid.toString())));
@@ -3141,8 +3145,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     );
   }
 
-  void _openProfile(String profileUserId) {
-    if (!VerificationService.requireVerification(context)) return;
+  Future<void> _openProfile(String profileUserId) async {
+    if (!await VerificationService.requireVerification(context)) return;
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -3154,14 +3159,15 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     );
   }
 
-  void _openPhotoRequestProfile(String profileUserId) {
-    if (!VerificationService.requireVerification(context)) return;
+  Future<void> _openPhotoRequestProfile(String profileUserId) async {
+    if (!await VerificationService.requireVerification(context)) return;
+    if (!mounted) return;
     _openProfile(profileUserId);
   }
 
   Future<void> _openChatRequest(ProposalModel request) async {
     try {
-      if (!VerificationService.requireVerification(context)) return;
+      if (!await VerificationService.requireVerification(context)) return;
 
       final prefs = await SharedPreferences.getInstance();
       final userDataString = prefs.getString('user_data');

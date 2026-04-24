@@ -1,5 +1,8 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../Auth/Screen/signupscreen10.dart';
 import '../constant/app_colors.dart';
@@ -19,14 +22,41 @@ class VerificationService {
   // ── guard helper ─────────────────────────────────────────────────────────
   /// Returns `true` when the user is verified so the caller may proceed.
   ///
-  /// Reads verification status from the global [UserState] provider so that
-  /// the check always reflects the latest refreshed value.
+  /// Uses a two-stage check to avoid false failures caused by stale cached
+  /// state (e.g. the admin approved documents while the app was running):
+  ///
+  /// 1. Fast path — if [UserState.isVerified] is already `true`, return
+  ///    immediately without a network round-trip.
+  /// 2. Slow path — if the cached state says unverified, fetch fresh data
+  ///    from the server before deciding.  Only shows the "Verification
+  ///    Required" dialog when the server also reports the user as unverified.
   ///
   /// If not verified, shows an informational dialog (with a "Verify Now"
   /// button for unsubmitted/rejected documents) and returns `false`.
-  static bool requireVerification(BuildContext context) {
+  static Future<bool> requireVerification(BuildContext context) async {
     try {
       final userState = context.read<UserState>();
+
+      // Fast path: already verified in cache — no network call needed.
+      if (userState.isVerified) return true;
+
+      // Slow path: refresh from the server before showing the popup, in case
+      // the admin approved documents since the cached state was last written.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final userDataString = prefs.getString('user_data');
+        if (userDataString != null) {
+          final data = jsonDecode(userDataString) as Map<String, dynamic>;
+          final userId = int.tryParse(data['id']?.toString() ?? '');
+          if (userId != null) {
+            await userState.refresh(userId);
+          }
+        }
+      } catch (e) {
+        debugPrint('VerificationService.requireVerification: refresh error – $e');
+      }
+
+      if (!context.mounted) return false;
       if (userState.isVerified) return true;
       _showVerificationRequired(context, userState.identityStatus);
       return false;
