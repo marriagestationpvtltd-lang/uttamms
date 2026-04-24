@@ -2308,18 +2308,19 @@ class _ChatListScreenState extends State<ChatListScreen>
             messageType: lastMessageType,
           );
 
-          // [listPreview] context: non-premium users see masked text for
-          // messages received from the other person.  Media/call labels are
-          // shown as-is since they convey no private text content.
-          // [chat] context (ChatDetailScreen) NEVER applies masking – full
-          // message text is always shown there regardless of premium status.
-          const viewContext = _MessageViewContext.listPreview;
+          // This block executes in the [_MessageViewContext.listPreview] context.
+          // Non-premium users see masked text for messages received from the
+          // other person.  Media/call labels are shown as-is since they convey
+          // no private text content.
+          //
+          // NOTE: The [chat] context (ChatDetailScreen) NEVER applies masking –
+          // full message text is always shown there regardless of premium status.
           final bool isCurrentUserPaid =
               context.read<UserState>().usertype == 'paid';
           final String normalizedMsgType = lastMessageType.trim().toLowerCase();
           final bool isTextType =
               normalizedMsgType == 'text' || normalizedMsgType.isEmpty;
-          final bool shouldMaskPreview = viewContext == _MessageViewContext.listPreview &&
+          final bool shouldMaskPreview =
               !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
 
           final String displayPreview =
