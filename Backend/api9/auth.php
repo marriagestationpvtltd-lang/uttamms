@@ -7,6 +7,8 @@
  *   $adminData = requireAdminAuth(); // exits with 401 JSON on failure
  */
 
+require_once __DIR__ . '/config.php';
+
 /**
  * Verify the Bearer token from the Authorization header.
  * Returns the decoded admin payload array on success, or null on failure.
@@ -28,9 +30,9 @@ function verifyAdminToken(): ?array {
 
     [$payloadB64, $sig] = $parts;
 
-    $secret = getenv('ADMIN_JWT_SECRET');
+    $secret = getAdminJwtSecret();
     if (!$secret) {
-        error_log('[verifyAdminToken] ADMIN_JWT_SECRET environment variable is not set');
+        error_log('[verifyAdminToken] Could not resolve JWT secret (env var not set and file-based secret unavailable)');
         return null;
     }
     $expectedSig = hash_hmac('sha256', $payloadB64, $secret);
