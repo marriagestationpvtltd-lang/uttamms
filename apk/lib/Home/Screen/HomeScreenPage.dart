@@ -773,7 +773,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       if (mounted) {
         context
             .read<UserState>()
-            .updateFromMasterData(user.docStatus, user.usertype);
+            .updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
       }
     } catch (e) {
       debugPrint("Error: $e");

@@ -57,6 +57,7 @@ try {
             u.usertype,
             u.pageno,
             u.createdDate,
+            ms.name AS marital_status_name,
             COALESCE(
                 (
                     SELECT
@@ -71,12 +72,16 @@ try {
                       AND documenttype NOT IN (
                           'Death Certificate',
                           'Divorce Decree',
-                          'Separation Document'
+                          'Separation Document',
+                          'Marriage Certificate',
+                          'Court Order'
                       )
                 ),
                 'not_uploaded'
             ) AS docstatus
         FROM users u
+        LEFT JOIN userpersonaldetail upd ON u.id = upd.userid
+        LEFT JOIN maritalstatus ms ON upd.maritalStatusId = ms.id
         WHERE u.id = :userid
         LIMIT 1
     ";
@@ -92,6 +97,63 @@ try {
         echo json_encode($resp, JSON_UNESCAPED_UNICODE);
         exit;
     }
+
+    // Determine which marital documents are required based on marital status
+    $maritalStatusName = $user['marital_status_name'];
+    $requiredMaritalDocs = [];
+    switch ($maritalStatusName) {
+        case 'Widowed':
+            $requiredMaritalDocs = ['Death Certificate'];
+            break;
+        case 'Divorced':
+            $requiredMaritalDocs = ['Divorce Decree'];
+            break;
+        case 'Awaiting Divorce':
+        case 'Waiting Divorce':
+            $requiredMaritalDocs = ['Separation Document'];
+            break;
+        // 'Never Married' and other statuses don't require marital documents
+    }
+
+    // Check if user has approved identity document
+    $hasApprovedIdentity = $user['docstatus'] === 'approved';
+
+    // Check if all required marital documents are approved
+    $allMaritalDocsApproved = true;
+    if (!empty($requiredMaritalDocs)) {
+        $placeholders = implode(',', array_fill(0, count($requiredMaritalDocs), '?'));
+        $maritalDocStmt = $pdo->prepare("
+            SELECT documenttype, status
+            FROM user_documents
+            WHERE userid = ? AND documenttype IN ($placeholders)
+            ORDER BY created_at DESC
+        ");
+        $params = array_merge([$userid], $requiredMaritalDocs);
+        $maritalDocStmt->execute($params);
+        $maritalDocs = $maritalDocStmt->fetchAll();
+
+        // Track which required docs are approved
+        $approvedMaritalDocs = [];
+        foreach ($maritalDocs as $doc) {
+            if ($doc['status'] === 'approved' && !in_array($doc['documenttype'], $approvedMaritalDocs)) {
+                $approvedMaritalDocs[] = $doc['documenttype'];
+            }
+        }
+
+        // Check if all required marital documents are in the approved list
+        foreach ($requiredMaritalDocs as $docType) {
+            if (!in_array($docType, $approvedMaritalDocs)) {
+                $allMaritalDocsApproved = false;
+                break;
+            }
+        }
+    }
+
+    // User is verified only if they have approved identity AND all required marital docs
+    $isVerified = $hasApprovedIdentity && $allMaritalDocsApproved;
+
+    // Add is_verified to the user data
+    $user['is_verified'] = $isVerified;
 
     $resp['success'] = true;
     $resp['message'] = 'User master data retrieved';

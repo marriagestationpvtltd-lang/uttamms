@@ -7,7 +7,8 @@ class UserMasterData {
   final String usertype;
   final int pageno;
   final String createdDate;
-  final String docStatus; // new field from PHP
+  final String docStatus; // identity document status
+  final bool isVerified; // overall verification (identity + marital documents)
 
 
   UserMasterData({
@@ -20,6 +21,7 @@ class UserMasterData {
     required this.pageno,
     required this.createdDate,
     required this.docStatus,
+    required this.isVerified,
 
   });
 
@@ -33,7 +35,8 @@ class UserMasterData {
       usertype: json['usertype'] ?? 'free',
       pageno: json['pageno'] ?? 0,
       createdDate: json['createdDate'] ?? '',
-      docStatus: json['docstatus']
+      docStatus: json['docstatus'],
+      isVerified: json['is_verified'] ?? false,
 
     );
   }

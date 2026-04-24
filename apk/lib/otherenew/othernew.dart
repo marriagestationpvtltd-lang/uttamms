@@ -499,7 +499,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
         // Keep UserState in sync with the data already fetched above –
         // avoids a separate masterdata.php call just for verification/usertype.
-        context.read<UserState>().updateFromMasterData(user.docStatus, user.usertype);
+        context.read<UserState>().updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
       }
 
     } catch (e) {
