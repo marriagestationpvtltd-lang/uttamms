@@ -2914,9 +2914,11 @@ class _ChatWindowState extends State<ChatWindow> {
 
                                   // For non-paid members only the first message is visible;
                                   // all subsequent messages are replaced with asterisks.
-                                  final int globalMsgIndex =
-                                      _messageIndexMap[msgId] ?? 0;
+                                  // Use null-check so that any message with an unmapped ID
+                                  // is shown in full rather than incorrectly masked.
+                                  final int? globalMsgIndex = _messageIndexMap[msgId];
                                   final bool isMasked = !chatProvider.ispaid &&
+                                      globalMsgIndex != null &&
                                       globalMsgIndex > 0 &&
                                       data['deleted'] != true &&
                                       data['unsent'] != true;
