@@ -1381,21 +1381,6 @@ class _ProfileCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                // Paid star
-                if (isPaid)
-                  Positioned(
-                    top: 0, left: 0,
-                    child: Container(
-                      width: 14, height: 14,
-                      decoration: BoxDecoration(
-                        color: Colors.amber,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: c.cardBg, width: 1.5),
-                      ),
-                      child: const Icon(Icons.star, size: 8,
-                          color: Colors.white),
-                    ),
-                  ),
               ],
             ),
             const SizedBox(width: 9),
@@ -1533,36 +1518,6 @@ class _ProfileCard extends StatelessWidget {
                   ),
 
                   const SizedBox(height: 2),
-
-                  // User ID + Member ID row
-                  Row(
-                    children: [
-                      Icon(Icons.tag, size: 10,
-                          color: c.muted),
-                      const SizedBox(width: 3),
-                      Text(
-                        '$profileId',
-                        style: TextStyle(
-                            fontSize: 9,
-                            color: c.muted,
-                            fontWeight: FontWeight.w600),
-                      ),
-                      const SizedBox(width: 6),
-                      Icon(Icons.badge_outlined, size: 10,
-                          color: c.muted),
-                      const SizedBox(width: 3),
-                      Expanded(
-                        child: Text(
-                          memberid,
-                          style: TextStyle(
-                              fontSize: 9,
-                              color: c.muted,
-                              fontWeight: FontWeight.w500),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
 
                   const SizedBox(height: 6),
 

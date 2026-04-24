@@ -1236,21 +1236,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                     ),
                   ),
                 ),
-                if (isPaid)
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    child: Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: Colors.amber,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: c.sidebar, width: 1.5),
-                      ),
-                      child: const Icon(Icons.star, size: 8, color: Colors.white),
-                    ),
-                  ),
               ],
             ),
 
@@ -1286,21 +1271,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                       ],
                     ],
                   ),
-                  if (userId.isNotEmpty)
-                    Row(
-                      children: [
-                        Icon(Icons.tag, size: 10, color: c.muted),
-                        const SizedBox(width: 2),
-                        Text(
-                          userId,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: c.muted,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
                   const SizedBox(height: 2),
                   Text(
                     isOnline ? "Online" : lastSeen,
