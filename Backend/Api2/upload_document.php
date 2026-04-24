@@ -50,7 +50,7 @@ if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
 
     $folder = __DIR__ . "/uploads/user_documents/";
     if (!is_dir($folder)) {
-        mkdir($folder, 0755, true);
+        mkdir($folder, 0750, true);
     }
 
     // Use random suffix to prevent filename enumeration

@@ -28,7 +28,11 @@ function verifyAdminToken(): ?array {
 
     [$payloadB64, $sig] = $parts;
 
-    $secret      = getenv('ADMIN_JWT_SECRET') ?: 'CHANGE_THIS_SECRET_KEY';
+    $secret = getenv('ADMIN_JWT_SECRET');
+    if (!$secret) {
+        error_log('[verifyAdminToken] ADMIN_JWT_SECRET environment variable is not set');
+        return null;
+    }
     $expectedSig = hash_hmac('sha256', $payloadB64, $secret);
 
     // Constant-time comparison to prevent timing attacks

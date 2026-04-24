@@ -174,6 +174,7 @@ try {
     respond(200, $responseData);
     
 } catch (Exception $e) {
+    error_log('signin.php error: ' . $e->getMessage());
     respond(500, ['success' => false, 'message' => 'Login failed. Please try again.']);
 }
 ?>

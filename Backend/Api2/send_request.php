@@ -3,6 +3,11 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/db_config.php';
 
+// Marital status IDs (must match the maritalstatus table)
+define('MARITAL_STATUS_WIDOWED',         2);
+define('MARITAL_STATUS_DIVORCED',        3);
+define('MARITAL_STATUS_WAITING_DIVORCE', 4);
+
 try {
     // ===============================
     // 🔥 SUPPORT JSON + FORM DATA
@@ -71,12 +76,12 @@ try {
 
     // Determine required marital documents
     $requiredMaritalDocs = [];
-    if ($maritalStatusName === 'Widowed' || ($nameIsEmpty && $maritalStatusId === 2)) {
+    if ($maritalStatusName === 'Widowed' || ($nameIsEmpty && $maritalStatusId === MARITAL_STATUS_WIDOWED)) {
         $requiredMaritalDocs = ['Death Certificate'];
-    } elseif ($maritalStatusName === 'Divorced' || ($nameIsEmpty && $maritalStatusId === 3)) {
+    } elseif ($maritalStatusName === 'Divorced' || ($nameIsEmpty && $maritalStatusId === MARITAL_STATUS_DIVORCED)) {
         $requiredMaritalDocs = ['Divorce Decree'];
     } elseif (in_array($maritalStatusName, ['Awaiting Divorce', 'Waiting Divorce'], true)
-           || ($nameIsEmpty && $maritalStatusId === 4)) {
+           || ($nameIsEmpty && $maritalStatusId === MARITAL_STATUS_WAITING_DIVORCE)) {
         $requiredMaritalDocs = ['Separation Document'];
     }
 

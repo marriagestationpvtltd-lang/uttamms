@@ -57,7 +57,7 @@ $safeExt = $allowedMimes[$fileMime];
 // Create uploads directory if not exists
 $uploadDir = __DIR__ . '/uploads/profile_pictures/';
 if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
+    mkdir($uploadDir, 0750, true);
 }
 
 // Generate unique file name to avoid overwriting

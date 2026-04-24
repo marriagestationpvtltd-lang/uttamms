@@ -70,7 +70,11 @@ try {
     }
 
     // 🔐 Token (HMAC-signed, not plain base64)
-    $secret = getenv('ADMIN_JWT_SECRET') ?: 'CHANGE_THIS_SECRET_KEY';
+    $secret = getenv('ADMIN_JWT_SECRET');
+    if (!$secret) {
+        error_log('[admin login] ADMIN_JWT_SECRET environment variable is not set');
+        response(false, 'Server configuration error. Please contact the administrator.', [], 500);
+    }
     $payload = json_encode([
         'admin_id' => $admin['id'],
         'email'    => $admin['email'],
