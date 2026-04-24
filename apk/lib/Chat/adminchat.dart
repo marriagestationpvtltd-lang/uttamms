@@ -4645,6 +4645,12 @@ class _ImagePreviewSheet extends StatelessWidget {
                   imgWidget = FutureBuilder<Uint8List>(
                     future: File(file.path!).readAsBytes(),
                     builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      }
                       if (snapshot.hasData) {
                         return Image.memory(
                           snapshot.data!,
@@ -4653,7 +4659,7 @@ class _ImagePreviewSheet extends StatelessWidget {
                       }
                       return Container(
                         color: Colors.grey.shade200,
-                        child: const Icon(Icons.image, color: Colors.grey),
+                        child: const Icon(Icons.broken_image, color: Colors.grey),
                       );
                     },
                   );
