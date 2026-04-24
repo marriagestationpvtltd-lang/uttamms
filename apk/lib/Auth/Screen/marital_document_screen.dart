@@ -62,12 +62,10 @@ class _MaritalDocumentUploadScreenState
   static const double _kPulseScaleMin = 0.94;
   static const double _kPulseScaleMax = 1.06;
 
-  // ── all possible document types ───────────────────────────────────────────
+  // ── all possible document types (one per marital status) ─────────────────
   final List<Map<String, dynamic>> _allDocumentTypes = [
     {'label': 'Death Certificate',    'icon': Icons.article_outlined},
     {'label': 'Divorce Decree',       'icon': Icons.gavel_rounded},
-    {'label': 'Court Order',          'icon': Icons.balance_rounded},
-    {'label': 'Marriage Certificate', 'icon': Icons.favorite_border_rounded},
     {'label': 'Separation Document',  'icon': Icons.assignment_outlined},
   ];
 
@@ -121,17 +119,14 @@ class _MaritalDocumentUploadScreenState
     switch (_maritalStatus) {
       case 'Widowed':
         return [
-          {'label': 'Death Certificate',    'icon': Icons.article_outlined},
-          {'label': 'Marriage Certificate', 'icon': Icons.favorite_border_rounded},
+          {'label': 'Death Certificate', 'icon': Icons.article_outlined},
         ];
       case 'Divorced':
         return [
           {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
-          {'label': 'Court Order',    'icon': Icons.balance_rounded},
         ];
       case 'Waiting Divorce':
         return [
-          {'label': 'Divorce Decree',      'icon': Icons.gavel_rounded},
           {'label': 'Separation Document', 'icon': Icons.assignment_outlined},
         ];
       default:
@@ -400,7 +395,7 @@ class _MaritalDocumentUploadScreenState
           Expanded(
             child: Text(
               _maritalStatus != null && _maritalStatus != 'Still Unmarried'
-                  ? 'Upload the documents below to verify your "$_maritalStatus" status.'
+                  ? 'Upload the document below to verify your "$_maritalStatus" status.'
                   : 'Upload a supporting document to verify your marital status.',
               style: const TextStyle(
                   fontSize: 13, color: Color(0xFF5D4037), height: 1.5),
