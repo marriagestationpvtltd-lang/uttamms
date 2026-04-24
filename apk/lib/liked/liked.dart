@@ -517,13 +517,9 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     if (person.containsKey('can_view_photo')) {
       return person['can_view_photo'] == true;
     }
-    final privacy = person['privacy']?.toString().toLowerCase() ?? '';
+    // Only accept when photo request is accepted - ignore privacy
     final photoRequest = person['photo_request']?.toString().toLowerCase() ?? '';
-
-    if (privacy == 'free' || photoRequest == 'accepted') {
-      return true;
-    }
-    return false;
+    return photoRequest == 'accepted';
   }
 
   String _getPhotoRequestStatus(Map<String, dynamic> person) {

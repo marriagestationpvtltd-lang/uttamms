@@ -77,10 +77,10 @@ if($photoRes->num_rows>0){
     }
 }
 
-// A paid viewer may always see accepted-request photos.
-// An unpaid viewer may see photos when the photo request was accepted
-// (meaning the other side – who is paid – sent the request and it was accepted).
-if($current_plan=="paid" || $photo_request=="accepted"){
+// Photo access is ONLY granted when photo request is accepted.
+// Users cannot view photos based on their plan (paid/free) or verification status.
+// This ensures photos are protected until explicit approval is granted.
+if($photo_request=="accepted"){
     $can_view_photo=true;
 }
 $photoStmt->close();

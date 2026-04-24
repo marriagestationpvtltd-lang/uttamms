@@ -9,10 +9,10 @@ import '../utils/privacy_utils.dart';
 /// Reusable privacy-aware profile card widget
 /// This card ensures consistent privacy enforcement across all sections of the app
 ///
-/// Privacy Rules:
-/// - If privacy == 'free': Photo is always visible (clear)
-/// - If privacy != 'free' AND photo_request == 'accepted': Photo is visible (clear)
-/// - Otherwise: Photo is BLURRED with lock overlay
+/// Privacy Rules (REQUEST-BASED ACCESS CONTROL):
+/// - Photo access is ONLY granted when photo_request == 'accepted'
+/// - Photos are ALWAYS blurred until request is explicitly approved
+/// - Privacy setting is IGNORED - only request approval matters
 class PrivacyAwareProfileCard extends StatelessWidget {
   final String imageUrl;
   final String name;
