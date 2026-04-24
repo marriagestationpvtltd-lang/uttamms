@@ -142,7 +142,7 @@ class CallSettingsProvider extends ChangeNotifier {
         // endpoint to return "Invalid request method.").
         response = await uploadMultipartPost(
           url: _uploadToneUrl,
-          fieldName: 'file',
+          fieldName: 'tone',
           bytes: fileBytes,
           filename: fileName,
           contentType: _audioMediaType(fileName),
@@ -154,7 +154,7 @@ class CallSettingsProvider extends ChangeNotifier {
             http.MultipartRequest('POST', Uri.parse(_uploadToneUrl));
         if (authHeader != null) request.headers.addAll(authHeader);
         request.files.add(
-          await http.MultipartFile.fromPath('file', path!, filename: fileName),
+          await http.MultipartFile.fromPath('tone', path!, filename: fileName),
         );
         response = await request.send().timeout(const Duration(seconds: 30));
       }
