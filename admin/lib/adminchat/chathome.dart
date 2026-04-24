@@ -2554,21 +2554,6 @@ class _ChatWindowState extends State<ChatWindow> {
                           ? Icon(Icons.person, size: 18, color: Colors.grey[400])
                           : null,
                     ),
-                    if (chatProvider.ispaid)
-                      Positioned(
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          width: 14,
-                          height: 14,
-                          decoration: BoxDecoration(
-                            color: Colors.amber,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: Colors.white, width: 1.5),
-                          ),
-                          child: const Icon(Icons.star, size: 8, color: Colors.white),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -2639,21 +2624,6 @@ class _ChatWindowState extends State<ChatWindow> {
                             color: chatProvider.online ? c.online : c.muted,
                           ),
                         ),
-                        if (chatProvider.id != null)
-                          Row(
-                            children: [
-                              Icon(Icons.tag, size: 10, color: c.muted),
-                              const SizedBox(width: 2),
-                              Text(
-                                '${chatProvider.id}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: c.muted,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
                       ],
                     ),
                   ],
@@ -7612,31 +7582,6 @@ class _AdminUserProfileSheet extends StatelessWidget {
                                 ),
                               ),
                             ),
-                            if (isPaid)
-                              Container(
-                                margin: const EdgeInsets.only(left: 6),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: Colors.amber.shade100,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: <Widget>[
-                                    Icon(Icons.star,
-                                        size: 12, color: Colors.amber),
-                                    SizedBox(width: 3),
-                                    Text(
-                                      'Premium',
-                                      style: TextStyle(
-                                          fontSize: 11,
-                                          color: Colors.amber,
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                  ],
-                                ),
-                              ),
                           ],
                         ),
                         const SizedBox(height: 4),
@@ -7656,14 +7601,6 @@ class _AdminUserProfileSheet extends StatelessWidget {
                               style: TextStyle(
                                 fontSize: 13,
                                 color: isOnline ? Colors.green : Colors.grey[600],
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              'ID: $userId',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey[500],
                               ),
                             ),
                           ],
