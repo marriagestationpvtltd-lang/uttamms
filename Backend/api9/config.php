@@ -7,4 +7,4 @@
  * this file so the secret is always identical.
  */
 
-define('ADMIN_JWT_SECRET', 'ms_admin_jwt_secret_2024_marriagestation');
+define('ADMIN_JWT_SECRET', 'Ms@4dm!n#JWT$2024%mrz&stAt!0n^s3cr3t*k3y~9X2pQ7wR');
