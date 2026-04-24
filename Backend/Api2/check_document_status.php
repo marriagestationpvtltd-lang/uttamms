@@ -46,33 +46,41 @@ $maritalDocTypes = [
 ];
 
 try {
-    // First, fetch the user's marital status to determine required documents
+    // First, fetch the user's marital status to determine required documents.
+    // Also select the numeric maritalStatusId so we can use it as a fallback
+    // when the name in the maritalstatus table doesn't match the Flutter app's
+    // expected names (IDs: 1=Still Unmarried, 2=Widowed, 3=Divorced, 4=Waiting Divorce).
     $maritalStatusStmt = $pdo->prepare("
-        SELECT ms.name as marital_status_name
+        SELECT upd.maritalStatusId, ms.name as marital_status_name
         FROM users u
         LEFT JOIN userpersonaldetail upd ON u.id = upd.userid
         LEFT JOIN maritalstatus ms ON upd.maritalStatusId = ms.id
         WHERE u.id = :user_id
     ");
     $maritalStatusStmt->execute([':user_id' => $userId]);
-    $maritalStatusRow = $maritalStatusStmt->fetch(PDO::FETCH_ASSOC);
-    $maritalStatusName = $maritalStatusRow['marital_status_name'] ?? null;
+    $maritalStatusRow  = $maritalStatusStmt->fetch(PDO::FETCH_ASSOC);
+    $maritalStatusName = $maritalStatusRow['marital_status_name'] ?? '';
+    $maritalStatusId   = (int)($maritalStatusRow['maritalStatusId'] ?? 0);
 
-    // Determine which marital document types are required based on marital status
+    // Determine which marital document types are required based on marital status.
+    // Name match is authoritative. The numeric maritalStatusId is used as a
+    // fallback ONLY when the name lookup returned nothing (NULL/empty JOIN result),
+    // since the Flutter app sends IDs: 1=Still Unmarried, 2=Widowed, 3=Divorced,
+    // 4=Waiting Divorce.
     $requiredMaritalDocs = [];
-    switch ($maritalStatusName) {
-        case 'Widowed':
-            $requiredMaritalDocs = ['Death Certificate'];
-            break;
-        case 'Divorced':
-            $requiredMaritalDocs = ['Divorce Decree'];
-            break;
-        case 'Awaiting Divorce':
-        case 'Waiting Divorce':
-            $requiredMaritalDocs = ['Separation Document'];
-            break;
-        // 'Never Married' and 'Still Unmarried' don't require marital documents
+
+    // Only fall back to ID-based matching when the name lookup returned nothing.
+    $nameIsEmpty = ($maritalStatusName === '');
+
+    if ($maritalStatusName === 'Widowed' || ($nameIsEmpty && $maritalStatusId === 2)) {
+        $requiredMaritalDocs = ['Death Certificate'];
+    } elseif ($maritalStatusName === 'Divorced' || ($nameIsEmpty && $maritalStatusId === 3)) {
+        $requiredMaritalDocs = ['Divorce Decree'];
+    } elseif (in_array($maritalStatusName, ['Awaiting Divorce', 'Waiting Divorce'], true)
+           || ($nameIsEmpty && $maritalStatusId === 4)) {
+        $requiredMaritalDocs = ['Separation Document'];
     }
+    // ID 1 (Still Unmarried / Never Married) and other statuses need no marital docs.
 
     // Return one row per uploaded document for this user, including per-doc status.
     // Order newest-first so we pick up the latest upload for each type below.

@@ -268,7 +268,9 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
 
   /// Returns true when the user's marital status requires supporting documents.
   bool _requiresMaritalDocuments() =>
-      _maritalStatus != null && _maritalStatus != 'Still Unmarried';
+      _maritalStatus == 'Widowed' ||
+      _maritalStatus == 'Divorced' ||
+      _maritalStatus == 'Waiting Divorce';
 
   /// Returns a section title for the marital documents section that reflects
   /// the user's specific marital status.
@@ -2256,6 +2258,9 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       if (userId != null) {
         await UpdateService.updatePageNumber(
             userId: userId.toString(), pageNo: 10);
+        // Update the local page-number cache so the next app launch goes
+        // directly to home without a brief flash of IDVerificationScreen.
+        await prefs.setInt('cached_page_no', 10);
         // Fetch fresh verification state from the backend so that all screens
         // immediately reflect the approved status without relying on the cache.
         if (mounted) {

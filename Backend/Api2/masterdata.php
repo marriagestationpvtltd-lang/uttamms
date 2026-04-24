@@ -57,6 +57,7 @@ try {
             u.usertype,
             u.pageno,
             u.createdDate,
+            upd.maritalStatusId,
             ms.name AS marital_status_name,
             COALESCE(
                 (
@@ -98,22 +99,28 @@ try {
         exit;
     }
 
-    // Determine which marital documents are required based on marital status
-    $maritalStatusName = $user['marital_status_name'];
+    // Determine which marital documents are required based on marital status.
+    // The name is matched first (authoritative when the maritalstatus table is
+    // correctly seeded). The numeric maritalStatusId is used as a fallback ONLY
+    // when the database has no name for this ID (NULL/empty join result), since
+    // the Flutter app sends IDs based on a fixed index:
+    //   1 = Still Unmarried, 2 = Widowed, 3 = Divorced, 4 = Waiting Divorce.
+    $maritalStatusName = $user['marital_status_name'] ?? '';
+    $maritalStatusId   = (int)($user['maritalStatusId'] ?? 0);
     $requiredMaritalDocs = [];
-    switch ($maritalStatusName) {
-        case 'Widowed':
-            $requiredMaritalDocs = ['Death Certificate'];
-            break;
-        case 'Divorced':
-            $requiredMaritalDocs = ['Divorce Decree'];
-            break;
-        case 'Awaiting Divorce':
-        case 'Waiting Divorce':
-            $requiredMaritalDocs = ['Separation Document'];
-            break;
-        // 'Never Married' and other statuses don't require marital documents
+
+    // Only fall back to ID-based matching when the name lookup returned nothing.
+    $nameIsEmpty = ($maritalStatusName === '');
+
+    if ($maritalStatusName === 'Widowed' || ($nameIsEmpty && $maritalStatusId === 2)) {
+        $requiredMaritalDocs = ['Death Certificate'];
+    } elseif ($maritalStatusName === 'Divorced' || ($nameIsEmpty && $maritalStatusId === 3)) {
+        $requiredMaritalDocs = ['Divorce Decree'];
+    } elseif (in_array($maritalStatusName, ['Awaiting Divorce', 'Waiting Divorce'], true)
+           || ($nameIsEmpty && $maritalStatusId === 4)) {
+        $requiredMaritalDocs = ['Separation Document'];
     }
+    // ID 1 (Still Unmarried / Never Married) and other statuses need no marital docs.
 
     // Check if user has approved identity document
     $hasApprovedIdentity = $user['docstatus'] === 'approved';
