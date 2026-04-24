@@ -2918,7 +2918,8 @@ class _ContactInfoSection extends StatelessWidget {
 
     // 🔥 BOTH SIDE NOT SENT → SEND REQUEST BUTTON (paid) or UPGRADE BUTTON (free)
     if (userProfile.isChatRequestNone) {
-      if (userType != 'paid') {
+      final bool isCurrentUserPaid = userType == 'paid';
+      if (!isCurrentUserPaid) {
         return _buildPackageRequiredButton(
           message: 'Purchase Package to Send Messages',
           onPressed: onUpgradePressed,
@@ -3218,6 +3219,8 @@ class _PhotosAlbumSection extends StatelessWidget {
     }
 
     // Case 3: Request not sent yet → Show request button (paid) or upgrade button (free)
+    // Note: _RequestButton is used here (not _buildPackageRequiredButton) because
+    // this is a compact pill-shaped overlay on top of blurred images.
     if (userProfile.isPhotoRequestNotSent) {
       if (!isCurrentUserPaid) {
         return _RequestButton(
