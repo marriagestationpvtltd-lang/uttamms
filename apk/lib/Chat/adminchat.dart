@@ -69,7 +69,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   static const String _adminUserId = '1';
   static const String _adminUserName = 'Admin';
-  static const String _kMaskedMessageText = '* * * * * * * * * *';
 
   final SocketService _socketService = SocketService();
   final Uuid _uuid = Uuid();
@@ -1378,7 +1377,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   }
 
 // Updated message builder with swipe-to-reply
-  Widget _buildMessageItem(Map<String, dynamic> data, {bool isMasked = false}) {
+  Widget _buildMessageItem(Map<String, dynamic> data) {
     // Support both Socket.IO field names (senderId) and legacy (senderid)
     final String senderId = data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
     bool isMe = senderId == _mySenderId;
@@ -1431,12 +1430,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     final Map<String, dynamic> reactions =
         (data['reactions'] is Map) ? Map<String, dynamic>.from(data['reactions'] as Map) : {};
 
-    // For free users viewing admin messages after the first: mask content.
-    final String effectiveType = isMasked
-        ? 'text'
-        : (data['messageType']?.toString() ?? data['type']?.toString() ?? 'text');
-    final String effectiveMessage =
-        isMasked ? _kMaskedMessageText : (data['message'] ?? '');
+    final String effectiveType = data['messageType']?.toString() ?? data['type']?.toString() ?? 'text';
+    final String effectiveMessage = data['message'] ?? '';
 
     return StatefulBuilder(
       builder: (context, setItemState) {
