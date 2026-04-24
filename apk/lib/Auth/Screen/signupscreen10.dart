@@ -70,6 +70,13 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   /// Whether a marital document upload is in progress.
   bool _isUploadingMaritalDoc = false;
 
+  /// Guards against triggering auto-navigation more than once per screen visit.
+  bool _autoNavTriggered = false;
+
+  /// Set to true once [_loadMaritalStatus] completes so that
+  /// [_checkAutoNavigate] knows it has accurate marital-status data.
+  bool _maritalStatusLoaded = false;
+
   /// Whether the identity upload form is open (user pressed "Change").
   bool _showIdentityUploadForm = false;
 
@@ -198,6 +205,26 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         _isCheckingStatus = false;
       });
     }
+    // Auto-navigate to home when all required documents are already fully
+    // approved so the user is never stuck on the verification screen after
+    // the admin has approved their documents.
+    _checkAutoNavigate();
+  }
+
+  /// Navigates to home automatically when all required documents are approved.
+  ///
+  /// Called after [_checkDocumentStatus] and [_loadMaritalStatus] complete so
+  /// that [_canProceed] has accurate data regardless of which async operation
+  /// finishes last.
+  void _checkAutoNavigate() {
+    if (!mounted || _autoNavTriggered || _isLoading) return;
+    // Wait until marital status has been loaded from SharedPreferences so that
+    // _requiresMaritalDocuments() and _canProceed() return accurate results.
+    if (!_maritalStatusLoaded) return;
+    if (_canProceed()) {
+      _autoNavTriggered = true;
+      _completeRegistration();
+    }
   }
 
   void _handleNoUserData() {
@@ -254,7 +281,13 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         } catch (_) {}
       }
     }
-    if (mounted) setState(() => _maritalStatus = status);
+    if (mounted) setState(() {
+      _maritalStatus = status;
+      _maritalStatusLoaded = true;
+    });
+    // Re-check in case _checkDocumentStatus() already completed while we were
+    // loading the marital status from SharedPreferences.
+    _checkAutoNavigate();
   }
 
   /// Persists the current set of uploaded marital document types.
