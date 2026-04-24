@@ -488,6 +488,55 @@ async function isEitherBlocked(userA, userB) {
   }
 }
 
+/**
+ * Check if a user has an active paid package.
+ * Returns true if user has 'paid' usertype, false otherwise.
+ * Defaults to false on DB error to be safe (deny access on failure).
+ */
+async function hasActivePackage(userId) {
+  if (!userId) return false;
+  try {
+    const [[row]] = await pool.query(
+      `SELECT usertype FROM users WHERE id = ? LIMIT 1`,
+      [userId],
+    );
+    return row && row.usertype === 'paid';
+  } catch (err) {
+    console.error(`hasActivePackage error for userId=${userId}:`, err.message);
+    return false;
+  }
+}
+
+/**
+ * Mask message content for free users.
+ * Shows only the first word, replaces remaining words with asterisks (****).
+ * For non-text messages (image, voice, video, etc.), returns a placeholder.
+ */
+function maskMessage(message, messageType) {
+  // For non-text message types, return a generic placeholder
+  if (messageType !== 'text') {
+    return '****';
+  }
+
+  // Handle empty or whitespace-only messages
+  if (!message || typeof message !== 'string' || message.trim() === '') {
+    return '****';
+  }
+
+  // Split message into words (by whitespace)
+  const words = message.trim().split(/\s+/);
+
+  // If only one word, show it entirely
+  if (words.length === 1) {
+    return words[0];
+  }
+
+  // Show first word, mask the rest
+  const firstWord = words[0];
+  const maskedRest = words.slice(1).map(() => '****').join(' ');
+  return `${firstWord} ${maskedRest}`;
+}
+
 /** Returns the sender_id for a message, or null if not found / IDs invalid. */
 async function getMessageSender(messageId, chatRoomId) {
   if (!messageId || !chatRoomId) return null;
@@ -614,7 +663,7 @@ async function getChatRooms(userId) {
   }));
 }
 
-async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
+async function getMessages({ chatRoomId, page = 1, limit = 20, userId = null }) {
   const offset = (page - 1) * limit;
   const [rows] = await pool.query(
     `SELECT * FROM chat_messages
@@ -624,9 +673,20 @@ async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
     [chatRoomId, limit + 1, offset],
   );
   const hasMore = rows.length > limit;
+
+  // Check if requesting user has an active package
+  const userHasPackage = userId ? await hasActivePackage(userId) : false;
+
   const messages = rows.slice(0, limit).reverse().map(row => {
     try {
-      return toMessageMap(row);
+      const msg = toMessageMap(row);
+
+      // Apply message masking for free users
+      if (!userHasPackage) {
+        msg.message = maskMessage(msg.message, msg.messageType);
+      }
+
+      return msg;
     } catch (err) {
       console.error(`Failed to transform message ${row.message_id}:`, err.message);
       // Return a safe fallback message object
@@ -635,7 +695,7 @@ async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
         chatRoomId: row.chat_room_id || chatRoomId,
         senderId: row.sender_id || '',
         receiverId: row.receiver_id || '',
-        message: 'Error loading message',
+        message: userHasPackage ? 'Error loading message' : '****',
         messageType: 'text',
         isRead: false,
         isDelivered: false,
@@ -897,13 +957,32 @@ io.on('connection', (socket) => {
     // ── Immediate broadcast (optimistic, no DB wait) ──────────────────────
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
-    io.to(chatRoomId).emit('new_message', clientMsg);
+
+    // Check if receiver has an active package to determine if we should mask the message
+    const receiverHasPackage = await hasActivePackage(receiverId.toString());
+
+    // Emit to sender (always full message)
+    const senderSocketId = userSockets.get(senderId.toString());
+    if (senderSocketId) {
+      io.to(senderSocketId).emit('new_message', clientMsg);
+    }
+
+    // Emit to receiver (masked if they're a free user)
+    const receiverSocketId = userSockets.get(receiverId.toString());
+    if (receiverSocketId) {
+      const receiverMsg = receiverHasPackage
+        ? clientMsg
+        : { ...clientMsg, message: maskMessage(clientMsg.message, clientMsg.messageType) };
+      io.to(receiverSocketId).emit('new_message', receiverMsg);
+    }
   });
 
   // ── get_messages ──────────────────────────────────────────────────────────
-  socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20 }, ack) => {
+  socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20, userId }, ack) => {
     try {
-      const result = await getMessages({ chatRoomId, page, limit });
+      // Use authenticated user ID if not provided in request
+      const requestingUserId = userId || authenticatedUserId;
+      const result = await getMessages({ chatRoomId, page, limit, userId: requestingUserId });
       if (typeof ack === 'function') ack({ success: true, ...result });
     } catch (err) {
       console.error('get_messages error:', err.message);
