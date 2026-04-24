@@ -147,12 +147,10 @@ try {
                 ua.user_name,
                 CONCAT_WS(' ', u.firstName, u.lastName)
             )                                AS user_name,
-            ua.target_user_id                AS target_id,
+            ua.target_id,
             ua.target_name,
             ua.activity_type,
             ua.description,
-            ua.ip_address,
-            ua.device_info,
             ua.created_at
         FROM user_activities ua
         LEFT JOIN users u ON u.id = ua.user_id
