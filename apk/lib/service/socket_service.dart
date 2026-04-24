@@ -119,7 +119,12 @@ class SocketService {
 
   // ── Connect / Disconnect ──────────────────────────────────────────────────
 
-  void connect(String userId) {
+  /// Connect to the Socket.IO server.
+  ///
+  /// [userId] is required.  [token] is the bearer token from the user's session;
+  /// it is sent in `socket.handshake.auth` so the server middleware can validate
+  /// the connection before any events are processed.
+  void connect(String userId, {String? token}) {
     if (_socket != null) {
       // If already connected with the same user, nothing to do.
       if (_socket!.connected && _connectedUserId == userId) return;
@@ -134,18 +139,22 @@ class SocketService {
     _socket = IO.io(
       kSocketServerUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(['websocket'])   // WebSocket only — no polling
           .enableAutoConnect()
           .enableReconnection()
           .setReconnectionAttempts(20)
           .setReconnectionDelay(2000)
+          // Pass auth credentials in the handshake so the server middleware
+          // can authenticate the connection immediately, before any events.
+          .setAuth({'userId': userId, if (token != null) 'token': token})
           .build(),
     );
 
     _socket!.onConnect((_) {
       print('✅ Socket connected');
       _connectionCtrl.add(true);
-      // Authenticate immediately after connect / reconnect
+      // Also emit the legacy 'authenticate' event for backward compatibility
+      // with server versions that do not use the handshake.auth middleware.
       _socket!.emit('authenticate', {'userId': userId});
     });
 
