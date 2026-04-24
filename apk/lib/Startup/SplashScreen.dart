@@ -94,12 +94,13 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   final String currentIOSVersion = '1.0.0';     // Your current iOS version
 
   // Animation controllers - simplified
+  // _entranceController drives _animationCompleted, which gates navigation
+  // in _proceedWithNavigation (see initState). It also drives _logoOpacity
+  // for the logo fade-in effect.
   AnimationController? _entranceController;
-  AnimationController? _dotsController;
 
   // Entrance animations - simplified
   Animation<double>? _logoOpacity;
-  Animation<double>? _textOpacity;
 
   @override
   void initState() {
@@ -212,25 +213,11 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       duration: Duration(milliseconds: entranceMs),
     );
 
-    // 3-dot wave loop
-    _dotsController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 750),
-    )..repeat();
-
     // Logo fades in smoothly
     _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _entranceController!,
         curve: const Interval(0.0, 0.4, curve: Curves.easeOut),
-      ),
-    );
-
-    // Text fades in after logo
-    _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(
-        parent: _entranceController!,
-        curve: const Interval(0.4, 0.8, curve: Curves.easeOut),
       ),
     );
   }
@@ -246,7 +233,6 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   @override
   void dispose() {
     _entranceController?.dispose();
-    _dotsController?.dispose();
     super.dispose();
   }
 
@@ -763,231 +749,22 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     );
   }
 
-  // ─── Single decorative ring with gradient glow ────────────────────────────
-  Widget _buildRing(
-      Animation<double>? scale, Animation<double>? opacity, double baseSize,
-      {Color ringColor = const Color(0xFFFF4466)}) {
-    if (scale == null || opacity == null) return const SizedBox.shrink();
-    return AnimatedBuilder(
-      animation: Listenable.merge([scale, opacity]),
-      builder: (context, child) => Opacity(
-        opacity: opacity.value.clamp(0.0, 1.0),
-        child: Transform.scale(
-          scale: scale.value,
-          child: child,
-        ),
-      ),
-      child: Container(
-        width: baseSize,
-        height: baseSize,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: ringColor,
-            width: 1.8,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: ringColor.withOpacity(0.50),
-              blurRadius: 12,
-              spreadRadius: 1,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ─── Logo with pure luminous glow — NO opaque white circle ──────────────
-  // The glow is achieved entirely through radial gradients and box-shadows on
-  // nearly-transparent containers, creating a "lit from within" look that
-  // blends naturally into the dark red background.
-  Widget _buildBrightLogo(double size) {
-    return SizedBox(
-      width: size,
-      height: size,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          // Outer diffuse warm aura (largest layer, most transparent)
-          Container(
-            width: size * 1.05,
-            height: size * 1.05,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: [
-                  const Color(0xFFFF1A3A).withOpacity(0.22),
-                  const Color(0xFFCC0020).withOpacity(0.08),
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.55, 1.0],
-              ),
-            ),
-          ),
-          // Inner luminous core — soft warm-white glow (NOT a solid disc)
-          Container(
-            width: size * 0.74,
-            height: size * 0.74,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              // Very subtle semi-transparent fill so the box-shadows render
-              // correctly, while still appearing nearly see-through.
-              gradient: RadialGradient(
-                colors: [
-                  Colors.white.withOpacity(0.14),
-                  const Color(0xFFFFE0EA).withOpacity(0.07),
-                  Colors.transparent,
-                ],
-                stops: const [0.0, 0.42, 1.0],
-              ),
-              boxShadow: [
-                // Tight white luminous halo
-                BoxShadow(
-                  color: Colors.white.withOpacity(0.60),
-                  blurRadius: 52,
-                  spreadRadius: 6,
-                ),
-                // Red mid-glow bloom
-                BoxShadow(
-                  color: const Color(0xFFFF2244).withOpacity(0.70),
-                  blurRadius: 88,
-                  spreadRadius: 16,
-                ),
-                // Wide diffuse crimson aura
-                BoxShadow(
-                  color: const Color(0xFFCC001A).withOpacity(0.38),
-                  blurRadius: 140,
-                  spreadRadius: 30,
-                ),
-              ],
-            ),
-          ),
-          // GIF logo — rendered on top of the glow layers
-          Image(
-            image: const AssetImage('assets/images/ms.gif'),
-            height: size,
-            width: size,
-            fit: BoxFit.contain,
-            gaplessPlayback: true,
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Premium glowing wave dots ────────────────────────────────────────────
-  Widget _buildLoadingDots() {
-    // Each dot has its own color and glow to create a gradient wave effect.
-    const dotColors = [
-      Color(0xFFFFFFFF),  // white
-      Color(0xFFFF8899),  // pink
-      Color(0xFFFF3355),  // red
-    ];
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(3, (index) {
-        final delay = index * 0.30;
-        return AnimatedBuilder(
-          animation: _dotsController!,
-          builder: (context, child) {
-            final raw = (_dotsController!.value - delay) % 1.0;
-            final wave = Curves.easeInOutSine.transform(
-              raw < 0.5 ? raw * 2.0 : (1.0 - raw) * 2.0,
-            );
-            final dotSize = 7.0 + 5.0 * wave;
-            final color = dotColors[index];
-            return Container(
-              margin: const EdgeInsets.symmetric(horizontal: 5),
-              width: dotSize,
-              height: dotSize,
-              transform: Matrix4.translationValues(0, -11 * wave, 0),
-              decoration: BoxDecoration(
-                color: color.withOpacity(0.55 + 0.45 * wave),
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: color.withOpacity(0.75 * wave),
-                    blurRadius: 14 * wave,
-                    spreadRadius: 2 * wave,
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      }),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.of(context).size;
     final logoSize = screenSize.width * 0.6; // 60% of screen width
 
     return Scaffold(
-      backgroundColor: const Color(0xFF8B0000), // dark red background
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF7B0000), // deep dark red
-              Color(0xFF8B0000), // dark red
-              Color(0xFFB00010), // rich red
-            ],
-            stops: [0.0, 0.5, 1.0],
-          ),
-        ),
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Logo with simple fade-in animation
-              FadeTransition(
-                opacity: _logoOpacity ?? const AlwaysStoppedAnimation(1.0),
-                child: Image.asset(
-                  'assets/images/ms.gif',
-                  height: logoSize,
-                  width: logoSize,
-                  fit: BoxFit.contain,
-                  gaplessPlayback: true,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // App name with simple fade
-              FadeTransition(
-                opacity: _textOpacity ?? const AlwaysStoppedAnimation(1.0),
-                child: const Text(
-                  'Marriage Station',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 6),
-
-              // Tagline
-              FadeTransition(
-                opacity: _textOpacity ?? const AlwaysStoppedAnimation(1.0),
-                child: const Text(
-                  'Connecting Hearts',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Color(0xFFFFCCCC),
-                    fontWeight: FontWeight.w400,
-                    letterSpacing: 3.0,
-                  ),
-                ),
-              ),
-            ],
+      backgroundColor: Colors.white,
+      body: Center(
+        child: FadeTransition(
+          opacity: _logoOpacity ?? const AlwaysStoppedAnimation(1.0),
+          child: Image.asset(
+            'assets/images/ms.gif',
+            height: logoSize,
+            width: logoSize,
+            fit: BoxFit.contain,
+            gaplessPlayback: true,
           ),
         ),
       ),
