@@ -4642,9 +4642,26 @@ class _ImagePreviewSheet extends StatelessWidget {
                     fit: BoxFit.cover,
                   );
                 } else if (!kIsWeb && file.path != null) {
-                  imgWidget = Image.file(
-                    File(file.path!),
-                    fit: BoxFit.cover,
+                  imgWidget = FutureBuilder<Uint8List>(
+                    future: File(file.path!).readAsBytes(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        );
+                      }
+                      if (snapshot.hasData) {
+                        return Image.memory(
+                          snapshot.data!,
+                          fit: BoxFit.cover,
+                        );
+                      }
+                      return Container(
+                        color: Colors.grey.shade200,
+                        child: const Icon(Icons.broken_image, color: Colors.grey),
+                      );
+                    },
                   );
                 } else {
                   imgWidget = Container(
