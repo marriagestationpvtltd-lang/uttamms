@@ -44,6 +44,9 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   bool _hasConsented = false;
   bool _isScanning = false;
 
+  // ── Local photo storage for pending identity document ─────────────────────
+  String? _identityDocumentPhoto;
+
   // ─── Marital document state ───────────────────────────────────────────────
   /// Marital status loaded from SharedPreferences (set in PersonalDetailsPage).
   String? _maritalStatus;
@@ -55,6 +58,10 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   /// Per-document server state for marital docs (populated from API).
   /// Key: document label, Value: {status, reject_reason}
   final Map<String, Map<String, dynamic>> _maritalDocStates = {};
+
+  /// Local photo storage for pending marital documents.
+  /// Key: document label, Value: photo path
+  final Map<String, String> _maritalDocPhotos = {};
 
   /// The marital document type currently being uploaded (used while the image
   /// source bottom-sheet / upload is in progress).
@@ -462,6 +469,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             'status': 'pending',
             'reject_reason': '',
           };
+          // Store photo for preview
+          _maritalDocPhotos[docType] = imagePath;
         });
         await _persistMaritalDocUploaded();
         _showSuccess('"$docType" uploaded successfully!');
@@ -502,6 +511,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           _documentStatus = 'pending';
           _rejectReason = '';
           _identityDocType = _selectedDocumentType;
+          _identityDocumentPhoto = imagePath; // Store photo for preview
           _showIdentityUploadForm = false;
         });
         _showSuccess("Document submitted! We'll notify you once it's verified.");
@@ -884,6 +894,78 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   ),
                 ],
               ),
+            ),
+          ],
+          // Show photo preview and actions for pending documents
+          if (status == 'pending' && _maritalDocPhotos[label] != null) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                height: 150,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFFF57C00), width: 2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: kIsWeb
+                    ? FutureBuilder(
+                        future: XFile(_maritalDocPhotos[label]!).readAsBytes(),
+                        builder: (context, snap) => snap.hasData
+                            ? Image.memory(snap.data!,
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover)
+                            : const Center(
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Color(0xFFF57C00)),
+                                ),
+                              ),
+                      )
+                    : Image.file(
+                        File(_maritalDocPhotos[label]!),
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showMaritalDocSourceSelector(label),
+                    icon: const Icon(Icons.edit_rounded, size: 16),
+                    label: const Text('Change', style: TextStyle(fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                          color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                      foregroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _removeMaritalDocument(label),
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        size: 16, color: Colors.red),
+                    label: const Text('Remove',
+                        style: TextStyle(color: Colors.red, fontSize: 12)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -1559,6 +1641,107 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     });
   }
 
+  void _removeIdentityDocument() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Remove Document?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to remove this pending identity document? You will need to upload it again.',
+          style: TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _documentStatus = 'not_uploaded';
+                _rejectReason = '';
+                _identityDocType = null;
+                _identityDocumentPhoto = null;
+              });
+              Navigator.pop(context);
+              _showSuccess('Identity document removed successfully');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _removeMaritalDocument(String docType) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Remove Document?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you want to remove this pending "$docType" document? You will need to upload it again.',
+          style: const TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _maritalDocStates.remove(docType);
+                _maritalDocPhotos.remove(docType);
+                _maritalDocUploaded.remove(docType);
+              });
+              Navigator.pop(context);
+              _showSuccess('Document removed successfully');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildIdentityApprovedCard() {
     return Container(
       width: double.infinity,
@@ -1644,60 +1827,136 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF57C00).withOpacity(0.1),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(Icons.hourglass_top_rounded,
-                color: Color(0xFFF57C00), size: 26),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  _identityDocType ?? 'Identity Document',
-                  style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF212121)),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF57C00).withOpacity(0.1),
+                  shape: BoxShape.circle,
                 ),
-                const SizedBox(height: 6),
-                const Row(
+                child: const Icon(Icons.hourglass_top_rounded,
+                    color: Color(0xFFF57C00), size: 26),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.hourglass_top_rounded,
-                        color: Color(0xFFF57C00), size: 16),
-                    SizedBox(width: 6),
-                    Text('Under Review',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFF57C00))),
+                    Text(
+                      _identityDocType ?? 'Identity Document',
+                      style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF212121)),
+                    ),
+                    const SizedBox(height: 6),
+                    const Row(
+                      children: [
+                        Icon(Icons.hourglass_top_rounded,
+                            color: Color(0xFFF57C00), size: 16),
+                        SizedBox(width: 6),
+                        Text('Under Review',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFF57C00))),
+                      ],
+                    ),
                   ],
+                ),
+              ),
+              const SizedBox(width: 4),
+              IconButton(
+                icon: _isCheckingStatus
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.refresh_rounded, size: 20),
+                onPressed: _isCheckingStatus ? null : _checkDocumentStatus,
+                color: const Color(0xFFF57C00),
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Refresh status',
+              ),
+            ],
+          ),
+          // Show photo preview if available
+          if (_identityDocumentPhoto != null) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                height: 180,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFFF57C00), width: 2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: kIsWeb
+                    ? FutureBuilder(
+                        future: XFile(_identityDocumentPhoto!).readAsBytes(),
+                        builder: (context, snap) => snap.hasData
+                            ? Image.memory(snap.data!,
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover)
+                            : const Center(
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Color(0xFFF57C00)),
+                                ),
+                              ),
+                      )
+                    : Image.file(
+                        File(_identityDocumentPhoto!),
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _startIdentityChange,
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    label: const Text('Change'),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                          color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                      foregroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: _removeIdentityDocument,
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        size: 18, color: Colors.red),
+                    label:
+                        const Text('Remove', style: TextStyle(color: Colors.red)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
-          const SizedBox(width: 4),
-          IconButton(
-            icon: _isCheckingStatus
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh_rounded, size: 20),
-            onPressed: _isCheckingStatus ? null : _checkDocumentStatus,
-            color: const Color(0xFFF57C00),
-            visualDensity: VisualDensity.compact,
-            tooltip: 'Refresh status',
-          ),
-          _buildChangeButton(),
+          ],
         ],
       ),
     );

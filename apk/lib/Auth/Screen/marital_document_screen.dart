@@ -11,6 +11,7 @@ import '../../constant/app_colors.dart';
 import '../../core/user_state.dart';
 import '../../service/ocr_service.dart';
 import '../../service/document_scanner_service.dart';
+import '../../Startup/MainControllere.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 /// Redesigned marital-document upload screen.
@@ -39,6 +40,10 @@ class _MaritalDocumentUploadScreenState
   // ── per-document state map ────────────────────────────────────────────────
   // key = documenttype label, value = {status, reject_reason}
   final Map<String, Map<String, dynamic>> _documentStates = {};
+
+  // ── local photo storage for pending documents ─────────────────────────────
+  // key = documenttype label, value = photo path (for viewing/changing pending docs)
+  final Map<String, String> _documentPhotos = {};
 
   // ── active upload state (set when user taps Upload / Re-upload) ───────────
   String? _activeDocType;
@@ -150,6 +155,21 @@ class _MaritalDocumentUploadScreenState
     }
   }
 
+  /// Returns true if all required documents have been approved.
+  bool _areAllDocumentsApproved() {
+    final requiredDocs = _getRequiredDocTypes();
+    if (requiredDocs.isEmpty) return false;
+
+    for (final doc in requiredDocs) {
+      final label = doc['label'] as String;
+      final state = _documentStates[label];
+      if (state == null || state['status'] != 'approved') {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // ─── API ─────────────────────────────────────────────────────────────────
 
   Future<void> _checkDocumentStatuses() async {
@@ -229,6 +249,8 @@ class _MaritalDocumentUploadScreenState
             'status':        'pending',
             'reject_reason': '',
           };
+          // Store the photo path locally for pending document preview
+          _documentPhotos[_activeDocType!] = imagePath;
           _activeDocType = null;
           _selectedImage = null;
           _scannedImagePath = null;
@@ -389,6 +411,11 @@ class _MaritalDocumentUploadScreenState
                       child: _buildDocumentCard(doc),
                     ),
                   ),
+                  // Show "Go to Home" button when all documents are approved
+                  if (_areAllDocumentsApproved()) ...[
+                    const SizedBox(height: 32),
+                    _buildGoToHomeButton(),
+                  ],
                 ],
               ),
             ),
@@ -479,41 +506,120 @@ class _MaritalDocumentUploadScreenState
   }
 
   Widget _buildPendingCard(String label, IconData icon) {
+    final photoPath = _documentPhotos[label];
+
     return _cardContainer(
       borderColor: const Color(0xFFF57C00).withOpacity(0.4),
       bgColor: const Color(0xFFFFF8E1),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _docIcon(icon, const Color(0xFFF57C00),
-              const Color(0xFFF57C00).withOpacity(0.1)),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.bold,
-                        color: Color(0xFF212121))),
-                const SizedBox(height: 6),
-                Row(
+          Row(
+            children: [
+              _docIcon(icon, const Color(0xFFF57C00),
+                  const Color(0xFFF57C00).withOpacity(0.1)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    ScaleTransition(
-                      scale: _pulseAnimation,
-                      child: const Icon(Icons.hourglass_top_rounded,
-                          color: Color(0xFFF57C00), size: 16),
+                    Text(label,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.bold,
+                            color: Color(0xFF212121))),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        ScaleTransition(
+                          scale: _pulseAnimation,
+                          child: const Icon(Icons.hourglass_top_rounded,
+                              color: Color(0xFFF57C00), size: 16),
+                        ),
+                        const SizedBox(width: 6),
+                        const Text('Under Review',
+                            style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFF57C00))),
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    const Text('Under Review',
-                        style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFFF57C00))),
                   ],
+                ),
+              ),
+            ],
+          ),
+          // Show photo preview if available
+          if (photoPath != null) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Container(
+                height: 180,
+                width: double.infinity,
+                decoration: BoxDecoration(
+                  border: Border.all(color: const Color(0xFFF57C00), width: 2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: kIsWeb
+                    ? FutureBuilder(
+                        future: XFile(photoPath).readAsBytes(),
+                        builder: (context, snap) => snap.hasData
+                            ? Image.memory(snap.data!,
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover)
+                            : const Center(
+                                child: CircularProgressIndicator(
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                      Color(0xFFF57C00)),
+                                ),
+                              ),
+                      )
+                    : Image.file(
+                        File(photoPath),
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _startUpload(label, icon),
+                    icon: const Icon(Icons.edit_rounded, size: 18),
+                    label: const Text('Change'),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                          color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                      foregroundColor: AppColors.primary,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _removeDocument(label),
+                    icon: const Icon(Icons.delete_outline_rounded,
+                        size: 18, color: Colors.red),
+                    label:
+                        const Text('Remove', style: TextStyle(color: Colors.red)),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.red, width: 1.5),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -1713,6 +1819,99 @@ class _MaritalDocumentUploadScreenState
       return;
     }
     _uploadDocument();
+  }
+
+  Widget _buildGoToHomeButton() {
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.success.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton.icon(
+        onPressed: _goToHome,
+        icon: const Icon(Icons.home_rounded, size: 22),
+        label: const Text(
+          'Go to Home',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.success,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
+        ),
+      ),
+    );
+  }
+
+  void _goToHome() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const MainControllerScreen()),
+      (route) => false,
+    );
+  }
+
+  void _removeDocument(String docType) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 24),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Remove Document?',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Are you sure you want to remove this pending document? You will need to upload it again.',
+          style: TextStyle(fontSize: 14, height: 1.5),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              setState(() {
+                _documentStates.remove(docType);
+                _documentPhotos.remove(docType);
+              });
+              Navigator.pop(context);
+              _showSuccess('Document removed successfully');
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            ),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showError(String message) {
