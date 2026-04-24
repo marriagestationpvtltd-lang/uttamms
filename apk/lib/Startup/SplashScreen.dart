@@ -666,7 +666,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
             mounted ? context.read<UserState>().isVerified : false;
         _goTo(isVerified
             ? const MainControllerScreen(initialIndex: 0)
-            : IDVerificationScreen());
+            : const IDVerificationScreen());
         break;
       case 9:
       case 10:

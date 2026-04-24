@@ -1801,36 +1801,25 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
     final isVerified = context.read<UserState>().isVerified;
 
-    final Color bgColor;
-    final Color iconColor;
-    final IconData icon;
-    final String title;
-    final String subtitle;
-    Widget? action;
-
-    if (isVerified) {
-      bgColor = const Color(0xFFE8F5E9);
-      iconColor = const Color(0xFF2E7D32);
-      icon = Icons.verified_rounded;
-      title = 'Document Verified';
-      subtitle = 'Your marital status document has been approved. Your profile is verified.';
-    } else {
-      bgColor = const Color(0xFFFCE4EC);
-      iconColor = const Color(0xFFD32F2F);
-      icon = Icons.upload_file_rounded;
-      title = 'Verification Required';
-      subtitle = 'Since your marital status is "$maritalStatus", you must complete document verification to use all features.';
-      action = ElevatedButton.icon(
-        onPressed: () => _openEditPage(IDVerificationScreen()),
-        icon: const Icon(Icons.verified_user_rounded, size: 18, color: Colors.white),
-        label: const Text('Verify Now', style: TextStyle(color: Colors.white)),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFD32F2F),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        ),
-      );
-    }
+    final Color bgColor = isVerified ? const Color(0xFFE8F5E9) : const Color(0xFFFCE4EC);
+    final Color iconColor = isVerified ? const Color(0xFF2E7D32) : const Color(0xFFD32F2F);
+    final IconData icon = isVerified ? Icons.verified_rounded : Icons.upload_file_rounded;
+    final String title = isVerified ? 'Document Verified' : 'Verification Required';
+    final String subtitle = isVerified
+        ? 'Your marital status document has been approved. Your profile is verified.'
+        : 'Since your marital status is "$maritalStatus", you must complete document verification to use all features.';
+    final Widget? action = isVerified
+        ? null
+        : ElevatedButton.icon(
+            onPressed: () => _openEditPage(IDVerificationScreen()),
+            icon: const Icon(Icons.verified_user_rounded, size: 18, color: Colors.white),
+            label: const Text('Verify Now', style: TextStyle(color: Colors.white)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFD32F2F),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+          );
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
