@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../service/verification_service.dart';
+import '../utils/access_control.dart';
 import 'package:ms2026/Chat/ChatdetailsScreen.dart';
 import 'package:ms2026/Models/masterdata.dart';
 import 'package:ms2026/Notification/notification_inbox_service.dart';
@@ -375,9 +376,15 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         label: 'Photos',
         icon: Icons.photo_library_outlined,
         color: const Color(0xFF6A1B9A),
-        onTap: () {
-          final userState = context.read<UserState>();
-          if (userState.isVerified) {
+        onTap: () async {
+          // Enforce gated access: verified + membership + accepted request
+          final canAccess = await AccessControl.canAccessFeature(
+            context,
+            FeatureType.photo,
+            hasAcceptedRequest: true, // Photo request is accepted
+          );
+
+          if (canAccess) {
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -386,9 +393,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
                 ),
               ),
             );
-          } else {
-            VerificationService.requireVerification(context);
           }
+          // If not accessible, dialog was already shown by AccessControl
         },
       );
     }
@@ -872,6 +878,21 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
 
   Future<void> _handleChatNavigation() async {
     try {
+      // Check if request is accepted (status must be 'accepted')
+      final isAccepted = widget.data.status?.toLowerCase() == 'accepted';
+
+      // Enforce gated access: verified + membership + accepted request
+      final canAccess = await AccessControl.canAccessFeature(
+        context,
+        FeatureType.chat,
+        hasAcceptedRequest: isAccepted,
+      );
+
+      if (!canAccess) {
+        // Dialog was already shown by AccessControl
+        return;
+      }
+
       final prefs = await SharedPreferences.getInstance();
       final userDataString = prefs.getString('user_data');
 
@@ -902,33 +923,28 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       // Chat room is auto-created by the Socket.IO server on first message send.
       // No need to pre-create it in Firestore.
 
-      final userState = context.read<UserState>();
-      if (userState.isVerified) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ChatDetailScreen(
-              chatRoomId: chatRoomId,
-              receiverId: otherUserId,
-              receiverName: otherUserName.isNotEmpty
-                  ? otherUserName
-                  : "User $otherUserId",
-              receiverImage: otherUserImage.isNotEmpty
-                  ? otherUserImage
-                  : 'https://via.placeholder.com/150',
-              currentUserId: currentUserIdStr,
-              currentUserName: currentUserName.isNotEmpty
-                  ? currentUserName
-                  : "User $currentUserIdStr",
-              currentUserImage: currentUserImage.isNotEmpty
-                  ? currentUserImage
-                  : 'https://via.placeholder.com/150',
-            ),
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ChatDetailScreen(
+            chatRoomId: chatRoomId,
+            receiverId: otherUserId,
+            receiverName: otherUserName.isNotEmpty
+                ? otherUserName
+                : "User $otherUserId",
+            receiverImage: otherUserImage.isNotEmpty
+                ? otherUserImage
+                : 'https://via.placeholder.com/150',
+            currentUserId: currentUserIdStr,
+            currentUserName: currentUserName.isNotEmpty
+                ? currentUserName
+                : "User $currentUserIdStr",
+            currentUserImage: currentUserImage.isNotEmpty
+                ? currentUserImage
+                : 'https://via.placeholder.com/150',
           ),
-        );
-      } else {
-        VerificationService.requireVerification(context);
-      }
+        ),
+      );
     } catch (e) {
       print("Error navigating to chat: $e");
       ScaffoldMessenger.of(context).showSnackBar(

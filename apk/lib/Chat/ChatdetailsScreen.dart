@@ -26,6 +26,7 @@ import '../service/chat_message_cache.dart';
 import '../service/socket_service.dart';
 import '../service/chat_message_cache.dart';
 import '../service/sound_settings_service.dart';
+import '../utils/access_control.dart';
 import '../Calling/videocall.dart';
 import '../Calling/OutgoingCall.dart';
 import '../Calling/call_history_model.dart';
@@ -4933,7 +4934,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           ),
           if (!kIsWeb)
             IconButton(
-              onPressed: (_isEitherBlocked) ? null : () {
+              onPressed: (_isEitherBlocked) ? null : () async {
+                // Enforce gated access for audio calls
+                final canAccess = await AccessControl.canAccessFeature(
+                  context,
+                  FeatureType.audioCall,
+                  hasAcceptedRequest: true, // Chat is already open, so chat request is accepted
+                );
+
+                if (!canAccess) {
+                  // Dialog was already shown by AccessControl
+                  return;
+                }
+
                 // Prevent starting a new call if one is already active
                 if (CallOverlayManager().isCallActive) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -4965,7 +4978,19 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             ),
           if (!kIsWeb)
             IconButton(
-              onPressed: (_isEitherBlocked) ? null : () {
+              onPressed: (_isEitherBlocked) ? null : () async {
+                // Enforce gated access for video calls
+                final canAccess = await AccessControl.canAccessFeature(
+                  context,
+                  FeatureType.videoCall,
+                  hasAcceptedRequest: true, // Chat is already open, so chat request is accepted
+                );
+
+                if (!canAccess) {
+                  // Dialog was already shown by AccessControl
+                  return;
+                }
+
                 // Prevent starting a new call if one is already active
                 if (CallOverlayManager().isCallActive) {
                   ScaffoldMessenger.of(context).showSnackBar(

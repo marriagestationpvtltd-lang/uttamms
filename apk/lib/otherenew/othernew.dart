@@ -942,6 +942,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 try {
                   final service = ProfileService();
                   final result = await service.sendPhotoRequest(
+                    context: context,
                     myId: myid.toString(),
                     userId: widget.userId,
                   );
@@ -1091,6 +1092,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 try {
                   final service = ProfileService();
                   final result = await service.sendChatRequest(
+                    context: context,
                     myId: myid.toString(),
                     userId: widget.userId,
                   );
