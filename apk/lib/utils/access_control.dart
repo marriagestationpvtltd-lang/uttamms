@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/user_state.dart';
 import '../service/verification_service.dart';
 import '../Package/PackageScreen.dart' show SubscriptionPage;
@@ -34,6 +36,10 @@ class AccessControl {
     bool showDialogs = true,
   }) async {
     final userState = Provider.of<UserState>(context, listen: false);
+
+    // Refresh UserState to get the latest verification status from backend
+    // This ensures we don't block access based on stale cached data
+    await _refreshUserState(context, userState);
 
     // Check verification first
     if (!userState.isVerified) {
@@ -77,6 +83,10 @@ class AccessControl {
     bool showDialogs = true,
   }) async {
     final userState = Provider.of<UserState>(context, listen: false);
+
+    // Refresh UserState to get the latest verification status from backend
+    // This ensures we don't block access based on stale cached data
+    await _refreshUserState(context, userState);
 
     // Check verification first
     if (!userState.isVerified) {
@@ -184,6 +194,28 @@ class AccessControl {
         return 'अडियो कल / audio call';
       case FeatureType.videoCall:
         return 'भिडियो कल / video call';
+    }
+  }
+
+  /// Refreshes UserState to get the latest verification status from backend.
+  /// Silently fails if user_data is not available or refresh fails.
+  static Future<void> _refreshUserState(
+    BuildContext context,
+    UserState userState,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataString = prefs.getString('user_data');
+      if (userDataString != null) {
+        final userData = jsonDecode(userDataString);
+        final userId = int.tryParse(userData['id'].toString());
+        if (userId != null) {
+          await userState.refresh(userId);
+        }
+      }
+    } catch (e) {
+      debugPrint('AccessControl._refreshUserState error: $e');
+      // Continue with cached state if refresh fails
     }
   }
 }
