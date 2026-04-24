@@ -47,7 +47,10 @@ if (!filter_var($input['email'], FILTER_VALIDATE_EMAIL)) {
 
 // DB connection
 $mysqli = new mysqli($dbHost, $dbUser, $dbPass, $dbName);
-if ($mysqli->connect_errno) respond(500, ['success'=>false, 'message'=>'DB connection failed: '.$mysqli->connect_error]);
+if ($mysqli->connect_errno) {
+    error_log('signup.php: DB connection failed: ' . $mysqli->connect_error);
+    respond(500, ['success'=>false, 'message'=>'Database connection failed']);
+}
 $mysqli->set_charset('utf8mb4');
 $mysqli->begin_transaction();
 
@@ -187,5 +190,6 @@ try {
     if (!empty($profilePicturePath) && file_exists(__DIR__ . '/' . $profilePicturePath)) {
         @unlink(__DIR__ . '/' . $profilePicturePath);
     }
-    respond(500, ['success' => false, 'message' => 'Signup failed: ' . $e->getMessage()]);
+    error_log('signup.php error: ' . $e->getMessage());
+    respond(500, ['success' => false, 'message' => 'Signup failed. Please try again.']);
 }

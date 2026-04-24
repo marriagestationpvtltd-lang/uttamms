@@ -1,15 +1,9 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/db_config.php';
+
 try {
-    $dbHost = "127.0.0.1";
-    $dbName = "ms";
-    $dbUser = "ms";
-    $dbPass = "ms";
-
-    $pdo = new PDO("mysql:host=$dbHost;dbname=$dbName", $dbUser, $dbPass);
-    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
     // Get input data
     $data = json_decode(file_get_contents("php://input"), true);
 
@@ -21,9 +15,14 @@ try {
         exit;
     }
 
-    $userid = $data['userid'];
-    $packageid = $data['packageid'];
-    $paidby = $data['paidby'];
+    $userid    = intval($data['userid']);
+    $packageid = intval($data['packageid']);
+    $paidby    = trim($data['paidby']);
+
+    if ($userid <= 0 || $packageid <= 0) {
+        echo json_encode(["success" => false, "message" => "Invalid userid or packageid."]);
+        exit;
+    }
 
     // Get package duration from packagelist table
     $stmt = $pdo->prepare("SELECT duration FROM packagelist WHERE id = :packageid");
@@ -39,36 +38,49 @@ try {
     }
 
     $durationMonths = (int)$package['duration'];
-    $purchasedate = date('Y-m-d H:i:s');
-    $expiredate = date('Y-m-d H:i:s', strtotime("+$durationMonths months"));
+    $purchasedate   = date('Y-m-d H:i:s');
+    $expiredate     = date('Y-m-d H:i:s', strtotime("+$durationMonths months"));
 
     // Insert into user_package
-    $stmt = $pdo->prepare("INSERT INTO user_package (userid, packageid, purchasedate, expiredate, paidby)
-                           VALUES (:userid, :packageid, :purchasedate, :expiredate, :paidby)");
+    $pdo->beginTransaction();
+
+    $stmt = $pdo->prepare("
+        INSERT INTO user_package (userid, packageid, purchasedate, expiredate, paidby)
+        VALUES (:userid, :packageid, :purchasedate, :expiredate, :paidby)
+    ");
     $stmt->execute([
-        'userid' => $userid,
-        'packageid' => $packageid,
+        'userid'       => $userid,
+        'packageid'    => $packageid,
         'purchasedate' => $purchasedate,
-        'expiredate' => $expiredate,
-        'paidby' => $paidby
+        'expiredate'   => $expiredate,
+        'paidby'       => $paidby,
     ]);
+
+    // Update users.usertype to 'paid' so the user can send requests
+    $pdo->prepare("UPDATE users SET usertype = 'paid' WHERE id = ?")->execute([$userid]);
+
+    $pdo->commit();
 
     echo json_encode([
         "success" => true,
         "message" => "Package purchased successfully.",
-        "data" => [
-            "userid" => $userid,
-            "packageid" => $packageid,
+        "data"    => [
+            "userid"       => $userid,
+            "packageid"    => $packageid,
             "purchasedate" => $purchasedate,
-            "expiredate" => $expiredate,
-            "paidby" => $paidby
-        ]
+            "expiredate"   => $expiredate,
+            "paidby"       => $paidby,
+        ],
     ]);
 
 } catch (PDOException $e) {
+    if (isset($pdo) && $pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    error_log('buypackage.php DB error: ' . $e->getMessage());
     echo json_encode([
         "success" => false,
-        "message" => "Database error: " . $e->getMessage()
+        "message" => "Server error. Please try again."
     ]);
 }
 ?>

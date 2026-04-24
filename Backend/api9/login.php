@@ -69,17 +69,22 @@ try {
         response(false, 'Invalid credentials', [], 401);
     }
 
-    // 🔐 Simple Token (JWT-like)
-    $payload = [
+    // 🔐 Token (HMAC-signed, not plain base64)
+    $secret = getenv('ADMIN_JWT_SECRET');
+    if (!$secret) {
+        error_log('[admin login] ADMIN_JWT_SECRET environment variable is not set');
+        response(false, 'Server configuration error. Please contact the administrator.', [], 500);
+    }
+    $payload = json_encode([
         'admin_id' => $admin['id'],
-        'email' => $admin['email'],
-        'role' => $admin['role'],
-        'iat' => time(),
-        'exp' => time() + (60 * 60 * 24) // 24 hours
-    ];
-
-    $secret = 'CHANGE_THIS_SECRET_KEY';
-    $token = base64_encode(json_encode($payload)) . '.' . hash_hmac('sha256', json_encode($payload), $secret);
+        'email'    => $admin['email'],
+        'role'     => $admin['role'],
+        'iat'      => time(),
+        'exp'      => time() + (60 * 60 * 24), // 24 hours
+    ]);
+    $payloadB64 = base64_encode($payload);
+    $sig        = hash_hmac('sha256', $payloadB64, $secret);
+    $token      = $payloadB64 . '.' . $sig;
 
     // Update last login
     $pdo->prepare("UPDATE admins SET last_login = NOW() WHERE id = ?")
@@ -96,5 +101,6 @@ try {
     ]);
 
 } catch (Exception $e) {
-    response(false, 'Server error', ['error' => $e->getMessage()], 500);
+    error_log('[admin login] ' . $e->getMessage());
+    response(false, 'Server error. Please try again.', [], 500);
 }

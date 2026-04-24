@@ -1,0 +1,15 @@
+# Deny direct access to all files in this directory tree.
+# This prevents uploaded files (including any accidentally uploaded scripts)
+# from being executed as PHP or served in unexpected ways.
+
+# Block PHP execution in uploads
+<FilesMatch "\.ph(p[0-9]?|tml|ar)$">
+    Order Deny,Allow
+    Deny from all
+</FilesMatch>
+
+# Ensure files are served as plain content, never executed
+AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .phps .phar
+
+# Disable directory listings
+Options -Indexes

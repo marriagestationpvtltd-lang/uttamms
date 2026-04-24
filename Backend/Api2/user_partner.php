@@ -1,12 +1,10 @@
 <?php
 header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST");
-header("Access-Control-Allow-Headers: Content-Type");
 
 $conn = new mysqli("localhost", "ms", "ms", "ms");
 if ($conn->connect_error) {
-    die(json_encode(["status"=>"error","message"=>$conn->connect_error]));
+    error_log('user_partner.php: ' . $conn->connect_error);
+    die(json_encode(["status"=>"error","message"=>"Database connection failed"]));
 }
 
 $data = json_decode(file_get_contents("php://input"), true);
