@@ -5,6 +5,8 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-W
 header("Access-Control-Max-Age: 86400");
 header("Content-Type: application/json; charset=UTF-8");
 
+require_once __DIR__ . '/config.php';
+
 // ================== PREFLIGHT ==================
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -70,9 +72,9 @@ try {
     }
 
     // 🔐 Token (HMAC-signed, not plain base64)
-    $secret = getenv('ADMIN_JWT_SECRET');
+    $secret = getAdminJwtSecret();
     if (!$secret) {
-        error_log('[admin login] ADMIN_JWT_SECRET environment variable is not set');
+        error_log('[admin login] Could not resolve JWT secret (env var not set and file-based secret unavailable)');
         response(false, 'Server configuration error. Please contact the administrator.', [], 500);
     }
     $payload = json_encode([
