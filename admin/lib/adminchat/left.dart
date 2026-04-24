@@ -645,6 +645,22 @@ class _ChatSidebarState extends State<ChatSidebar> {
     if (diff.inDays < 1) return '${diff.inHours}h ago';
     return '${diff.inDays}d ago';
   }
+
+  /// Extract the first N words from a message and append "..." if there are more words.
+  /// Used to show a preview of messages for non-paid users.
+  String _getFirstWords(String message, int wordCount) {
+    if (message.isEmpty) return message;
+
+    // Split by whitespace and filter out empty strings
+    final words = message.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+
+    if (words.length <= wordCount) {
+      return message;
+    }
+
+    // Take first N words and append "..."
+    return '${words.take(wordCount).join(' ')}...';
+  }
   void _applyFilters() {
     setState(() {
       // Build filtered list, deduplicating by userId as a safety net.
@@ -1281,9 +1297,9 @@ class _ChatSidebarState extends State<ChatSidebar> {
                   ),
                   if (chatMessage.isNotEmpty)
                     Text(
-                      // For non-paid members, hide the message preview so the
-                      // full content is only visible after activating a package.
-                      isPaid ? chatMessage : '* * * * *',
+                      // For non-paid members, show only the first 4 words of the message
+                      // to give a preview while encouraging upgrade to see full content.
+                      isPaid ? chatMessage : _getFirstWords(chatMessage, 4),
                       style: TextStyle(
                         fontSize: 11,
                         color: hasUnread ? c.text : c.muted,
