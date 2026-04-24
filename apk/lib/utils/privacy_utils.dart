@@ -5,12 +5,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 /// Privacy utility functions for consistent profile photo privacy handling
 /// across the entire application.
 ///
-/// PRIVACY RULES:
-/// - If privacy == 'free': Photo is always visible (clear)
-/// - If privacy == 'paid' AND viewer is paid: Photo is visible
-/// - If privacy == 'verified' AND viewer is verified: Photo is visible
-/// - If photo_request == 'accepted': Photo is visible regardless of privacy
-/// - Otherwise: Photo must be BLURRED
+/// GATED INTERACTION RULES (ENFORCED):
+/// - Photos are ONLY visible after photo request is accepted
+/// - NO direct access even if privacy == 'free'
+/// - User must be verified AND have active membership to send requests
+/// - Access granted ONLY after request acceptance
 class PrivacyUtils {
   /// Standard blur intensity for all private profile photos
   static const double kStandardBlurSigmaX = 15.0;
@@ -18,23 +17,26 @@ class PrivacyUtils {
 
   /// Computes can_view_photo from a raw profile JSON map.
   /// Uses the backend's pre-computed value if available; falls back to local logic.
+  ///
+  /// GATED INTERACTION: Only accepts 'accepted' photo requests.
+  /// NO direct access based on privacy settings.
   static bool canViewPhotoFromJson(Map<String, dynamic> json) {
     final backendValue = json['can_view_photo'];
     if (backendValue != null) {
       return backendValue == true || backendValue == 1;
     }
-    final privacy = json['privacy']?.toString().toLowerCase().trim() ?? '';
     final photoRequest = json['photo_request']?.toString().toLowerCase().trim() ?? '';
-    return privacy == 'free' || photoRequest == 'accepted';
+    // ONLY allow access if photo request is accepted - NO direct access
+    return photoRequest == 'accepted';
   }
 
   /// Checks if a profile photo should be shown clearly (not blurred)
   ///
-  /// Returns true if:
+  /// GATED INTERACTION: Returns true ONLY if:
   /// - canViewPhoto is provided and true (backend-computed authority), OR
-  /// - privacy == 'free' OR
   /// - photo_request == 'accepted'
   ///
+  /// NO direct access based on privacy settings (removed 'free' check).
   /// Returns false otherwise (photo should be blurred)
   static bool shouldShowClearImage({
     required String? privacy,
@@ -44,11 +46,10 @@ class PrivacyUtils {
     // Trust backend's pre-computed result if provided
     if (canViewPhoto != null) return canViewPhoto;
 
-    final privacyNormalized = privacy?.toString().toLowerCase().trim() ?? '';
     final photoRequestNormalized = photoRequest?.toString().toLowerCase().trim() ?? '';
 
-    // Clear photo if privacy is free OR photo request is accepted
-    return privacyNormalized == 'free' || photoRequestNormalized == 'accepted';
+    // ONLY show clear photo if photo request is accepted - NO direct access
+    return photoRequestNormalized == 'accepted';
   }
 
   /// Gets the photo request status label for UI display
