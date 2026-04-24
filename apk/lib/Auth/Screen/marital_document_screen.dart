@@ -5,8 +5,10 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
 import '../../constant/app_colors.dart';
+import '../../core/user_state.dart';
 import '../../service/ocr_service.dart';
 import '../../service/document_scanner_service.dart';
 import 'package:ms2026/config/app_endpoints.dart';
@@ -249,16 +251,33 @@ class _MaritalDocumentUploadScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: _isLoading
-          ? _buildLoadingScreen()
-          : FadeTransition(
-              opacity: _fadeAnimation,
-              child: _activeDocType != null
-                  ? _buildUploadFormScreen()
-                  : _buildDocumentListScreen(),
-            ),
+    return PopScope(
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) {
+          // Refresh UserState when navigating back so that any document verification
+          // status changes are immediately reflected and don't cause false gate blocks.
+          final prefs = await SharedPreferences.getInstance();
+          final userDataString = prefs.getString('user_data');
+          if (userDataString != null && mounted) {
+            final userData = jsonDecode(userDataString);
+            final userId = int.tryParse(userData['id'].toString());
+            if (userId != null) {
+              await context.read<UserState>().refresh(userId);
+            }
+          }
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        body: _isLoading
+            ? _buildLoadingScreen()
+            : FadeTransition(
+                opacity: _fadeAnimation,
+                child: _activeDocType != null
+                    ? _buildUploadFormScreen()
+                    : _buildDocumentListScreen(),
+              ),
+      ),
     );
   }
 
