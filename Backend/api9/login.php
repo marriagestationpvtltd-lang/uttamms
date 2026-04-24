@@ -5,8 +5,6 @@ header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-W
 header("Access-Control-Max-Age: 86400");
 header("Content-Type: application/json; charset=UTF-8");
 
-require_once __DIR__ . '/config.php';
-
 // ================== PREFLIGHT ==================
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -71,18 +69,17 @@ try {
         response(false, 'Invalid credentials', [], 401);
     }
 
-    // 🔐 Token (HMAC-signed)
-    $secret = ADMIN_JWT_SECRET;
-    $payload = json_encode([
+    // 🔐 Simple Token (JWT-like)
+    $payload = [
         'admin_id' => $admin['id'],
-        'email'    => $admin['email'],
-        'role'     => $admin['role'],
-        'iat'      => time(),
-        'exp'      => time() + (60 * 60 * 24), // 24 hours
-    ]);
-    $payloadB64 = base64_encode($payload);
-    $sig        = hash_hmac('sha256', $payloadB64, $secret);
-    $token      = $payloadB64 . '.' . $sig;
+        'email' => $admin['email'],
+        'role' => $admin['role'],
+        'iat' => time(),
+        'exp' => time() + (60 * 60 * 24) // 24 hours
+    ];
+
+    $secret = 'CHANGE_THIS_SECRET_KEY';
+    $token = base64_encode(json_encode($payload)) . '.' . hash_hmac('sha256', json_encode($payload), $secret);
 
     // Update last login
     $pdo->prepare("UPDATE admins SET last_login = NOW() WHERE id = ?")
@@ -99,6 +96,5 @@ try {
     ]);
 
 } catch (Exception $e) {
-    error_log('[admin login] ' . $e->getMessage());
-    response(false, 'Server error. Please try again.', [], 500);
+    response(false, 'Server error', ['error' => $e->getMessage()], 500);
 }
