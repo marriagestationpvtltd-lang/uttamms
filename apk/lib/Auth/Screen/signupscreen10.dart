@@ -548,6 +548,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           _showIdentityUploadForm = false;
         });
         _showSuccess("Document submitted! We'll notify you once it's verified.");
+        // Brief pause so the user can read the success snack-bar before
+        // navigating away. The SnackBar default duration is 4 s, but 800 ms
+        // is enough time to notice the confirmation while keeping the UX snappy.
+        await Future.delayed(const Duration(milliseconds: 800));
+        if (mounted) _goToHome();
       } else {
         _showError('Upload failed. Please try again.');
       }

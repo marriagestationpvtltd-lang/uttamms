@@ -89,10 +89,12 @@ class VerificationService {
               size: 22,
             ),
             const SizedBox(width: 10),
-            const Expanded(
+            Expanded(
               child: Text(
-                'Verification Required',
-                style: TextStyle(
+                isPending
+                    ? 'Waiting for account approval'
+                    : 'Verification Required',
+                style: const TextStyle(
                     fontSize: 16, fontWeight: FontWeight.bold),
               ),
             ),
@@ -100,9 +102,8 @@ class VerificationService {
         ),
         content: Text(
           isPending
-              ? 'Your identity document is under review. '
-                  'This feature will be available once your document '
-                  'is verified.'
+              ? 'Your account is under review. You will be notified '
+                  'once your account is approved.'
               : 'Please verify your identity document to use this '
                   'feature.',
           style: const TextStyle(fontSize: 14, height: 1.5),
@@ -110,7 +111,7 @@ class VerificationService {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
+            child: const Text('OK'),
           ),
           if (!isPending)
             ElevatedButton(
