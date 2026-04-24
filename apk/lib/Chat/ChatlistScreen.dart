@@ -1071,6 +1071,9 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
+  void _showUpgradeDialog(BuildContext context) {
+    showUpgradeDialog(context);
+  }
 
   void _showChatRequestActionSheet(ProposalModel req) {
     final displayName =
@@ -2335,42 +2338,49 @@ class _ChatListScreenState extends State<ChatListScreen>
               }
               final userState = context.read<UserState>();
               final isVerified = userState.isVerified;
-              // Package is required to SEND a new chat request, but any
-              // verified user (paid or free) may open an existing accepted
-              // conversation – including unpaid users who received and accepted
-              // a request from a paid member.
-              if (isVerified) {
-                final chatData = {
-                  'chatRoomId': data['chatRoomId']?.toString() ?? '',
-                  'receiverId': otherParticipantId,
-                  'receiverName': otherPersonName,
-                  'receiverImage': resolvedOtherImage,
-                  'receiverPrivacy': otherParticipantPrivacy,
-                  'receiverPhotoRequest': otherParticipantPhotoRequest,
-                };
-                if (kIsWeb && ResponsiveLayout.isWideLayout(context)) {
-                  // Web two-panel: update the right panel instead of navigating
-                  setState(() => _webSelectedChatData = chatData);
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => ChatDetailScreen(
-                        chatRoomId: chatData['chatRoomId']!,
-                        receiverId: chatData['receiverId']!,
-                        receiverName: chatData['receiverName']!,
-                        receiverImage: chatData['receiverImage']!,
-                        receiverPrivacy: chatData['receiverPrivacy'],
-                        receiverPhotoRequest: chatData['receiverPhotoRequest'],
-                        currentUserId: userId,
-                        currentUserName: name,
-                        currentUserImage: resolveApiImageUrl(userimage),
-                      ),
-                    ),
-                  );
-                }
-              } else {
+              final hasPackage = userState.hasPackage;
+
+              // Check verification first
+              if (!isVerified) {
                 VerificationService.requireVerification(context);
+                return;
+              }
+
+              // Check membership before opening chat
+              if (!hasPackage) {
+                _showUpgradeDialog(context);
+                return;
+              }
+
+              // User has both verification and membership - allow chat access
+              final chatData = {
+                'chatRoomId': data['chatRoomId']?.toString() ?? '',
+                'receiverId': otherParticipantId,
+                'receiverName': otherPersonName,
+                'receiverImage': resolvedOtherImage,
+                'receiverPrivacy': otherParticipantPrivacy,
+                'receiverPhotoRequest': otherParticipantPhotoRequest,
+              };
+              if (kIsWeb && ResponsiveLayout.isWideLayout(context)) {
+                // Web two-panel: update the right panel instead of navigating
+                setState(() => _webSelectedChatData = chatData);
+              } else {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ChatDetailScreen(
+                      chatRoomId: chatData['chatRoomId']!,
+                      receiverId: chatData['receiverId']!,
+                      receiverName: chatData['receiverName']!,
+                      receiverImage: chatData['receiverImage']!,
+                      receiverPrivacy: chatData['receiverPrivacy'],
+                      receiverPhotoRequest: chatData['receiverPhotoRequest'],
+                      currentUserId: userId,
+                      currentUserName: name,
+                      currentUserImage: resolveApiImageUrl(userimage),
+                    ),
+                  ),
+                );
               }
             },
             child: Container(
