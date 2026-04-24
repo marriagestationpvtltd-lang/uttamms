@@ -110,6 +110,7 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
 
         /* ================= PHOTO REQUEST ================= */
         $photo_request = "not sent";
+        $can_view_photo = false;
 
         $stmtPhoto = $pdo->prepare("
             SELECT status
@@ -134,6 +135,11 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
                 : 'pending';
         }
 
+        // Photo access ONLY granted when photo request is accepted
+        if($photo_request === 'accepted'){
+            $can_view_photo = true;
+        }
+
         /* ================= GALLERY ================= */
         $stmtImages = $pdo->prepare("
             SELECT id, imageUrl, createdDate, updatedDate
@@ -152,7 +158,7 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
             "lastName"=>$c['lastName'],
             "isVerified"=>$c['isVerified'],
             "profile_picture"=>$c['profile_picture'],
-            "privacy"=>$c['privacy'],              // ✅ INCLUDED
+            "privacy"=>$c['privacy'],
             "age"=>$age,
             "height_name"=>$c['height_name'],
             "country"=>$c['country'],
@@ -160,7 +166,8 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
             "designation"=>$c['designation'],
             "matchPercent"=>$matchPercent,
             "photo_request"=>$photo_request,
-            "like"=>$isLiked,              // ✅ ADDED
+            "can_view_photo"=>$can_view_photo,
+            "like"=>$isLiked,
 
             "gallery"=>$gallery
         ];

@@ -133,10 +133,16 @@ try {
             ":other"=>$row['id']
         ]);
         $photo_request = "not sent";
+        $can_view_photo = false;
         if($r = $stmtPhoto->fetch()){
             $photo_request = ($r['status'] === 'accepted') ? 'accepted' : 'pending';
         }
+        // Photo access ONLY granted when photo request is accepted
+        if($photo_request === 'accepted'){
+            $can_view_photo = true;
+        }
         $row['photo_request'] = $photo_request;
+        $row['can_view_photo'] = $can_view_photo;
     }
 
     $totalCount = count($rows);
