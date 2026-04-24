@@ -1297,9 +1297,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                   ),
                   if (chatMessage.isNotEmpty)
                     Text(
-                      // For non-paid members, show only the first 4 words of the message
-                      // to give a preview while encouraging upgrade to see full content.
-                      isPaid ? chatMessage : _getFirstWords(chatMessage, 4),
+                      chatMessage,
                       style: TextStyle(
                         fontSize: 11,
                         color: hasUnread ? c.text : c.muted,
