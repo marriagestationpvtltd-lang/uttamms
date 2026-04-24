@@ -1801,8 +1801,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
   List<Widget> _buildMessagesFromCache() {
     final items = <Widget>[];
-    final bool isCurrentUserPaid = context.read<UserState>().usertype == 'paid';
-    int adminMsgCount = 0;
 
     String? lastDateLabel;
     for (final data in _cachedMessages) {
@@ -1820,23 +1818,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         }
       }
 
-      // Determine masking: free users see only the first admin message;
-      // all subsequent admin messages are replaced with asterisks.
-      final String senderId =
-          data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
-      final bool isFromAdmin = senderId == _adminUserId;
-      bool isMasked = false;
-      if (isFromAdmin) {
-        if (!isCurrentUserPaid &&
-            adminMsgCount > 0 &&
-            data['deleted'] != true &&
-            data['unsent'] != true) {
-          isMasked = true;
-        }
-        adminMsgCount++;
-      }
-
-      items.add(_buildMessageItem(data, isMasked: isMasked));
+      // User-to-admin chat is always free — no masking applied here regardless
+      // of the user's membership status.
+      items.add(_buildMessageItem(data));
     }
     return items;
   }
