@@ -249,14 +249,16 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     });
   }
 
-  void _handleSendRequest(BuildContext context, int receiverId, String receiverName) {
-    if (VerificationService.requireVerification(context)) {
+  Future<void> _handleSendRequest(BuildContext context, int receiverId, String receiverName) async {
+    if (await VerificationService.requireVerification(context)) {
+      if (!context.mounted) return;
       _showSendRequestDialog(context, receiverId, receiverName);
     }
   }
 
-  void _handleViewProfile(BuildContext context, int receiverId) {
-    if (VerificationService.requireVerification(context)) {
+  Future<void> _handleViewProfile(BuildContext context, int receiverId) async {
+    if (await VerificationService.requireVerification(context)) {
+      if (!context.mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -1301,13 +1303,14 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     );
   }
 
-  void _showPhotoRequestOverlay(BuildContext context, Map<String, dynamic> person, String receiverName) {
+  Future<void> _showPhotoRequestOverlay(BuildContext context, Map<String, dynamic> person, String receiverName) async {
     final photoRequestStatus = _getPhotoRequestStatus(person);
     final receiverId = int.tryParse(person['userid']?.toString() ?? '0') ?? 0;
 
-    if (!VerificationService.requireVerification(context)) {
+    if (!await VerificationService.requireVerification(context)) {
       return;
     }
+    if (!context.mounted) return;
 
     if (photoRequestStatus == 'not_sent') {
       _showSendRequestDialog(context, receiverId, receiverName, defaultRequestType: 'Photo');

@@ -937,7 +937,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<void> _handleAcceptChatRequest(ProposalModel proposal) async {
     final userState = context.read<UserState>();
     // Step 1: Check document status
-    if (!VerificationService.requireVerification(context)) return;
+    if (!await VerificationService.requireVerification(context)) return;
 
     // Step 2: Confirm and accept
     final confirm = await showDialog<bool>(
@@ -2363,7 +2363,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               participantPhotoRequests[otherParticipantId];
 
           return InkWell(
-            onTap: () {
+            onTap: () async {
               if (_isAdminRoom(data)) {
                 _markAdminChatSeen();
                 Navigator.push(
@@ -2381,10 +2381,10 @@ class _ChatListScreenState extends State<ChatListScreen>
               final userState = context.read<UserState>();
 
               // Gate 1: user must be document-verified before entering any chat.
-              if (!userState.isVerified) {
-                VerificationService.requireVerification(context);
+              if (!await VerificationService.requireVerification(context)) {
                 return;
               }
+              if (!context.mounted) return;
 
               // Gate 2: user must have an active package to open chat.
               // "Free users can ACCEPT requests but cannot OPEN chat without package."

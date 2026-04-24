@@ -294,7 +294,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     if (!context.mounted) return;
 
     final userState = context.read<UserState>();
-    if (!VerificationService.requireVerification(context)) return;
+    if (!await VerificationService.requireVerification(context)) return;
+    if (!context.mounted) return;
 
     if (userState.usertype != 'paid') {
       _showUpgradeChatDialog(context);
@@ -312,7 +313,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   Future<void> _handleProfileCardViewProfile(BuildContext context, String userId) async {
     if (!context.mounted) return;
 
-    if (!VerificationService.requireVerification(context)) return;
+    if (!await VerificationService.requireVerification(context)) return;
+    if (!context.mounted) return;
 
     Navigator.push(
       context,

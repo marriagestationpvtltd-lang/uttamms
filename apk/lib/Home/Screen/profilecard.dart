@@ -810,7 +810,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                       final userData = jsonDecode(userDataString);
                       final senderId = int.tryParse(userData["id"].toString());
                       if (!mounted) return;
-                      if (context.read<UserState>().isVerified) {
+                      if (await VerificationService.requireVerification(context)) {
+                        if (!mounted) return;
                         Navigator.push(
                           context,
                           MaterialPageRoute(
@@ -820,8 +821,6 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                             ),
                           ),
                         );
-                      } else {
-                        VerificationService.requireVerification(context);
                       }
                     },
                   ),
@@ -1003,7 +1002,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                             final senderId = int.tryParse(
                                 userData["id"].toString());
                             if (!mounted) return;
-                            if (context.read<UserState>().isVerified) {
+                            if (await VerificationService.requireVerification(context)) {
+                              if (!mounted) return;
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
@@ -1013,8 +1013,6 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                                   ),
                                 ),
                               );
-                            } else {
-                              VerificationService.requireVerification(context);
                             }
                           },
                         ),
