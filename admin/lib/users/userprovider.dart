@@ -52,8 +52,9 @@ class UserProvider with ChangeNotifier {
   bool isActivityLoading(int userId) => _activityLoading.contains(userId);
 
   // Pagination getters
-  List<User> get pagedUsers => _filteredUsers.take(_displayPage * _pageSize).toList();
-  bool get hasMoreToShow => _filteredUsers.length > _displayPage * _pageSize;
+  int get _pageLimit => _displayPage * _pageSize;
+  List<User> get pagedUsers => _filteredUsers.take(_pageLimit).toList();
+  bool get hasMoreToShow => _filteredUsers.length > _pageLimit;
 
   final Set<int> _photoActioning = {};
   bool isPhotoActioning(int userId) => _photoActioning.contains(userId);
@@ -398,6 +399,8 @@ class UserProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  /// Resets to page 1. Does NOT call [notifyListeners] — always called from
+  /// [_applyFilters] which already triggers a notification.
   void resetPaging() {
     _displayPage = 1;
   }
