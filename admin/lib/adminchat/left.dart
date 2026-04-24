@@ -46,6 +46,9 @@ class _ChatSidebarState extends State<ChatSidebar> {
   // Unread message counts: userId -> count of unseen messages from that user
   Map<String, int> _unreadCounts = {};
 
+  // Maximum number to display in unread badge before showing "99+"
+  static const int _maxUnreadBadge = 99;
+
   Map<String, dynamic>? _selectedChat;
   final int senderId = 1;
   final AdminSocketService _socketService = AdminSocketService();

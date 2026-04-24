@@ -234,7 +234,7 @@ class _WebSideNav extends StatelessWidget {
       NavigationRailDestination(
         icon: Badge(
           isLabelVisible: chatUnreadCount > 0,
-          label: Text(chatUnreadCount > 9 ? '9+' : '$chatUnreadCount'),
+          label: Text(chatUnreadCount > 99 ? '99+' : '$chatUnreadCount'),
           child: const Icon(Icons.chat_bubble_outline),
         ),
         selectedIcon: const Icon(Icons.chat_bubble),
