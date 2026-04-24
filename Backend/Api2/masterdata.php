@@ -70,9 +70,7 @@ try {
                     WHERE userid = u.id
                       AND documenttype NOT IN (
                           'Death Certificate',
-                          'Marriage Certificate',
                           'Divorce Decree',
-                          'Court Order',
                           'Separation Document'
                       )
                 ),

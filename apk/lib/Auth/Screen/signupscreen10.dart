@@ -292,16 +292,13 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       case 'Widowed':
         return [
           {'label': 'Death Certificate', 'icon': Icons.article_outlined},
-          {'label': 'Marriage Certificate', 'icon': Icons.favorite_border_rounded},
         ];
       case 'Divorced':
         return [
           {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
-          {'label': 'Court Order', 'icon': Icons.balance_rounded},
         ];
       case 'Waiting Divorce':
         return [
-          {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
           {'label': 'Separation Document', 'icon': Icons.assignment_outlined},
         ];
       default:
@@ -620,7 +617,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         _buildSectionTitle('2. ${_getMaritalSectionTitle()}'),
         const SizedBox(height: 6),
         Text(
-          'Since your marital status is "$_maritalStatus", upload all the documents listed below.',
+          'Since your marital status is "$_maritalStatus", upload the document listed below.',
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF757575),
@@ -643,7 +640,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Upload all the documents below to verify your marital status. Tap a document tile to upload.',
+                  'Upload the document below to verify your marital status. Tap the document tile to upload.',
                   style: TextStyle(
                       fontSize: 12.5,
                       color: Color(0xFF795548),
