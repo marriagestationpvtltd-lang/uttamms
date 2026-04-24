@@ -457,9 +457,9 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         widget.data.profilePicture ?? "https://via.placeholder.com/150";
     final type = widget.data.requestType ?? 'Request';
     final typeColor = _getTypeColor(type);
-    final privacy = widget.data.privacy?.toLowerCase() ?? '';
     final photoRequest = widget.data.photoRequest?.toLowerCase() ?? '';
-    final shouldShowClear = privacy == 'free' || photoRequest == 'accepted';
+    // Only show clear photo if photo request is accepted - ignore privacy
+    final shouldShowClear = photoRequest == 'accepted';
 
     Widget profileImg = Image.network(
       imageUrl,

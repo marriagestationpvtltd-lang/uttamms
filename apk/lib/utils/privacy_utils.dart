@@ -72,7 +72,7 @@ class PrivacyUtils {
   ///
   /// Parameters:
   /// - imageUrl: The URL of the profile photo
-  /// - privacy: The user's privacy setting ('free', 'private', 'paid', 'verified')
+  /// - privacy: The user's privacy setting (no longer used for access control)
   /// - photoRequest: The photo request status ('accepted', 'pending', 'rejected', etc.)
   /// - width: Optional width of the image
   /// - height: Optional height of the image
@@ -288,11 +288,10 @@ class PrivacyUtils {
     required String? privacy,
     required String? photoRequest,
   }) {
-    final privacyNormalized = privacy?.toString().toLowerCase().trim() ?? '';
     final photoRequestNormalized = photoRequest?.toString().toLowerCase().trim() ?? '';
 
-    // Don't show banner if privacy is free or photo is accepted
-    if (privacyNormalized == 'free' || photoRequestNormalized == 'accepted') {
+    // Don't show banner if photo request is accepted
+    if (photoRequestNormalized == 'accepted') {
       return const SizedBox.shrink();
     }
 

@@ -202,10 +202,9 @@ class _SearchPageState extends State<SearchPage>
     if (profile.containsKey('can_view_photo')) {
       return profile['can_view_photo'] == true;
     }
-    // Check if privacy is free or photo request is accepted
-    final privacy = profile['privacy']?.toString().toLowerCase() ?? 'free';
+    // Only accept when photo request is accepted - ignore privacy
     final photoRequest = profile['photo_request']?.toString().toLowerCase() ?? '';
-    return privacy == 'free' || photoRequest == 'accepted';
+    return photoRequest == 'accepted';
   }
 
   String _getPhotoRequestStatus(Map<String, dynamic> profile) {

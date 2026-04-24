@@ -2242,8 +2242,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     switch (messageType) {
       case 'image':
         final double imgWidth = MediaQuery.of(context).size.width * _kImageWidthFraction;
+        // Only blur if not mine AND photo request is not accepted - ignore privacy
         final bool shouldBlur = !isMine &&
-            _privacyStatus.toLowerCase() != 'free' &&
             _photoRequestStatus.toLowerCase() != 'accepted';
 
         if (shouldBlur) {
