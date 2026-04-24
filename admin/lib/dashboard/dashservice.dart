@@ -4,6 +4,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dashmodel.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 
+/// Thrown when the server returns 401 Unauthorized (invalid / expired token).
+class UnauthorizedException implements Exception {
+  const UnauthorizedException();
+  @override
+  String toString() => 'UnauthorizedException: session expired';
+}
+
 class DashboardService {
   static const String _baseUrl = '${kAdminApiBaseUrl}/api9';
 
@@ -18,20 +25,20 @@ class DashboardService {
   }
 
   Future<DashboardResponse> getDashboardData() async {
-    try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/get_dashboard.php'),
-        headers: await _authHeaders(),
-      );
+    final response = await http.get(
+      Uri.parse('$_baseUrl/get_dashboard.php'),
+      headers: await _authHeaders(),
+    );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        return DashboardResponse.fromJson(data);
-      } else {
-        throw Exception('Failed to load dashboard data: ${response.statusCode}');
-      }
-    } catch (e) {
-      rethrow;
+    if (response.statusCode == 401) {
+      throw const UnauthorizedException();
     }
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      return DashboardResponse.fromJson(data);
+    }
+
+    throw Exception('Failed to load dashboard data: ${response.statusCode}');
   }
 }
