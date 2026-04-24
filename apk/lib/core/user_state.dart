@@ -19,13 +19,15 @@ class UserState extends ChangeNotifier {
 
   String _identityStatus = 'not_uploaded';
   String _usertype = 'free';
+  bool _isVerified = false;
 
   /// Document-verification status.
   /// One of: `'not_uploaded'`, `'pending'`, `'approved'`, `'rejected'`.
   String get identityStatus => _identityStatus;
 
-  /// `true` when the user has an approved identity document.
-  bool get isVerified => _identityStatus == 'approved';
+  /// `true` when the user has ALL required documents approved (identity + marital).
+  /// This value comes from the backend and considers both identity and marital documents.
+  bool get isVerified => _isVerified;
 
   /// Subscription type – `'free'` or `'paid'`.
   String get usertype => _usertype;
@@ -44,6 +46,7 @@ class UserState extends ChangeNotifier {
         _identityStatus =
             data['identity_status'] as String? ?? 'not_uploaded';
         _usertype = data['usertype'] as String? ?? 'free';
+        _isVerified = data['is_verified'] as bool? ?? false;
         notifyListeners();
       }
     } catch (e) {
@@ -57,13 +60,14 @@ class UserState extends ChangeNotifier {
   /// already retrieved from `masterdata.php`, avoiding an extra network round-trip.
   ///
   /// Screens that call `masterdata.php` for profile data (e.g. profile picture,
-  /// page number) should call this method with the `docStatus` and `usertype`
+  /// page number) should call this method with the `docStatus`, `isVerified`, and `usertype`
   /// values from the same response so that [UserState] stays in sync without a
   /// second API call.
-  void updateFromMasterData(String docStatus, String usertype) {
-    final changed = _identityStatus != docStatus || _usertype != usertype;
+  void updateFromMasterData(String docStatus, bool isVerified, String usertype) {
+    final changed = _identityStatus != docStatus || _isVerified != isVerified || _usertype != usertype;
     if (!changed) return;
     _identityStatus = docStatus;
+    _isVerified = isVerified;
     _usertype = usertype;
     // Persist the updated values so they survive an app restart.
     SharedPreferences.getInstance().then((prefs) {
@@ -71,6 +75,7 @@ class UserState extends ChangeNotifier {
         _cacheKey,
         jsonEncode({
           'identity_status': _identityStatus,
+          'is_verified': _isVerified,
           'usertype': _usertype,
         }),
       );
@@ -95,12 +100,15 @@ class UserState extends ChangeNotifier {
         final result = jsonDecode(response.body) as Map<String, dynamic>;
         if (result['success'] == true) {
           final data = result['data'] as Map<String, dynamic>;
-          // masterdata.php returns `docstatus` for the document status and
-          // `usertype` for the subscription type.
+          // masterdata.php now returns `docstatus` for identity document status,
+          // `is_verified` for overall verification status (identity + marital docs),
+          // and `usertype` for the subscription type.
           final docStatus = data['docstatus'] as String? ?? 'not_uploaded';
+          final isVerified = data['is_verified'] as bool? ?? false;
           final usertype = data['usertype'] as String? ?? 'free';
 
           _identityStatus = docStatus;
+          _isVerified = isVerified;
           _usertype = usertype;
 
           final prefs = await SharedPreferences.getInstance();
@@ -108,6 +116,7 @@ class UserState extends ChangeNotifier {
             _cacheKey,
             jsonEncode({
               'identity_status': _identityStatus,
+              'is_verified': _isVerified,
               'usertype': _usertype,
             }),
           );
@@ -124,6 +133,7 @@ class UserState extends ChangeNotifier {
 
   Future<void> clear() async {
     _identityStatus = 'not_uploaded';
+    _isVerified = false;
     _usertype = 'free';
     try {
       final prefs = await SharedPreferences.getInstance();
