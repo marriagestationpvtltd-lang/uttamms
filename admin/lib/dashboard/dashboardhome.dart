@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../adminchat/chatprovider.dart';
 import '../auth/service.dart';
+import '../document/docprovider/docservice.dart';
 import 'dashmodel.dart';
 import 'dashservice.dart';
 
@@ -54,6 +55,9 @@ class _DashboardHomeState extends State<DashboardHome> {
       if (!mounted) return;
       final chatProvider = context.read<ChatProvider>();
       if (chatProvider.chatList.isEmpty) chatProvider.fetchChatList();
+      // Ensure DocumentsProvider has data for the pending docs count
+      final docsProvider = context.read<DocumentsProvider>();
+      if (!docsProvider.isInitialized) docsProvider.fetchDocuments();
     });
   }
 
@@ -292,6 +296,16 @@ class _DashboardHomeState extends State<DashboardHome> {
     final liveOnline = chatList.isNotEmpty
         ? chatList.where((user) => user['online'] == 'true').length
         : u.online;
+    final pendingDocsCount =
+        context.watch<DocumentsProvider>().pendingDocuments.length;
+
+    final pendingDocsCard = _buildKpiCard(
+      label: 'Pending Docs',
+      value: '$pendingDocsCount',
+      icon: Icons.pending_actions_rounded,
+      color: _kAmber,
+      onTap: () => widget.onNavigate?.call(2),
+    );
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -312,6 +326,8 @@ class _DashboardHomeState extends State<DashboardHome> {
                   Expanded(child: _buildKpiCard(label: 'Online Now', value: '$liveOnline', icon: Icons.wifi_rounded, color: _kSky, isLive: true, onTap: () => widget.onNavigate?.call(5))),
                   const SizedBox(width: 12),
                   Expanded(child: _buildKpiCard(label: 'Verified', value: '${u.verified}', icon: Icons.verified_rounded, color: _kViolet, onTap: () => widget.onNavigate?.call(1))),
+                  const SizedBox(width: 12),
+                  Expanded(child: pendingDocsCard),
                 ],
               ),
             ],
@@ -326,6 +342,8 @@ class _DashboardHomeState extends State<DashboardHome> {
             Expanded(child: _buildKpiCard(label: 'Online Now', value: '$liveOnline', icon: Icons.wifi_rounded, color: _kSky, isLive: true, onTap: () => widget.onNavigate?.call(5))),
             const SizedBox(width: 14),
             Expanded(child: _buildKpiCard(label: 'Verified', value: '${u.verified}', icon: Icons.verified_rounded, color: _kViolet, onTap: () => widget.onNavigate?.call(1))),
+            const SizedBox(width: 14),
+            Expanded(child: pendingDocsCard),
           ],
         );
       },
@@ -857,6 +875,262 @@ class _DashboardHomeState extends State<DashboardHome> {
     );
   }
 
+  // ─── Breakdown charts row ────────────────────────────────────────────────────
+  Widget _buildBreakdownChartsRow({bool isMobile = false}) {
+    final u = _dashboardData?.users;
+    final p = _dashboardData?.payments;
+    final palette = [_kPrimary, _kEmerald, _kAmber, _kSky, _kViolet, _kRose];
+
+    Widget buildHorizontalBars({
+      required List<String> labels,
+      required List<int> values,
+    }) {
+      if (labels.isEmpty) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Text('No data', style: TextStyle(fontSize: 12, color: _kSlate500)),
+          ),
+        );
+      }
+      final maxVal = values.fold(0, (a, b) => a > b ? a : b);
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: List.generate(labels.length, (i) {
+          final color = palette[i % palette.length];
+          final frac = maxVal > 0 ? values[i] / maxVal : 0.0;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 90,
+                  child: Text(
+                    labels[i].isEmpty ? _kUnknownLabel : labels[i],
+                    style: const TextStyle(fontSize: 11, color: _kSlate500),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: frac,
+                      backgroundColor: color.withOpacity(0.10),
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                      minHeight: 12,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '${values[i]}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
+      );
+    }
+
+    Widget skeletonCard() {
+      final skeletonRows = Column(
+        children: List.generate(
+          3,
+          (_) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                Container(
+                  width: 70,
+                  height: 11,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Container(
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 24,
+                  height: 11,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade200,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      return _buildCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 120,
+              height: 16,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            const SizedBox(height: 16),
+            skeletonRows,
+          ],
+        ),
+      );
+    }
+
+    if (u == null || p == null) {
+      if (isMobile) {
+        return Column(
+          children: [skeletonCard(), const SizedBox(height: 14), skeletonCard()],
+        );
+      }
+      return Row(
+        children: [
+          Expanded(child: skeletonCard()),
+          const SizedBox(width: 14),
+          Expanded(child: skeletonCard()),
+        ],
+      );
+    }
+
+    final userTypeCard = _buildCard(
+      onTap: () => widget.onNavigate?.call(1),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle('User Type Breakdown', Icons.bar_chart_rounded, _kPrimary),
+          const SizedBox(height: 16),
+          buildHorizontalBars(
+            labels: u.byType.map((t) => t.usertype).toList(),
+            values: u.byType.map((t) => t.total).toList(),
+          ),
+        ],
+      ),
+    );
+
+    final paymentMethodCard = _buildCard(
+      onTap: () => widget.onNavigate?.call(4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _cardTitle('Payment Methods', Icons.payments_rounded, _kEmerald),
+          const SizedBox(height: 16),
+          buildHorizontalBars(
+            labels: p.byMethod.map((m) => m.paidby).toList(),
+            values: p.byMethod.map((m) => m.total).toList(),
+          ),
+        ],
+      ),
+    );
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [userTypeCard, const SizedBox(height: 14), paymentMethodCard],
+      );
+    }
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: userTypeCard),
+        const SizedBox(width: 14),
+        Expanded(child: paymentMethodCard),
+      ],
+    );
+  }
+
+  // ─── Pending docs banner ─────────────────────────────────────────────────────
+  Widget _buildPendingDocsBanner() {
+    final pendingCount =
+        context.watch<DocumentsProvider>().pendingDocuments.length;
+    if (pendingCount == 0) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: _kAmber.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _kAmber.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: _kAmber.withOpacity(0.20),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(
+              Icons.pending_actions_rounded,
+              color: _kAmber,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(fontSize: 13, color: _kSlate700),
+                children: [
+                  const TextSpan(text: '⚠️  '),
+                  TextSpan(
+                    text: '$pendingCount',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  TextSpan(
+                    text: ' document${pendingCount == 1 ? '' : 's'} waiting for review',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: GestureDetector(
+              onTap: () => widget.onNavigate?.call(2),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                decoration: BoxDecoration(
+                  color: _kAmber,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Text(
+                  'Review Now',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ─── Main content ────────────────────────────────────────────────────────────
   Widget _buildDashboardContent() {
     return SingleChildScrollView(
@@ -868,7 +1142,11 @@ class _DashboardHomeState extends State<DashboardHome> {
             children: [
               // Welcome banner
               _buildWelcomeBanner(),
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
+
+              // Pending documents alert banner (only when count > 0)
+              _buildPendingDocsBanner(),
+              const SizedBox(height: 16),
 
               // User KPIs
               _buildSectionHeader(
@@ -885,6 +1163,11 @@ class _DashboardHomeState extends State<DashboardHome> {
                 onViewAll: () => widget.onNavigate?.call(4),
               ),
               _buildRevenueStatsRow(),
+              const SizedBox(height: 22),
+
+              // Breakdown charts: user types + payment methods
+              _buildSectionHeader('Breakdown'),
+              _buildBreakdownChartsRow(isMobile: isMobile),
               const SizedBox(height: 22),
 
               // Best package + Payment methods
