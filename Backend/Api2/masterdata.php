@@ -42,7 +42,11 @@ try {
     ];
     $pdo = new PDO($dsn, $dbUser, $dbPass, $options);
 
-    // Fetch user data
+    // Fetch user data.
+    // docstatus is derived from user_documents.status (identity docs only, excluding
+    // marital-status supporting documents).  Priority: approved > rejected > pending >
+    // not_uploaded.  This matches the logic used by check_document_status.php so that
+    // UserState.refresh() always receives a value the Flutter app understands.
     $sql = "
         SELECT
             u.id,
@@ -53,9 +57,28 @@ try {
             u.usertype,
             u.pageno,
             u.createdDate,
-            COALESCE(u.status, 'not_uploaded') AS docstatus
+            COALESCE(
+                (
+                    SELECT
+                        CASE
+                            WHEN SUM(status = 'approved') > 0 THEN 'approved'
+                            WHEN SUM(status = 'rejected') > 0 THEN 'rejected'
+                            WHEN SUM(status = 'pending')  > 0 THEN 'pending'
+                            ELSE 'not_uploaded'
+                        END
+                    FROM user_documents
+                    WHERE userid = u.id
+                      AND documenttype NOT IN (
+                          'Death Certificate',
+                          'Marriage Certificate',
+                          'Divorce Decree',
+                          'Court Order',
+                          'Separation Document'
+                      )
+                ),
+                'not_uploaded'
+            ) AS docstatus
         FROM users u
-        LEFT JOIN user_documents ud ON u.id = ud.userid
         WHERE u.id = :userid
         LIMIT 1
     ";
