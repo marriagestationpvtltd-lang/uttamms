@@ -979,7 +979,6 @@ class UserProfile extends ChangeNotifier {
     if (isPhotoRequestPending) return 'Photo Request Pending';
     if (isPhotoRequestAccepted) return 'Photos Unlocked';
     if (isPhotoRequestRejected) return 'Photo Request Rejected';
-    if (!isCurrentUserPaid) return 'Upgrade to Request Photos';
     return 'Send Photo Request';
   }
 
@@ -987,7 +986,6 @@ class UserProfile extends ChangeNotifier {
     if (isChatRequestPending) return 'Chat Request Pending';
     if (isChatRequestAccepted) return 'Start Chat';
     if (isChatRequestRejected) return 'Chat Request Rejected';
-    if (!isCurrentUserPaid) return 'Upgrade to Chat';
     return 'Send Chat Request';
   }
 
@@ -995,7 +993,6 @@ class UserProfile extends ChangeNotifier {
     if (isPhotoRequestPending) return Icons.hourglass_empty;
     if (isPhotoRequestAccepted) return Icons.photo_library;
     if (isPhotoRequestRejected) return Icons.block;
-    if (!isCurrentUserPaid) return Icons.upgrade;
     return Icons.photo_camera;
   }
 
@@ -1003,7 +1000,6 @@ class UserProfile extends ChangeNotifier {
     if (isChatRequestPending) return Icons.hourglass_empty;
     if (isChatRequestAccepted) return Icons.chat;
     if (isChatRequestRejected) return Icons.block;
-    if (!isCurrentUserPaid) return Icons.upgrade;
     return Icons.chat_bubble_outline;
   }
 
@@ -1011,7 +1007,6 @@ class UserProfile extends ChangeNotifier {
     if (isPhotoRequestPending) return Colors.orange;
     if (isPhotoRequestAccepted) return Colors.green;
     if (isPhotoRequestRejected) return Colors.grey;
-    if (!isCurrentUserPaid) return Colors.blue;
     return red;
   }
 
@@ -1019,7 +1014,6 @@ class UserProfile extends ChangeNotifier {
     if (isChatRequestPending) return Colors.orange;
     if (isChatRequestAccepted) return Colors.green;
     if (isChatRequestRejected) return Colors.grey;
-    if (!isCurrentUserPaid) return Colors.blue;
     return red;
   }
 

@@ -456,6 +456,9 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
           _isLoading = false;
           _isCheckingStatus = false;
         });
+        // Keep UserState in sync with the data already fetched above –
+        // avoids a separate masterdata.php call just for verification/usertype.
+        context.read<UserState>().updateFromMasterData(user.docStatus, user.usertype);
       }
     } catch (e) {
       debugPrint('Error loading master data for image: $e');

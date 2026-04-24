@@ -51,6 +51,35 @@ class UserState extends ChangeNotifier {
     }
   }
 
+  // ── Update from already-fetched masterdata ───────────────────────────────
+
+  /// Updates verification and subscription state from data that the caller has
+  /// already retrieved from `masterdata.php`, avoiding an extra network round-trip.
+  ///
+  /// Screens that call `masterdata.php` for profile data (e.g. profile picture,
+  /// page number) should call this method with the `docStatus` and `usertype`
+  /// values from the same response so that [UserState] stays in sync without a
+  /// second API call.
+  void updateFromMasterData(String docStatus, String usertype) {
+    final changed = _identityStatus != docStatus || _usertype != usertype;
+    if (!changed) return;
+    _identityStatus = docStatus;
+    _usertype = usertype;
+    // Persist the updated values so they survive an app restart.
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString(
+        _cacheKey,
+        jsonEncode({
+          'identity_status': _identityStatus,
+          'usertype': _usertype,
+        }),
+      );
+    }).catchError((e) {
+      debugPrint('UserState.updateFromMasterData persist error: $e');
+    });
+    notifyListeners();
+  }
+
   // ── Fetch from server and update cache ───────────────────────────────────
 
   /// Fetches fresh state from `masterdata.php` for [userId] and persists it.

@@ -269,6 +269,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           name = '${user.firstName} ${user.lastName}'.trim();
           isLoading = false;
         });
+        // Keep UserState in sync with the data already fetched above –
+        // avoids a separate masterdata.php call just for verification/usertype.
+        context.read<UserState>().updateFromMasterData(user.docStatus, user.usertype);
       }
 
       print('=== USER DATA LOADED ===');
@@ -913,13 +916,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     // Step 1: Check document status
     if (!VerificationService.requireVerification(context)) return;
 
-    // Step 2: Check payment / subscription
-    if (!userState.hasPackage) {
-      showUpgradeDialog(context);
-      return;
-    }
-
-    // Step 3: Confirm and accept
+    // Step 2: Confirm and accept
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(

@@ -768,9 +768,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         _userId = userId?.toString() ?? '';
         userid = userId ?? 0;
       });
-      // Also refresh UserState so any package/verification changes are reflected.
-      if (userId != null) {
-        unawaited(context.read<UserState>().refresh(userId));
+      // Keep UserState in sync using the data already fetched above –
+      // avoids a second masterdata.php call just for verification/usertype.
+      if (mounted) {
+        context
+            .read<UserState>()
+            .updateFromMasterData(user.docStatus, user.usertype);
       }
     } catch (e) {
       debugPrint("Error: $e");
@@ -3139,26 +3142,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
   void _openPhotoRequestProfile(String profileUserId) {
     if (!VerificationService.requireVerification(context)) return;
-
-    if (!context.read<UserState>().hasPackage) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => SubscriptionPage()),
-      );
-      return;
-    }
-
     _openProfile(profileUserId);
   }
 
   Future<void> _openChatRequest(ProposalModel request) async {
     try {
       if (!VerificationService.requireVerification(context)) return;
-
-      if (!context.read<UserState>().hasPackage) {
-        showUpgradeDialog(context);
-        return;
-      }
 
       final prefs = await SharedPreferences.getInstance();
       final userDataString = prefs.getString('user_data');
