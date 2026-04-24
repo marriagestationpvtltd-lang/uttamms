@@ -7,20 +7,22 @@
  * with the new custom tone URL.
  *
  * POST multipart/form-data:
- *   file (audio file) – required – mp3, aac, ogg, wav, or m4a (max 5 MB)
+ *   tone (audio file) – required – mp3, aac, ogg, wav, or m4a (max 5 MB)
  *
  * Response:
  *   {
  *     "success": true,
  *     "data": {
  *       "call_tone_id":         "custom",
- *       "custom_call_tone_url":  "/uploads/admin_tones/tone_<timestamp>.<ext>",
+ *       "custom_call_tone_url":  "/uploads/ringtones/admin_tone_<timestamp>.<ext>",
  *       "custom_call_tone_name": "<original filename without extension>"
  *     }
  *   }
  */
 
-ini_set('display_errors', 0);
+// NOTE: display_errors is enabled here to surface 500 errors during debugging.
+// Set this back to 0 (or remove the line) once the upload issue is resolved.
+ini_set('display_errors', 1);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
@@ -47,7 +49,7 @@ define('DB_USER', 'ms');
 define('DB_PASS', 'ms');
 
 // ── Validate uploaded file ────────────────────────────────────────────────────
-if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+if (empty($_FILES['tone']) || $_FILES['tone']['error'] !== UPLOAD_ERR_OK) {
     $uploadErrors = [
         UPLOAD_ERR_INI_SIZE   => 'File exceeds server upload limit',
         UPLOAD_ERR_FORM_SIZE  => 'File exceeds form upload limit',
@@ -57,7 +59,7 @@ if (empty($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
         UPLOAD_ERR_CANT_WRITE => 'Failed to write file to disk',
         UPLOAD_ERR_EXTENSION  => 'Upload stopped by PHP extension',
     ];
-    $code    = $_FILES['file']['error'] ?? UPLOAD_ERR_NO_FILE;
+    $code    = $_FILES['tone']['error'] ?? UPLOAD_ERR_NO_FILE;
     $message = $uploadErrors[$code]     ?? 'Upload error';
     http_response_code(422);
     echo json_encode(['success' => false, 'message' => $message]);
@@ -70,7 +72,7 @@ $allowedMimes = [
     'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a',
 ];
 
-$fileMime = mime_content_type($_FILES['file']['tmp_name']);
+$fileMime = mime_content_type($_FILES['tone']['tmp_name']);
 if (!in_array($fileMime, $allowedMimes, true)) {
     http_response_code(422);
     echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, aac, ogg, wav, m4a']);
@@ -78,19 +80,22 @@ if (!in_array($fileMime, $allowedMimes, true)) {
 }
 
 // Max 5 MB
-if ($_FILES['file']['size'] > 5 * 1024 * 1024) {
+if ($_FILES['tone']['size'] > 5 * 1024 * 1024) {
     http_response_code(422);
     echo json_encode(['success' => false, 'message' => 'File too large. Maximum size is 5 MB.']);
     exit;
 }
 
 // ── Save file ─────────────────────────────────────────────────────────────────
-$uploadDir = __DIR__ . '/../../uploads/admin_tones/';
+$uploadDir = __DIR__ . '/../../uploads/ringtones/';
 if (!is_dir($uploadDir)) {
-    mkdir($uploadDir, 0755, true);
+    // 0777 ensures the web-server user can write files regardless of umask.
+    // Tighten to 0755 once the server's user/group ownership is confirmed correct.
+    mkdir($uploadDir, 0777, true);
+    chmod($uploadDir, 0777);
 }
 
-$originalName = basename($_FILES['file']['name']);
+$originalName = basename($_FILES['tone']['name']);
 $ext          = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
 $allowedExts  = ['mp3', 'aac', 'ogg', 'wav', 'm4a'];
 if (!in_array($ext, $allowedExts, true)) {
@@ -100,14 +105,14 @@ if (!in_array($ext, $allowedExts, true)) {
 $filename = 'admin_tone_' . time() . '.' . $ext;
 $destPath = $uploadDir . $filename;
 
-if (!move_uploaded_file($_FILES['file']['tmp_name'], $destPath)) {
+if (!move_uploaded_file($_FILES['tone']['tmp_name'], $destPath)) {
     error_log('upload_call_tone: failed to move file to ' . $destPath);
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Failed to save file. Please try again.']);
     exit;
 }
 
-$fileUrl   = '/uploads/admin_tones/' . $filename;
+$fileUrl   = '/uploads/ringtones/' . $filename;
 $toneName  = pathinfo($originalName, PATHINFO_FILENAME);
 
 // ── Persist settings in DB ────────────────────────────────────────────────────
