@@ -1430,6 +1430,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     final Map<String, dynamic> reactions =
         (data['reactions'] is Map) ? Map<String, dynamic>.from(data['reactions'] as Map) : {};
 
+    final String effectiveType = data['messageType']?.toString() ?? data['type']?.toString() ?? 'text';
+    final String effectiveMessage = data['message'] ?? '';
+
     return StatefulBuilder(
       builder: (context, setItemState) {
         swipeOffset = _swipeOffsets[msgID] ?? 0.0;
@@ -1522,7 +1525,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                       ),
                     ),
                   // Profile card: render directly without gradient bubble
-                  if ((data['messageType'] ?? data['type']) == 'profile_card') ...[
+                  if (effectiveType == 'profile_card') ...[
                     _buildProfileCardMessage(_parseProfileCardData(data), isMe),
                     const SizedBox(height: 4),
                     Padding(
@@ -1541,7 +1544,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                         ],
                       ),
                     ),
-                  ] else if ((data['messageType'] ?? data['type']) == 'image') ...[
+                  ] else if (effectiveType == 'image') ...[
                     // Single image: rendered outside the gradient bubble (fixes border issue)
                     _buildChatImageMessage(
                       data['message']?.toString() ?? data['imageUrl']?.toString(),
@@ -1561,7 +1564,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                         ],
                       ),
                     ),
-                  ] else if ((data['messageType'] ?? data['type']) == 'image_gallery') ...[
+                  ] else if (effectiveType == 'image_gallery') ...[
                     // Multiple images: rendered as WhatsApp-style grid outside the gradient bubble
                     _buildChatGalleryGrid(
                       _parseGalleryUrls(data['message']?.toString() ?? '[]'),
@@ -1637,9 +1640,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                           }
                           return const SizedBox.shrink();
                         }),
-                        if ((data['messageType'] ?? data['type']) == 'text')
+                        if (effectiveType == 'text')
                           Text(
-                            data['message'] ?? '',
+                            effectiveMessage,
                             style: TextStyle(
                               color: isMe
                                   ? (isRead
@@ -1652,10 +1655,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                                   : FontWeight.w400,
                             ),
                           ),
-                        if ((data['messageType'] ?? data['type']) == 'voice')
-                          _buildVoiceMessage(data['message'] ?? '', isMe),
-                        if ((data['messageType'] ?? data['type']) == 'doc')
-                          _buildDocumentMessage(data['message'] ?? '', isMe),
+                        if (effectiveType == 'voice')
+                          _buildVoiceMessage(effectiveMessage, isMe),
+                        if (effectiveType == 'doc')
+                          _buildDocumentMessage(effectiveMessage, isMe),
                         const SizedBox(height: 6),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1809,6 +1812,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           }
         }
       }
+
+      // User-to-admin chat is always free — no masking applied here regardless
+      // of the user's membership status.
       items.add(_buildMessageItem(data));
     }
     return items;
