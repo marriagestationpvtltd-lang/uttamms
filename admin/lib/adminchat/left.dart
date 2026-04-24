@@ -1281,9 +1281,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                   ),
                   if (chatMessage.isNotEmpty)
                     Text(
-                      // For non-paid members, hide the message preview so the
-                      // full content is only visible after activating a package.
-                      isPaid ? chatMessage : '* * * * *',
+                      chatMessage,
                       style: TextStyle(
                         fontSize: 11,
                         color: hasUnread ? c.text : c.muted,
