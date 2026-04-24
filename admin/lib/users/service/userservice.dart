@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../model/usermodel.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
+import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 
 class UserService {
   static const String baseUrl = kAdminApi9BaseUrl;
@@ -25,6 +26,10 @@ class UserService {
         Uri.parse('$baseUrl/get_users.php'),
         headers: await _authHeaders(),
       );
+
+      if (response.statusCode == 401) {
+        throw const UnauthorizedException();
+      }
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
