@@ -20,7 +20,7 @@
  *   }
  */
 
-ini_set('display_errors', 1);
+ini_set('display_errors', 1); // TODO: set to 0 before deploying to production
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
@@ -138,7 +138,7 @@ if (!in_array($ext, $allowedExts, true)) {
     $ext = 'mp3';
 }
 
-$filename = 'admin_tone_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
+$filename = 'admin_tone_' . time() . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
 $destPath = $uploadDir . $filename;
 
 if (!move_uploaded_file($_FILES['file']['tmp_name'], $destPath)) {
