@@ -20,6 +20,10 @@ const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
 
+// The admin user's ID in the database.  Admin is always permitted to send
+// messages to any user, bypassing the package and chat-request checks.
+const ADMIN_USER_ID = process.env.ADMIN_USER_ID || '1';
+
 // Redis configuration
 const REDIS_HOST     = process.env.REDIS_HOST || '127.0.0.1';
 const REDIS_PORT     = parseInt(process.env.REDIS_PORT || '6379', 10);
@@ -617,12 +621,20 @@ async function hasChatRequestAccepted(userA, userB) {
 
 /**
  * Check if a user has an active paid package.
- * Returns true if user has 'paid' usertype, false otherwise.
+ * First checks the user_package table (consistent with send_message.php REST API),
+ * then falls back to checking users.usertype === 'paid'.
  * Defaults to false on DB error to be safe (deny access on failure).
  */
 async function hasActivePackage(userId) {
   if (!userId) return false;
   try {
+    // Primary check: user_package table with expiry (mirrors send_message.php logic)
+    const [[pkgRow]] = await pool.query(
+      `SELECT 1 FROM user_package WHERE userid = ? AND expiredate > NOW() LIMIT 1`,
+      [userId],
+    );
+    if (pkgRow) return true;
+    // Fallback: check usertype column on users table
     const [[row]] = await pool.query(
       `SELECT usertype FROM users WHERE id = ? LIMIT 1`,
       [userId],
@@ -1071,17 +1083,25 @@ io.on('connection', async (socket) => {
 
     if (!chatRoomId || !senderId || !receiverId) return;
 
+    // Normalise IDs to strings once; reused throughout this handler.
+    const senderIdStr   = senderId.toString();
+    const receiverIdStr = receiverId.toString();
+
+    // Admin is always permitted to send messages to any user.
+    const isAdminSender = senderIdStr === ADMIN_USER_ID;
+
     // ── Block check ───────────────────────────────────────────────────────
     // Drop the message silently if either party has blocked the other.
-    if (await isEitherBlocked(senderId.toString(), receiverId.toString())) {
-      console.log(`🚫 send_message blocked: sender=${senderId} receiver=${receiverId}`);
+    if (await isEitherBlocked(senderIdStr, receiverIdStr)) {
+      console.log(`🚫 send_message blocked: sender=${senderIdStr} receiver=${receiverIdStr}`);
       return;
     }
 
     // ── Package check ─────────────────────────────────────────────────────
     // Sender must have an active paid package to send messages.
-    if (!(await getCachedPackageStatus(senderId.toString()))) {
-      console.log(`🚫 send_message denied (no active package): sender=${senderId}`);
+    // Admin is exempt from this check.
+    if (!isAdminSender && !(await getCachedPackageStatus(senderIdStr))) {
+      console.log(`🚫 send_message denied (no active package): sender=${senderIdStr}`);
       socket.emit('message_error', {
         messageId,
         error: 'Upgrade membership required',
@@ -1092,8 +1112,10 @@ io.on('connection', async (socket) => {
 
     // ── Chat request check ────────────────────────────────────────────────
     // There must be an accepted 'Chat' request between the two users.
-    if (!(await hasChatRequestAccepted(senderId.toString(), receiverId.toString()))) {
-      console.log(`🚫 send_message denied (no accepted chat request): sender=${senderId} receiver=${receiverId}`);
+    // Admin is exempt from this check — admin can initiate a conversation
+    // with any user without a prior accepted proposal.
+    if (!isAdminSender && !(await hasChatRequestAccepted(senderIdStr, receiverIdStr))) {
+      console.log(`🚫 send_message denied (no accepted chat request): sender=${senderIdStr} receiver=${receiverIdStr}`);
       socket.emit('message_error', {
         messageId,
         error: 'Chat request not accepted',
@@ -1112,10 +1134,10 @@ io.on('connection', async (socket) => {
 
     const timestamp = new Date().toISOString();
     const isReceiverCurrentlyViewing = isReceiverViewing ||
-      userActiveChatRoom.get(receiverId.toString()) === chatRoomId;
+      userActiveChatRoom.get(receiverIdStr) === chatRoomId;
 
     const msgDoc = {
-      messageId, chatRoomId, senderId, receiverId,
+      messageId, chatRoomId, senderId: senderIdStr, receiverId: receiverIdStr,
       message:    safeMessage,
       messageType: safeMessageType,
       timestamp,
@@ -1144,13 +1166,13 @@ io.on('connection', async (socket) => {
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
 
     // Emit to sender (always full message)
-    const senderSocketId = userSockets.get(senderId.toString());
+    const senderSocketId = userSockets.get(senderIdStr);
     if (senderSocketId) {
       io.to(senderSocketId).emit('new_message', clientMsg);
     }
 
     // Emit to receiver (full message — preview masking for unpaid users is handled client-side in the chat list)
-    const receiverSocketId = userSockets.get(receiverId.toString());
+    const receiverSocketId = userSockets.get(receiverIdStr);
     if (receiverSocketId) {
       io.to(receiverSocketId).emit('new_message', clientMsg);
     }
