@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../core/user_state.dart';
 import '../service/verification_service.dart';
-import '../Package/PackageScreen.dart';
+import '../Package/PackageScreen.dart' show SubscriptionPage;
 
 /// Centralized access control utility for gated interaction system.
 ///
@@ -138,7 +138,7 @@ class AccessControl {
               Navigator.of(context).pop();
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (context) => const PackageScreen(),
+                  builder: (context) => const SubscriptionPage(),
                 ),
               );
             },
