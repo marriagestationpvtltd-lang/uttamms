@@ -33,7 +33,7 @@ import 'MainControllere.dart';
 import 'onboarding.dart';
 
 import 'dart:convert';
-import 'dart:async' show unawaited;
+import 'dart:async';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -160,11 +160,14 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
       final userId = int.tryParse(userData["id"].toString());
       if (userId == null) return;
 
-      // Load cached UserState immediately (zero network) then refresh in background.
+      // Load cached UserState first (instant local read) then fetch fresh
+      // state from the server.  We await the refresh so that the pageno=8
+      // navigation decision (isVerified gate) always uses accurate data
+      // rather than a potentially-stale cache value.
       if (mounted) {
         final userState = context.read<UserState>();
         await userState.loadFromCache();
-        unawaited(userState.refresh(userId));
+        await userState.refresh(userId);
       }
 
       // Only fetch pageNo from the server when there is no cached value.

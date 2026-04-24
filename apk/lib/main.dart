@@ -1162,9 +1162,31 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       OnlineStatusService().start();
+      // Refresh UserState so that a document approved by the admin while the
+      // app was backgrounded is reflected immediately without requiring a
+      // full restart.
+      _refreshUserStateOnResume();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       OnlineStatusService().setOffline();
+    }
+  }
+
+  /// Reads the stored userId and asks [UserState] to fetch fresh verification
+  /// and subscription data from the server.  Fire-and-forget; failures are
+  /// silently swallowed because stale state is still correct for the current
+  /// session.
+  Future<void> _refreshUserStateOnResume() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userData = prefs.getString('user_data');
+      if (userData == null || userData.isEmpty) return;
+      final data = jsonDecode(userData) as Map<String, dynamic>;
+      final userId = int.tryParse(data['id']?.toString() ?? '');
+      if (userId == null || !mounted) return;
+      context.read<UserState>().refresh(userId);
+    } catch (e) {
+      debugPrint('MyApp: UserState resume refresh error: $e');
     }
   }
 
