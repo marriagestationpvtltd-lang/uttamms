@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:adminmrz/config/app_endpoints.dart';
 import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 import 'package:adminmrz/requests/request_model.dart';
@@ -36,11 +37,20 @@ class RequestService {
 
     final response = await http.get(uri, headers: await _authHeaders());
 
+    developer.log(
+      'getRequests [${response.statusCode}]: ${response.body}',
+      name: 'RequestService',
+    );
+
     if (response.statusCode == 401) throw const UnauthorizedException();
 
     if (response.statusCode == 200) {
-      final data = json.decode(response.body);
-      return RequestsResponse.fromJson(data);
+      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      // Support both res.data and res.data.data wrapping
+      final payload = decoded['data'] is Map<String, dynamic>
+          ? decoded['data'] as Map<String, dynamic>
+          : decoded;
+      return RequestsResponse.fromJson(payload);
     }
 
     throw Exception('Failed to load requests: ${response.statusCode}');

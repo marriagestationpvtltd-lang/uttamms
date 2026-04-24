@@ -1,8 +1,10 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'activity_model.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
+import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 
 class ActivityService {
   static const String _baseUrl = kAdminApi9BaseUrl;
@@ -40,9 +42,20 @@ class ActivityService {
 
     final response = await http.get(uri, headers: await _authHeaders());
 
+    developer.log(
+      'getActivities [${response.statusCode}]: ${response.body}',
+      name: 'ActivityService',
+    );
+
+    if (response.statusCode == 401) throw const UnauthorizedException();
+
     if (response.statusCode == 200) {
-      final data = json.decode(response.body) as Map<String, dynamic>;
-      return ActivityFeedResponse.fromJson(data);
+      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      // Support both res.data and res.data.data wrapping
+      final payload = decoded['data'] is Map<String, dynamic>
+          ? decoded['data'] as Map<String, dynamic>
+          : decoded;
+      return ActivityFeedResponse.fromJson(payload);
     }
     throw Exception('Failed to load activities: ${response.statusCode}');
   }

@@ -115,7 +115,7 @@ try {
     // 5. Profile views of this user (from user_activities log)
     $profileViews = queryCount($pdo,
         "SELECT COUNT(*) FROM user_activities
-         WHERE target_user_id = ?
+         WHERE target_id = ?
            AND activity_type IN ('profile_view', 'profile_viewed')",
         [$userId]
     );
