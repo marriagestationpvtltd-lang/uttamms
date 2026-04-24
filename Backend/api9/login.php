@@ -71,12 +71,8 @@ try {
         response(false, 'Invalid credentials', [], 401);
     }
 
-    // 🔐 Token (HMAC-signed, not plain base64)
-    $secret = getAdminJwtSecret();
-    if (!$secret) {
-        error_log('[admin login] Could not resolve JWT secret (env var not set and file-based secret unavailable)');
-        response(false, 'Server configuration error. Please contact the administrator.', [], 500);
-    }
+    // 🔐 Token (HMAC-signed)
+    $secret = ADMIN_JWT_SECRET;
     $payload = json_encode([
         'admin_id' => $admin['id'],
         'email'    => $admin['email'],
