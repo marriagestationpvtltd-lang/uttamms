@@ -2,10 +2,12 @@
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../Notification/notification_inbox_service.dart';
 import '../pushnotification/pushservice.dart';
 import '../otherenew/modelfile.dart';
+import '../utils/access_control.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class ProfileService {
@@ -197,10 +199,22 @@ class ProfileService {
   }
 
   /// Send photo request
+  ///
+  /// GATED INTERACTION: User must be verified AND have active membership.
   Future<Map<String, dynamic>> sendPhotoRequest({
+    required BuildContext context,
     required String myId,
     required String userId,
   }) async {
+    // Enforce gated interaction rules
+    final canSend = await AccessControl.canSendRequest(context);
+    if (!canSend) {
+      return {
+        'status': 'error',
+        'message': 'You must be verified and have an active membership to send requests',
+      };
+    }
+
     try {
       final url = Uri.parse('$baseUrl/send_request.php');
 
@@ -250,10 +264,22 @@ class ProfileService {
   }
 
   /// Send chat request
+  ///
+  /// GATED INTERACTION: User must be verified AND have active membership.
   Future<Map<String, dynamic>> sendChatRequest({
+    required BuildContext context,
     required String myId,
     required String userId,
   }) async {
+    // Enforce gated interaction rules
+    final canSend = await AccessControl.canSendRequest(context);
+    if (!canSend) {
+      return {
+        'status': 'error',
+        'message': 'You must be verified and have an active membership to send requests',
+      };
+    }
+
     try {
       final url = Uri.parse('$baseUrl/send_request.php');
 

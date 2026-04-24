@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../../config/app_endpoints.dart';
 import '../../../core/api/api_response.dart';
+import '../../../utils/access_control.dart';
 import '../models/proposal_model.dart';
 
 /// Service layer for the Proposals feature.
@@ -9,6 +11,9 @@ import '../models/proposal_model.dart';
 /// All methods call the `backend/Api2/` PHP endpoints and parse responses
 /// into typed [ProposalModel] objects using [ApiResponse] for consistent
 /// error handling across the app.
+///
+/// IMPORTANT: [sendRequest] enforces gated interaction rules - user must be
+/// verified AND have active membership before sending any request.
 class ProposalService {
   static const String _baseUrl = '$kApi2BaseUrl/proposals_api.php';
 
@@ -61,11 +66,26 @@ class ProposalService {
   ///
   /// [requestType] must be one of: `"Photo"`, `"Profile"`, `"Chat"`.
   /// Returns the `proposal_id` of the created (or updated) proposal.
+  ///
+  /// GATED INTERACTION: This method enforces that the user must be verified
+  /// AND have active membership before sending any request. If requirements
+  /// are not met, shows appropriate dialogs and returns an error.
+  ///
+  /// [context] is required for checking access control and showing dialogs.
   Future<ApiResponse<String>> sendRequest({
+    required BuildContext context,
     required String senderId,
     required String receiverId,
     required String requestType,
   }) async {
+    // Enforce gated interaction rules
+    final canSend = await AccessControl.canSendRequest(context);
+    if (!canSend) {
+      return ApiResponse.error(
+        'You must be verified and have an active membership to send requests',
+      );
+    }
+
     try {
       final url = Uri.parse('$kApi2BaseUrl/send_request.php');
       final response = await http
