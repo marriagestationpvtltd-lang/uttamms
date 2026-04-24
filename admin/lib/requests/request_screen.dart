@@ -1,5 +1,4 @@
 import 'package:adminmrz/auth/service.dart';
-import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 import 'package:adminmrz/requests/request_model.dart';
 import 'package:adminmrz/requests/request_provider.dart';
 import 'package:flutter/material.dart';

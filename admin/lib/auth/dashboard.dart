@@ -2,7 +2,9 @@ import 'dart:async';
 import 'dart:html' as html;
 import 'package:adminmrz/auth/service.dart';
 import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
+import 'package:adminmrz/core/permissions.dart';
 import 'package:adminmrz/core/theme_provider.dart';
+import 'package:adminmrz/notifications/notification_center.dart';
 import 'package:adminmrz/users/userdetails/detailscreen.dart';
 import 'package:adminmrz/users/userdetails/userdetailprovider.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +18,8 @@ import '../dashboard/dashboardhome.dart';
 import '../document/screens/docscreen.dart';
 import '../package/packageScreen.dart';
 import '../payment/paymentscreen.dart';
+import '../requests/request_provider.dart';
+import '../requests/request_screen.dart';
 import '../settings/call_settings_screen.dart';
 import '../users/userscreen.dart';
 
@@ -75,6 +79,10 @@ class _DashboardPageState extends State<DashboardPage> {
       const PackagesPage(),
       const PaymentsPage(),
       Loading(),
+      ChangeNotifierProvider(
+        create: (_) => RequestProvider(),
+        child: const RequestsPage(),
+      ),
       const CallSettingsScreen(),
       const ActivityFeedScreen(),
     ];
@@ -219,6 +227,7 @@ class _DashboardPageState extends State<DashboardPage> {
     _NavItem(icon: Icons.inventory_2_rounded, label: 'Packages'),
     _NavItem(icon: Icons.payments_rounded,    label: 'Payments'),
     _NavItem(icon: Icons.chat_bubble_rounded, label: 'Chat'),
+    _NavItem(icon: Icons.handshake_rounded,   label: 'Requests'),
     _NavItem(icon: Icons.tune_rounded,        label: 'Call Settings'),
     _NavItem(icon: Icons.timeline_rounded,    label: 'Activities'),
   ];
@@ -340,20 +349,11 @@ class _DashboardPageState extends State<DashboardPage> {
               tooltip: isDark ? 'Light Mode' : 'Dark Mode',
             ),
           ),
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: topBarBorder),
-            ),
-            child: IconButton(
-              onPressed: () {},
-              icon: Icon(Icons.notifications_outlined, size: 16, color: mutedColor),
-              padding: EdgeInsets.zero,
-              tooltip: 'Notifications',
-            ),
+          NotificationCenter(
+            onViewAll: () {
+              _scaffoldKey.currentState?.closeDrawer();
+              _onItemTapped(8);
+            },
           ),
         ],
       ),
@@ -409,10 +409,27 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              itemCount: _navItems.length,
-              itemBuilder: (_, i) => _buildDrawerNavTile(i),
+            child: Builder(
+              builder: (context) {
+                final permissions = context.read<AuthProvider>().permissions;
+                final Map<int, bool> visible = {
+                  0: true,
+                  1: permissions.canManageUsers,
+                  2: permissions.canVerifyDocuments,
+                  3: permissions.canManagePackages,
+                  4: permissions.canManagePayments,
+                  5: permissions.canAccessChats,
+                  6: permissions.canManageRequests,
+                  7: permissions.canManageSettings,
+                  8: permissions.canViewActivities,
+                };
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: _navItems.length,
+                  itemBuilder: (_, i) =>
+                      (visible[i] ?? true) ? _buildDrawerNavTile(i) : const SizedBox.shrink(),
+                );
+              },
             ),
           ),
           Container(
@@ -646,10 +663,24 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildNavList() {
+    final permissions = context.read<AuthProvider>().permissions;
+    // Map nav-item index → permission check (null means always visible).
+    final Map<int, bool> visible = {
+      0: true,                                  // Dashboard
+      1: permissions.canManageUsers,            // Members
+      2: permissions.canVerifyDocuments,        // Documents
+      3: permissions.canManagePackages,         // Packages
+      4: permissions.canManagePayments,         // Payments
+      5: permissions.canAccessChats,            // Chat
+      6: permissions.canManageRequests,         // Requests
+      7: permissions.canManageSettings,         // Call Settings
+      8: permissions.canViewActivities,         // Activities
+    };
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: _navItems.length,
-      itemBuilder: (_, i) => _buildNavTile(i),
+      itemBuilder: (_, i) =>
+          (visible[i] ?? true) ? _buildNavTile(i) : const SizedBox.shrink(),
     );
   }
 
@@ -873,6 +904,13 @@ class _DashboardPageState extends State<DashboardPage> {
             ),
           ),
           const Spacer(),
+          // Notification bell
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: NotificationCenter(
+              onViewAll: () => _onItemTapped(8),
+            ),
+          ),
           // Dark / Light mode toggle
           Container(
             width: 36,
@@ -892,26 +930,6 @@ class _DashboardPageState extends State<DashboardPage> {
               ),
               padding: EdgeInsets.zero,
               tooltip: isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode',
-            ),
-          ),
-          // Notification bell
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: iconBg,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: topBarBorder),
-            ),
-            child: IconButton(
-              onPressed: () {},
-              icon: Icon(
-                Icons.notifications_outlined,
-                size: 18,
-                color: mutedColor,
-              ),
-              padding: EdgeInsets.zero,
-              tooltip: 'Notifications',
             ),
           ),
         ],
