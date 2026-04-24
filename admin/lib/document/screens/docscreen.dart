@@ -35,7 +35,11 @@ class _DocumentsPageState extends State<DocumentsPage>
       setState(() => _query = _searchController.text.toLowerCase());
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<DocumentsProvider>().fetchDocuments();
+      final dp = context.read<DocumentsProvider>();
+      // Only fetch once per session; manual refresh button is always available.
+      if (!dp.isInitialized) {
+        dp.fetchDocuments();
+      }
     });
   }
 

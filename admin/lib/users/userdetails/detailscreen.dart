@@ -729,6 +729,32 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 onPressed: prov.isSendingNotification ? null : () => _requestPhotoUpload(p),
               ),
             )
+          else if (p.photoRequest.toLowerCase() == 'approved')
+            // Photo already approved — lock it, no re-approval allowed.
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 13, horizontal: 16),
+              decoration: BoxDecoration(
+                color: _kEmerald.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: _kEmerald.withOpacity(0.25)),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.lock_rounded, size: 15, color: _kEmerald),
+                  SizedBox(width: 8),
+                  Text(
+                    'Photo approved & locked',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _kEmerald,
+                    ),
+                  ),
+                ],
+              ),
+            )
           else
             Row(
               children: [
@@ -2074,7 +2100,7 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
               ),
             ),
 
-            // Actions for pending docs
+            // Actions for pending docs — or lock indicator for approved docs
             if (doc.isPending)
               Consumer<DocumentsProvider>(
                 builder: (_, dp, __) => dp.isActionLoading
@@ -2102,6 +2128,21 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                           ),
                         ],
                       ),
+              )
+            else if (doc.isApproved)
+              Tooltip(
+                message: 'Document is permanently locked after verification',
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: const Color(0xFF10B981).withOpacity(0.25)),
+                  ),
+                  child: const Icon(Icons.lock_rounded,
+                      size: 16, color: Color(0xFF10B981)),
+                ),
               ),
           ],
         ),
@@ -2269,6 +2310,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
     final ok = await dp.updateDocumentStatus(
         documentId: doc.documentId, action: 'approve');
     if (mounted) {
+      if (ok) {
+        // Sync the isVerified badge in the profile header.
+        context.read<UserDetailsProvider>().fetchUserDetails(widget.userId, widget.myId);
+      }
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
             ok ? 'Document approved' : 'Failed: ${dp.error}'),
@@ -2334,6 +2379,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
                 rejectReason: _rejectDocCtrl.text.trim(),
               );
               if (mounted) {
+                if (ok) {
+                  // Sync the isVerified badge in the profile header.
+                  context.read<UserDetailsProvider>().fetchUserDetails(widget.userId, widget.myId);
+                }
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                   content: Text(
                       ok ? 'Document rejected' : 'Failed: ${dp.error}'),

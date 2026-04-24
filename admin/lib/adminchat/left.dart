@@ -39,6 +39,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
   bool _showOnlyOnline = false;
   bool _showWithMatches = false;
   bool _showOnlyUnread = false;
+  bool _showOnlyVerified = false;
   String _sortBy = 'recent'; // 'recent', 'name', 'matches', 'online'
 
   // Unread message counts: userId -> count of unseen messages from that user
@@ -668,8 +669,15 @@ class _ChatSidebarState extends State<ChatSidebar> {
         bool matchesUnread =
             !_showOnlyUnread || (_unreadCounts[uid] ?? 0) > 0;
 
+        // Verified filter
+        final rawVerified = user["is_verified"];
+        final bool userIsVerified = rawVerified == true ||
+            rawVerified == 1 ||
+            rawVerified?.toString() == '1';
+        bool matchesVerified = !_showOnlyVerified || userIsVerified;
+
         return matchesSearch && matchesPaid && matchesOnline &&
-            matchesWithMatches && matchesUnread;
+            matchesWithMatches && matchesUnread && matchesVerified;
       }).toList();
 
       // Apply sorting
@@ -743,6 +751,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
       _showOnlyOnline = false;
       _showWithMatches = false;
       _showOnlyUnread = false;
+      _showOnlyVerified = false;
       _sortBy = 'recent';
       _searchQuery = "";
     });
@@ -957,6 +966,34 @@ class _ChatSidebarState extends State<ChatSidebar> {
                         ),
                       ),
                       const SizedBox(width: 6),
+                      FilterChip(
+                        label: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.verified_rounded, size: 11),
+                            SizedBox(width: 3),
+                            Text('Verified', style: TextStyle(fontSize: 10)),
+                          ],
+                        ),
+                        selected: _showOnlyVerified,
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                        onSelected: (bool selected) {
+                          setState(() {
+                            _showOnlyVerified = selected;
+                            _applyFilters();
+                          });
+                        },
+                        selectedColor: const Color(0xFF10B981).withOpacity(0.12),
+                        checkmarkColor: const Color(0xFF10B981),
+                        side: BorderSide(
+                          color: _showOnlyVerified
+                              ? const Color(0xFF10B981)
+                              : c.border,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
                       Container(
                         height: 28,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -991,7 +1028,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                   ),
                 ),
 
-                if (_showOnlyPaid || _showOnlyOnline || _showWithMatches || _showOnlyUnread || _searchQuery.isNotEmpty)
+                if (_showOnlyPaid || _showOnlyOnline || _showWithMatches || _showOnlyUnread || _showOnlyVerified || _searchQuery.isNotEmpty)
                   Align(
                     alignment: Alignment.centerRight,
                     child: TextButton.icon(
@@ -1117,6 +1154,9 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             user["profile_picture"] ?? "",
                             isSelected,
                             _unreadCounts[user["id"].toString()] ?? 0,
+                            user["is_verified"] == true ||
+                                user["is_verified"] == 1 ||
+                                user["is_verified"]?.toString() == '1',
                             () {
                               setState(() {
                                 _selectedChat = user;
@@ -1147,6 +1187,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
     String profileImage,
     bool isSelected,
     int unreadCount,
+    bool isVerified,
     VoidCallback onTap,
   ) {
     final c = ChatColors.of(context);
@@ -1220,16 +1261,31 @@ class _ChatSidebarState extends State<ChatSidebar> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    name,
-                    style: TextStyle(
-                      fontWeight:
-                          hasUnread ? FontWeight.w700 : FontWeight.w600,
-                      fontSize: 13,
-                      color: isPaid ? c.primary : c.text,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          name,
+                          style: TextStyle(
+                            fontWeight:
+                                hasUnread ? FontWeight.w700 : FontWeight.w600,
+                            fontSize: 13,
+                            color: isPaid ? c.primary : c.text,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (isVerified) ...[
+                        const SizedBox(width: 3),
+                        const Icon(
+                          Icons.verified_rounded,
+                          size: 11,
+                          color: Color(0xFF10B981),
+                        ),
+                      ],
+                    ],
                   ),
                   if (userId.isNotEmpty)
                     Row(
