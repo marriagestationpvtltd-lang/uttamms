@@ -11,6 +11,7 @@ import '../../constant/app_colors.dart';
 import '../../core/user_state.dart';
 import '../../service/ocr_service.dart';
 import '../../service/document_scanner_service.dart';
+import '../../Startup/MainControllere.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 /// Redesigned marital-document upload screen.
@@ -148,6 +149,21 @@ class _MaritalDocumentUploadScreenState
       default:
         return 'Marital Status Verification';
     }
+  }
+
+  /// Returns true if all required documents have been approved.
+  bool _areAllDocumentsApproved() {
+    final requiredDocs = _getRequiredDocTypes();
+    if (requiredDocs.isEmpty) return false;
+
+    for (final doc in requiredDocs) {
+      final label = doc['label'] as String;
+      final state = _documentStates[label];
+      if (state == null || state['status'] != 'approved') {
+        return false;
+      }
+    }
+    return true;
   }
 
   // ─── API ─────────────────────────────────────────────────────────────────
@@ -389,6 +405,11 @@ class _MaritalDocumentUploadScreenState
                       child: _buildDocumentCard(doc),
                     ),
                   ),
+                  // Show "Go to Home" button when all documents are approved
+                  if (_areAllDocumentsApproved()) ...[
+                    const SizedBox(height: 32),
+                    _buildGoToHomeButton(),
+                  ],
                 ],
               ),
             ),
@@ -1713,6 +1734,50 @@ class _MaritalDocumentUploadScreenState
       return;
     }
     _uploadDocument();
+  }
+
+  Widget _buildGoToHomeButton() {
+    return Container(
+      width: double.infinity,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.success.withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: ElevatedButton.icon(
+        onPressed: _goToHome,
+        icon: const Icon(Icons.home_rounded, size: 22),
+        label: const Text(
+          'Go to Home',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: Colors.white,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppColors.success,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          elevation: 0,
+        ),
+      ),
+    );
+  }
+
+  void _goToHome() {
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (context) => const MainControllerScreen()),
+      (route) => false,
+    );
   }
 
   void _showError(String message) {
