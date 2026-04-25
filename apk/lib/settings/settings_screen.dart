@@ -12,7 +12,7 @@ import '../Auth/Screen/Edit/Personal.dart' show PersonalDetailsPageEdit;
 import '../Auth/Screen/Edit/edit5.dart';
 import '../Auth/Screen/Edit/edit6.dart';
 import '../Auth/Screen/Edit/edit7.dart';
-import '../Auth/Screen/Edit/edit8.dart';
+import '../Auth/Screen/signupscreen9.dart';
 import '../Auth/SuignupModel/signup_model.dart';
 import '../DeleteAccount/deleteAccointScreen.dart';
 import '../Package/PackageScreen.dart';
@@ -751,7 +751,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         iconColor: Colors.purple,
         title: 'Partner Preferences',
         subtitle: 'What you are looking for',
-        onTap: () => _openEdit(PartnerPreferencesPagee()),
+        onTap: () => _openEdit(const PartnerPreferencesPage(isEditMode: true)),
         isLast: true,
       ),
     ]);

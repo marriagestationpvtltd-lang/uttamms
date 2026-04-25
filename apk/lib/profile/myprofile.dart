@@ -14,7 +14,7 @@ import '../Auth/Screen/Edit/Community.dart';
 import '../Auth/Screen/Edit/edit5.dart';
 import '../Auth/Screen/Edit/edit6.dart';
 import '../Auth/Screen/Edit/edit7.dart';
-import '../Auth/Screen/Edit/edit8.dart';
+import '../Auth/Screen/signupscreen9.dart';
 import '../Auth/Screen/signupscreen10.dart';
 import '../Auth/SuignupModel/signup_model.dart';
 import '../DeleteAccount/deleteAccointScreen.dart';
@@ -3520,9 +3520,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   void _editPartnerPreferences() {
     _openEditPage(
-      PartnerPreferencesPagee(
-        initialData: _asMap(profileData?['partner']),
-      ),
+      const PartnerPreferencesPage(isEditMode: true),
       onReturn: _refreshPartnerSection,
     );
   }
