@@ -71,7 +71,7 @@ class _OnlineUsersListScreenState extends State<OnlineUsersListScreen> {
         .toList();
 
     final channelName =
-        'group_${DateTime.now().millisecondsSinceEpoch}';
+        'group_${_currentUserId}_${DateTime.now().millisecondsSinceEpoch}';
 
     // Exit group-call mode before navigating
     setState(() {

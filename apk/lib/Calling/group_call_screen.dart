@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:async' show StreamSubscription, Timer, unawaited;
 import 'dart:math';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -270,7 +270,9 @@ class _GroupCallScreenState extends State<GroupCallScreen>
         callType: 'group',
       );
 
-      // Send FCM push as fallback for offline participants
+      // Send FCM push as fallback for offline participants.
+      // 'SERVER_ONLY' is an intentional placeholder — the actual Agora certificate
+      // is not sent to the client; the server generates the token server-side.
       unawaited(NotificationService.sendCallNotification(
         recipientUserId: p.userId,
         callerName: widget.currentUserName,
@@ -474,10 +476,10 @@ class _GroupCallScreenState extends State<GroupCallScreen>
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        await _endCall();
-        return false;
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (!didPop) _endCall();
       },
       child: Scaffold(
         backgroundColor: const Color(0xFF1A1A2E),
