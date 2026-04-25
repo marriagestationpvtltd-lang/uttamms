@@ -60,16 +60,31 @@ $whereSQL = 'WHERE ' . implode(' AND ', $whereParts);
 // ── Count total matching rows (pagination meta) ───────────────────────────────
 $countSQL  = "SELECT COUNT(*) AS total FROM users u $whereSQL";
 $countStmt = $conn->prepare($countSQL);
+if (!$countStmt) {
+    echo json_encode(['status' => false, 'message' => 'Count query prepare failed: ' . $conn->error, 'data' => [], 'totalRecords' => 0]);
+    exit;
+}
 if ($params) {
     $countStmt->bind_param($types, ...$params);
 }
 $countStmt->execute();
 $totalRecords = intval($countStmt->get_result()->fetch_assoc()['total'] ?? 0);
 
+// ── Detect whether the is_unsent column exists (added by the socket server) ───
+$unsentCheck = $conn->query(
+    "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_messages' AND COLUMN_NAME = 'is_unsent'
+     LIMIT 1"
+);
+$hasUnsentCol = $unsentCheck && $unsentCheck->num_rows > 0;
+
 // ── Main query — single round-trip, no N+1 ────────────────────────────────────
 // chat_room_id between admin (id=1) and any user (id > 1) is always "1_<userId>"
 // because string sort("1","N") = ["1","N"] for any N whose string > "1".
 // We use this to query chat_messages with the idx_chat_room_time index.
+$unsentFilter = $hasUnsentCol ? 'AND  cm.is_unsent  = 0' : '';
+$unsentFilter2 = $hasUnsentCol ? 'AND  cm2.is_unsent = 0' : '';
+
 $mainSQL = "
     SELECT
         u.id,
@@ -85,7 +100,7 @@ $mainSQL = "
             SELECT cm.message
             FROM   chat_messages cm
             WHERE  cm.chat_room_id = CONCAT('1_', u.id)
-              AND  cm.is_unsent    = 0
+              $unsentFilter
             ORDER  BY cm.created_at DESC
             LIMIT  1
         ) AS chat_message,
@@ -93,7 +108,7 @@ $mainSQL = "
             SELECT cm2.created_at
             FROM   chat_messages cm2
             WHERE  cm2.chat_room_id = CONCAT('1_', u.id)
-              AND  cm2.is_unsent    = 0
+              $unsentFilter2
             ORDER  BY cm2.created_at DESC
             LIMIT  1
         ) AS last_message_at
@@ -115,11 +130,19 @@ if ($singleUserId <= 0) {
 }
 
 $stmt = $conn->prepare($mainSQL);
+if (!$stmt) {
+    echo json_encode(['status' => false, 'message' => 'Main query prepare failed: ' . $conn->error, 'data' => [], 'totalRecords' => 0]);
+    exit;
+}
 if ($listParams) {
     $stmt->bind_param($listTypes, ...$listParams);
 }
 $stmt->execute();
 $result = $stmt->get_result();
+if (!$result) {
+    echo json_encode(['status' => false, 'message' => 'Main query execute failed: ' . $stmt->error, 'data' => [], 'totalRecords' => 0]);
+    exit;
+}
 
 // ── Build response ────────────────────────────────────────────────────────────
 $responseData = [];
