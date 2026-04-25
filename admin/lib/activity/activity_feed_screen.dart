@@ -44,6 +44,11 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   // Negative counter ensures real-time synthetic IDs never collide with DB IDs.
   static int _syntheticIdCounter = -1;
 
+  // Tracks expiry time for each real-time (socket-inserted) activity.
+  // Activities are auto-removed from the list 30 seconds after they arrive.
+  final Map<int, DateTime> _activityExpiry = {};
+  Timer? _cleanupTimer;
+
   // Filter state
   String? _selectedType;    // null = All
   String _searchText = '';
@@ -70,6 +75,11 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
       (_) { if (mounted) _fetchActivities(reset: true, silent: true); },
     );
     _scrollController.addListener(_onScroll);
+    // Periodically remove activities that have exceeded their 30-second display window.
+    _cleanupTimer = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) { if (mounted) _removeExpiredActivities(); },
+    );
     // Subscribe to real-time activity events from the socket server.
     // Debounce rapid bursts (e.g. call_made + call_received arriving within
     // milliseconds) into a single refresh, and give the 750 ms batch worker
@@ -134,10 +144,15 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
         );
       }
 
-      // Prepend the real-time item. When user_activity fires ~750 ms later
-      // and triggers a full reset fetch, the API response will replace these
-      // synthetic entries with the persisted DB records (no permanent duplicates).
-      setState(() => _activities.insert(0, activity));
+      // Prepend the real-time item and record its 30-second expiry so it remains
+      // visible and scrollable. When a full API reset fires it will be preserved
+      // until the timer removes it, and the API record (same content, different ID)
+      // will replace it in the list naturally.
+      setState(() {
+        _activities.insert(0, activity);
+        _activityExpiry[activity.id] =
+            DateTime.now().add(const Duration(seconds: 30));
+      });
     });
   }
 
@@ -145,11 +160,26 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   void dispose() {
     _refreshTimer?.cancel();
     _socketRefreshDebounce?.cancel();
+    _cleanupTimer?.cancel();
     _activitySub?.cancel();
     _adminActivitySub?.cancel();
     _scrollController.dispose();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  // Remove real-time activities that have exceeded their 30-second display window.
+  void _removeExpiredActivities() {
+    final now = DateTime.now();
+    final expiredIds = _activityExpiry.entries
+        .where((e) => now.isAfter(e.value))
+        .map((e) => e.key)
+        .toSet();
+    if (expiredIds.isEmpty) return;
+    setState(() {
+      _activities.removeWhere((a) => expiredIds.contains(a.id));
+      _activityExpiry.removeWhere((key, _) => expiredIds.contains(key));
+    });
   }
 
   void _onScroll() {
@@ -185,7 +215,13 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
         _isLoadingMore = false;
         _error       = '';
         if (reset) {
-          _activities = resp.activities;
+          // Preserve real-time socket activities that haven't expired yet so
+          // they remain visible and scrollable until their 30-second window ends.
+          final apiIds = resp.activities.map((a) => a.id).toSet();
+          final liveActivities = _activities
+              .where((a) => _activityExpiry.containsKey(a.id) && !apiIds.contains(a.id))
+              .toList();
+          _activities = [...liveActivities, ...resp.activities];
         } else {
           _activities.addAll(resp.activities);
           _page++;
