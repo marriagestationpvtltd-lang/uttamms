@@ -18,6 +18,7 @@ import '../main.dart';
 import '../pushnotification/pushservice.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/service/socket_service.dart';
 import 'package:ms2026/service/verification_service.dart';
 
 class FavoritePeoplePage extends StatefulWidget {
@@ -152,6 +153,14 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
             activityType: ActivityType.likeRemoved,
             targetUserId: receiverId.toString(),
           );
+          // Notify admin panel in real-time via socket
+          SocketService().emitNewActivity(
+            userId:       userId.toString(),
+            activityType: ActivityType.likeRemoved,
+            userName:     '${userName ?? ''} ${userLastName ?? ''}'.trim(),
+            description:  'Removed like from a profile',
+            targetId:     receiverId.toString(),
+          );
        //   _showPopupMessage('Removed from favorites');
         } else {
        //   _showPopupMessage(data['message'] ?? 'Failed to remove', isError: true);
@@ -203,6 +212,15 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
             activityType: ActivityType.requestSent,
             targetUserId: receiverId.toString(),
             description: '$formattedRequestType request sent to $receiverName',
+          );
+          // Notify admin panel in real-time via socket
+          SocketService().emitNewActivity(
+            userId:       userId.toString(),
+            activityType: ActivityType.requestSent,
+            userName:     '${userName ?? ''} ${userLastName ?? ''}'.trim(),
+            description:  '$formattedRequestType request sent to $receiverName',
+            targetId:     receiverId.toString(),
+            targetName:   receiverName,
           );
           // Send notification
           final success = await NotificationService.sendRequestNotification(

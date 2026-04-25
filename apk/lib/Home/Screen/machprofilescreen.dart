@@ -14,6 +14,7 @@ import '../../ReUsable/loading_widgets.dart';
 import '../../utils/privacy_utils.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/service/socket_service.dart';
 
 class MatchedProfilesPagee extends StatefulWidget {
   final int currentUserId;
@@ -150,6 +151,14 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
             userId: widget.currentUserId.toString(),
             activityType: isCurrentlyLiked ? ActivityType.likeRemoved : ActivityType.likeSent,
             targetUserId: profileId.toString(),
+          );
+          // Notify admin panel in real-time via socket
+          SocketService().emitNewActivity(
+            userId:       widget.currentUserId.toString(),
+            activityType: isCurrentlyLiked ? ActivityType.likeRemoved : ActivityType.likeSent,
+            userName:     '$_userName $_userLastName'.trim(),
+            description:  isCurrentlyLiked ? 'Removed like from a profile' : 'Liked a profile',
+            targetId:     profileId.toString(),
           );
           _showRequestSentPopup(isCurrentlyLiked ? 'Removed from likes' : 'Added to likes');
         } else {

@@ -73,27 +73,58 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
     _activitySub = _socketService.onUserActivity.listen((_) {
       if (mounted) _fetchActivities(reset: true, silent: true);
     });
-    // Subscribe to real-time admin_activity events (full message content)
+    // Subscribe to real-time admin_activity events (full message content or
+    // general activity data forwarded by the new_activity socket handler)
     _adminActivitySub = _socketService.onAdminActivity.listen((data) {
       if (!mounted) return;
-      final senderId   = data['sender_id']?.toString() ?? '';
-      final receiverId = data['receiver_id']?.toString() ?? '';
-      final senderName   = data['sender_name']?.toString()   ?? 'User $senderId';
-      final receiverName = data['receiver_name']?.toString() ?? 'User $receiverId';
-      final message    = data['message']?.toString() ?? '';
-      final timestamp  = data['timestamp']?.toString();
-      final createdAt  = timestamp != null ? DateTime.tryParse(timestamp) ?? DateTime.now() : DateTime.now();
 
-      final activity = UserActivity(
-        id:           _syntheticIdCounter--,
-        userId:       int.tryParse(senderId) ?? 0,
-        userName:     senderName,
-        targetId:     int.tryParse(receiverId),
-        targetName:   receiverName,
-        activityType: 'message_sent',
-        description:  '$senderName → $receiverName: $message',
-        createdAt:    createdAt,
-      );
+      final UserActivity activity;
+
+      if (data.containsKey('activity_type')) {
+        // General activity format emitted by the new_activity → admin_activity flow
+        final userId     = data['user_id']?.toString() ?? '';
+        final userName   = data['user_name']?.toString() ?? 'User $userId';
+        final targetId   = data['target_id'];
+        final targetName = data['target_name']?.toString();
+        final timestamp  = data['created_at']?.toString();
+        final createdAt  = timestamp != null
+            ? DateTime.tryParse(timestamp) ?? DateTime.now()
+            : DateTime.now();
+
+        activity = UserActivity(
+          id:           _syntheticIdCounter--,
+          userId:       int.tryParse(userId) ?? 0,
+          userName:     userName,
+          targetId:     targetId != null ? int.tryParse(targetId.toString()) : null,
+          targetName:   targetName,
+          activityType: data['activity_type']?.toString() ?? 'other',
+          description:  data['description']?.toString() ?? '',
+          createdAt:    createdAt,
+        );
+      } else {
+        // Legacy message-specific format from send_message handler
+        final senderId     = data['sender_id']?.toString() ?? '';
+        final receiverId   = data['receiver_id']?.toString() ?? '';
+        final senderName   = data['sender_name']?.toString()   ?? 'User $senderId';
+        final receiverName = data['receiver_name']?.toString() ?? 'User $receiverId';
+        final message      = data['message']?.toString() ?? '';
+        final timestamp    = data['timestamp']?.toString();
+        final createdAt    = timestamp != null
+            ? DateTime.tryParse(timestamp) ?? DateTime.now()
+            : DateTime.now();
+
+        activity = UserActivity(
+          id:           _syntheticIdCounter--,
+          userId:       int.tryParse(senderId) ?? 0,
+          userName:     senderName,
+          targetId:     int.tryParse(receiverId),
+          targetName:   receiverName,
+          activityType: 'message_sent',
+          description:  '$senderName → $receiverName: $message',
+          createdAt:    createdAt,
+        );
+      }
+
       // Prepend the real-time item. When user_activity fires ~750 ms later
       // and triggers a full reset fetch, the API response will replace these
       // synthetic entries with the persisted DB records (no permanent duplicates).
