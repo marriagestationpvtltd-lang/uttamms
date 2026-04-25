@@ -248,7 +248,27 @@ class _ChatWindowState extends State<ChatWindow> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _callManager.hasActiveIncomingCall()) {
         final data = _callManager.currentCallData;
-        if (data != null) _handleIncomingCallFromUser(data);
+        if (data != null) {
+          if (_callManager.callAlreadyAccepted) {
+            // The dashboard already accepted the call; launch the overlay
+            // directly without showing the incoming-call dialog again.
+            final callerId = data['callerId']?.toString() ?? '';
+            final callerName = data['callerName']?.toString() ?? 'User';
+            final channelName = data['channelName']?.toString() ?? '';
+            final callType = data['callType']?.toString() ?? 'audio';
+            _callManager.clearCallData();
+            if (channelName.isNotEmpty && callerId.isNotEmpty) {
+              _launchIncomingCall(
+                userId: callerId,
+                userName: callerName,
+                channelName: channelName,
+                isVideo: callType == 'video',
+              );
+            }
+          } else {
+            _handleIncomingCallFromUser(data);
+          }
+        }
       }
     });
 
