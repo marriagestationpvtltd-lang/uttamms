@@ -106,38 +106,75 @@ if ($gcStmt) {
    This reduces database round-trips from  2N + 1  →  3
    (count + gender-counts + paginated data query), regardless of
    how many total users exist.
+
+   NOTE: chat_messages may not exist on a fresh deployment (the socket
+   server creates it on first startup).  Check for its existence so
+   this query never hard-fails due to a missing table.
 ---------------------------------------------------------- */
 
-$sql = "
-    SELECT
-        u.id,
-        TRIM(CONCAT(TRIM(u.firstName), ' ', TRIM(u.lastName))) AS name,
-        u.profile_picture,
-        u.usertype,
-        u.isVerified,
-        u.gender,
-        u.lastLogin,
-        (
-            SELECT cm.message
-            FROM   chat_messages cm
-            WHERE  cm.sender_id   = CAST(u.id AS CHAR)
-                OR cm.receiver_id = CAST(u.id AS CHAR)
-            ORDER  BY cm.created_at DESC
-            LIMIT  1
-        ) AS chat_message,
-        (
-            SELECT cm.message_type
-            FROM   chat_messages cm
-            WHERE  cm.sender_id   = CAST(u.id AS CHAR)
-                OR cm.receiver_id = CAST(u.id AS CHAR)
-            ORDER  BY cm.created_at DESC
-            LIMIT  1
-        ) AS chat_message_type
-    FROM  users u
-    $whereClause
-    ORDER BY u.id DESC
-    LIMIT ? OFFSET ?
-";
+// Check whether chat_messages table is available.
+$chatTableExists = false;
+$ctCheck = $conn->query(
+    "SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME   = 'chat_messages'
+      LIMIT 1"
+);
+if ($ctCheck && $ctCheck->num_rows > 0) {
+    $chatTableExists = true;
+}
+if ($ctCheck) $ctCheck->free();
+
+if ($chatTableExists) {
+    $sql = "
+        SELECT
+            u.id,
+            TRIM(CONCAT(TRIM(u.firstName), ' ', TRIM(u.lastName))) AS name,
+            u.profile_picture,
+            u.usertype,
+            u.isVerified,
+            u.gender,
+            u.lastLogin,
+            (
+                SELECT cm.message
+                FROM   chat_messages cm
+                WHERE  cm.sender_id   = CAST(u.id AS CHAR)
+                    OR cm.receiver_id = CAST(u.id AS CHAR)
+                ORDER  BY cm.created_at DESC
+                LIMIT  1
+            ) AS chat_message,
+            (
+                SELECT cm.message_type
+                FROM   chat_messages cm
+                WHERE  cm.sender_id   = CAST(u.id AS CHAR)
+                    OR cm.receiver_id = CAST(u.id AS CHAR)
+                ORDER  BY cm.created_at DESC
+                LIMIT  1
+            ) AS chat_message_type
+        FROM  users u
+        $whereClause
+        ORDER BY u.id DESC
+        LIMIT ? OFFSET ?
+    ";
+} else {
+    // chat_messages not yet created — return users without last-message fields.
+    $sql = "
+        SELECT
+            u.id,
+            TRIM(CONCAT(TRIM(u.firstName), ' ', TRIM(u.lastName))) AS name,
+            u.profile_picture,
+            u.usertype,
+            u.isVerified,
+            u.gender,
+            u.lastLogin,
+            NULL AS chat_message,
+            NULL AS chat_message_type
+        FROM  users u
+        $whereClause
+        ORDER BY u.id DESC
+        LIMIT ? OFFSET ?
+    ";
+}
 
 // Append LIMIT / OFFSET bind params
 $allTypes  = $bindTypes . 'ii';
