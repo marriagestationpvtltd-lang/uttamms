@@ -519,6 +519,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
           recipientImage: widget.otherUserImage,
           callType: CallType.video,
           initiatedBy: widget.currentUserId,
+          roomId: _channel,
+          participants: [widget.currentUserId, widget.otherUserId],
         );
         _callStartTime = DateTime.now();
       }
@@ -734,6 +736,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
         callId: _callHistoryId!,
         status: callStatus,
         duration: _duration.inSeconds,
+        endedBy: widget.currentUserId,
       );
 
       if (widget.isOutgoingCall) {
