@@ -573,13 +573,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 autoSubscribeAudio: true,
               ));
             }
-            // Start cloud recording (fire-and-forget; only from outgoing caller side)
-            if (widget.isOutgoingCall && _callHistoryId != null && _callHistoryId!.isNotEmpty) {
-              unawaited(CallHistoryService.startRecording(
-                callId:      _callHistoryId!,
-                channelName: _channel,
-              ));
-            }
             // Request audio focus now that call is connected (delayed to prevent
             // the foreground service from stealing focus away from the ringtone).
             unawaited(CallForegroundServiceManager.enableAudioFocus());
@@ -712,10 +705,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           : wasDeclined
               ? CallStatus.declined
               : CallStatus.missed;
-      // Stop cloud recording if call was active (fire-and-forget)
-      if (_callActive) {
-        unawaited(CallHistoryService.stopRecording(callId: _callHistoryId!));
-      }
       await CallHistoryService.updateCallEnd(
         callId: _callHistoryId!,
         status: callStatus,
