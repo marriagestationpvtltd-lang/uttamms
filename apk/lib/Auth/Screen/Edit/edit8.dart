@@ -228,15 +228,15 @@ class _PartnerPreferencesPageeState extends State<PartnerPreferencesPagee> {
       _selectedReligion = _asPreferenceList(data['religion']);
       _selectedCast = _asPreferenceList(data['caste']);
       _selectedsubCast = _asPreferenceList(data['subcaste'] ?? data['subcast']);
-      _selectedMotherTongue = _asPreferenceList(data['mothertongue']); // Corrected field name
-      _selectedHoroscopeBelief = data['horoscopebelief']?.toString(); // Corrected field name
+      _selectedMotherTongue = _asPreferenceList(data['mothertoungue']);
+      _selectedHoroscopeBelief = data['herscopeblief']?.toString();
       _selectedManglik = data['manglik']?.toString();
       _selectedCountry = _asPreferenceList(data['country']);
       _selectedState = _asPreferenceList(data['state']);
       _selectedCity = _asPreferenceList(data['city']);
       _selectedQualification = _asPreferenceList(data['qualification']);
       _selectedEducationMedium = _asPreferenceList(data['educationmedium']);
-      _selectedProfession = _asPreferenceList(data['profession']); // Corrected field name
+      _selectedProfession = _asPreferenceList(data['proffession']);
       _selectedWorkingWith = _asPreferenceList(data['workingwith']);
       _selectedAnnualIncome = _asPreferenceList(data['annualincome']);
       _selectedDiet = _asPreferenceList(data['diet']);
@@ -2424,15 +2424,15 @@ class _PartnerPreferencesPageeState extends State<PartnerPreferencesPagee> {
         "religion": _selectedReligion.join(","),
         "caste": _selectedCast.join(","),
         "subcaste": _selectedsubCast.join(","),
-        "mothertongue": _selectedMotherTongue.join(","),
-        "horoscopebelief": _selectedHoroscopeBelief ?? "",
+        "mothertoungue": _selectedMotherTongue.join(","),
+        "herscopeblief": _selectedHoroscopeBelief ?? "",
         "manglik": _selectedManglik ?? "",
         "country": _getCountryIds(_selectedCountry).join(","),
         "state": _getStateIds(_selectedState).join(","),
         "city": _getCityIds(_selectedCity).join(","),
         "qualification": _selectedQualification.join(","),
         "educationmedium": _selectedEducationMedium.join(","),
-        "profession": _selectedProfession.join(","),
+        "proffession": _selectedProfession.join(","),
         "workingwith": _selectedWorkingWith.join(","),
         "annualincome": _selectedAnnualIncome.join(","),
         "diet": _selectedDiet.join(","),
