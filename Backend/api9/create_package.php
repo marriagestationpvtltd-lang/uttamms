@@ -76,7 +76,7 @@ try {
     echo json_encode([
         'success' => true,
         'message' => 'Package created successfully',
-        'package_id' => $pdo->lastInsertId()
+        'package_id' => (int)$pdo->lastInsertId()
     ]);
 
 } catch (Exception $e) {

@@ -25,6 +25,15 @@ if (!isset($postData['user_id'])) {
 
 $user_id = intval($postData['user_id']);
 
+// Pagination parameters
+$page     = max(1, intval($postData['page']     ?? 1));
+$per_page = min(100, max(1, intval($postData['per_page'] ?? 20)));
+$offset   = ($page - 1) * $per_page;
+
+// Filter and search parameters
+$filter_type = isset($postData['filter_type']) ? trim($postData['filter_type']) : 'all';
+$search      = isset($postData['search'])      ? trim($postData['search'])      : '';
+
 /* ----------------------------------------------------------
    STEP 1: Get current user details and gender
 ---------------------------------------------------------- */
@@ -73,7 +82,56 @@ if ($prefResult->num_rows > 0) {
 }
 
 /* ----------------------------------------------------------
-   STEP 3: Get all opposite gender users
+   STEP 3: Build WHERE clause based on filter_type and search
+---------------------------------------------------------- */
+$whereParts = ["u.gender = ? AND u.id != ?"];
+$bindTypes  = "si";
+$bindValues = [$oppositeGender, $user_id];
+
+if ($filter_type === 'matched') {
+    // Only users who have an accepted proposal with the current user
+    $whereParts[] = "u.id IN (
+        SELECT CASE WHEN p.sender_id = ? THEN p.receiver_id ELSE p.sender_id END
+        FROM proposals p
+        WHERE (p.sender_id = ? OR p.receiver_id = ?) AND p.status = 'accepted'
+    )";
+    $bindTypes  .= "iii";
+    $bindValues[] = $user_id;
+    $bindValues[] = $user_id;
+    $bindValues[] = $user_id;
+}
+
+if ($search !== '') {
+    $escapedSearch = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search) . '%';
+    $whereParts[] = "(u.firstName LIKE ? OR u.lastName LIKE ? OR upd.memberid LIKE ?)";
+    $bindTypes  .= "sss";
+    $bindValues[] = $escapedSearch;
+    $bindValues[] = $escapedSearch;
+    $bindValues[] = $escapedSearch;
+}
+
+$whereClause = 'WHERE ' . implode(' AND ', $whereParts);
+
+/* ----------------------------------------------------------
+   STEP 4: Count total matching records
+---------------------------------------------------------- */
+$countSql = "
+    SELECT COUNT(DISTINCT u.id)
+    FROM users u
+    JOIN userpersonaldetail upd ON u.id = upd.userId
+    $whereClause
+";
+$countStmt = $conn->prepare($countSql);
+if (!empty($bindValues)) {
+    $countStmt->bind_param($bindTypes, ...$bindValues);
+}
+$countStmt->execute();
+$countStmt->bind_result($total_count);
+$countStmt->fetch();
+$countStmt->close();
+
+/* ----------------------------------------------------------
+   STEP 5: Get paginated opposite gender users
 ---------------------------------------------------------- */
 $matchQuery = $conn->prepare("
     SELECT 
@@ -84,14 +142,18 @@ $matchQuery = $conn->prepare("
         upd.addressId
     FROM users u
     JOIN userpersonaldetail upd ON u.id = upd.userId
-    WHERE u.gender = ? AND u.id != ?
+    $whereClause
+    ORDER BY u.id DESC
+    LIMIT ? OFFSET ?
 ");
-$matchQuery->bind_param("si", $oppositeGender, $user_id);
+$paginatedTypes  = $bindTypes . "ii";
+$paginatedValues = array_merge($bindValues, [$per_page, $offset]);
+$matchQuery->bind_param($paginatedTypes, ...$paginatedValues);
 $matchQuery->execute();
 $matches = $matchQuery->get_result();
 
 /* ----------------------------------------------------------
-   STEP 4: Calculate match percentage
+   STEP 6: Calculate match percentage for each result
 ---------------------------------------------------------- */
 $responseData = [];
 
@@ -294,7 +356,11 @@ while ($row = $matches->fetch_assoc()) {
 echo json_encode([
     "status" => "success",
     "message" => "Matched profiles fetched successfully",
-    "data" => $responseData
+    "data" => $responseData,
+    "total" => (int)$total_count,
+    "page" => $page,
+    "per_page" => $per_page,
+    "total_pages" => (int)ceil($total_count / $per_page),
 ], JSON_PRETTY_PRINT);
 
 $conn->close();
