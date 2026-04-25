@@ -89,16 +89,9 @@ if ($_FILES['tone']['size'] > 5 * 1024 * 1024) {
 }
 
 // ── Save file ─────────────────────────────────────────────────────────────────
-// Build the upload directory relative to the server document root so the path
-// remains valid regardless of where in the directory tree this script lives.
-if (empty($_SERVER['DOCUMENT_ROOT'])) {
-    error_log('upload_call_tone: DOCUMENT_ROOT is not set');
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Server configuration error. Please contact support.']);
-    exit;
-}
-$docRoot   = rtrim($_SERVER['DOCUMENT_ROOT'], '/');
-$uploadDir = $docRoot . '/uploads/ringtones/';
+// Build the upload directory using __DIR__ so the path is always relative to
+// this script's location, consistent with the other upload scripts in the project.
+$uploadDir = __DIR__ . '/../../uploads/ringtones/';
 if (!is_dir($uploadDir)) {
     // Use @ to suppress warnings; check is_dir again to handle race conditions
     // where a concurrent request already created the directory.

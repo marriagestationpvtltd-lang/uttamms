@@ -97,40 +97,40 @@ class _CallSettingsScreenState extends State<CallSettingsScreen> {
 
     if (result == null || result.files.isEmpty || !mounted) return;
 
+    final messenger = ScaffoldMessenger.of(context);
+    final provider = context.read<CallSettingsProvider>();
     final file = result.files.single;
 
     try {
-      await context.read<CallSettingsProvider>().uploadCustomTone(
+      await provider.uploadCustomTone(
             fileName: file.name,
             bytes: file.bytes,
             path: file.path,
           );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Custom ringtone uploaded.')),
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text('Upload failed: $e')),
       );
     }
   }
 
   Future<void> _removeCustomTone() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final provider = context.read<CallSettingsProvider>();
     try {
-      await context.read<CallSettingsProvider>().clearCustomTone();
-      if (!mounted) return;
-      if (_playingToneId == 'custom') {
+      await provider.clearCustomTone();
+      if (mounted && _playingToneId == 'custom') {
         await _previewPlayer.stop();
         setState(() => _playingToneId = null);
       }
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('Custom ringtone removed.')),
       );
     } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         SnackBar(content: Text('Remove failed: $e')),
       );
     }
