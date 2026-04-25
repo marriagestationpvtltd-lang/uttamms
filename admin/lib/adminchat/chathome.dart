@@ -2205,9 +2205,11 @@ class _ChatWindowState extends State<ChatWindow> {
   /// Show a dialog to select a user to add to the ongoing call.
   /// Returns the selected user ID or null if cancelled.
   /// Shows a searchable dialog to pick a user to add to the ongoing call.
+  /// [callContext] is the BuildContext of the call screen (inside the overlay),
+  /// so that the dialog appears on top of the call screen rather than behind it.
   /// Returns `{'id': userId, 'name': userName}` on selection, or null on cancel.
   Future<Map<String, String>?> _showAddParticipantDialog(
-      String currentParticipantId) async {
+      String currentParticipantId, BuildContext callContext) async {
     List<Map<String, dynamic>> allUsers = [];
     String? fetchError;
 
@@ -2248,8 +2250,9 @@ class _ChatWindowState extends State<ChatWindow> {
       return null;
     }
 
+    // Use the call screen's context so the dialog opens on top of the overlay.
     return await showDialog<Map<String, String>>(
-      context: context,
+      context: callContext,
       barrierDismissible: true,
       builder: (ctx) => _AddParticipantDialog(
         allUsers: allUsers,
@@ -2284,7 +2287,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   onMinimize: () => isMinimizedNotifier.value = true,
                   onEnd: _removeCallOverlay,
                   onCallEnded: onCallEnded,
-                  onAddParticipant: () => _showAddParticipantDialog(userId),
+                  onAddParticipant: (ctx) => _showAddParticipantDialog(userId, ctx),
                 )
               : CallScreen(
                   currentUserId: '1',
@@ -2294,7 +2297,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   onMinimize: () => isMinimizedNotifier.value = true,
                   onEnd: _removeCallOverlay,
                   onCallEnded: onCallEnded,
-                  onAddParticipant: () => _showAddParticipantDialog(userId),
+                  onAddParticipant: (ctx) => _showAddParticipantDialog(userId, ctx),
                 );
 
           return Stack(

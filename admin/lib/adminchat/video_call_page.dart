@@ -67,8 +67,10 @@ class VideoCallScreen extends StatefulWidget {
   /// callType is always 'video'. status is 'answered' or 'missed'.
   final void Function(String callType, String status, int durationSeconds)? onCallEnded;
   /// Called when admin wants to add a participant to the call.
-  /// Returns `{'id': userId, 'name': userName}` or null if cancelled.
-  final Future<Map<String, String>?> Function()? onAddParticipant;
+  /// Receives the call screen's [BuildContext] so the picker dialog can be
+  /// shown on top of the overlay. Returns `{'id': userId, 'name': userName}`
+  /// or null if cancelled.
+  final Future<Map<String, String>?> Function(BuildContext)? onAddParticipant;
 
   const VideoCallScreen({
     super.key,
@@ -632,7 +634,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> {
     if (!_callActive) return; // Can only add participants to active calls
 
     try {
-      final result = await widget.onAddParticipant!();
+      final result = await widget.onAddParticipant!(context);
       if (result == null || (result['id'] ?? '').isEmpty) return;
 
       final newParticipantId = result['id']!;
