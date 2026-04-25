@@ -68,6 +68,12 @@ class SocketService {
   final _participantAcceptedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _participantRejectedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
+  // ── Request / proposal notification stream ────────────────────────────────
+
+  /// Emitted when someone sends you a request, or when your sent request is
+  /// accepted or rejected.  Payload mirrors /api/notify-request body.
+  final _requestNotificationCtrl = StreamController<Map<String, dynamic>>.broadcast();
+
   // ── Public streams ────────────────────────────────────────────────────────
 
   Stream<Map<String, dynamic>> get onNewMessage => _newMessageCtrl.stream;
@@ -114,6 +120,10 @@ class SocketService {
   Stream<Map<String, dynamic>> get onParticipantAddedToCall => _participantAddedToCallCtrl.stream;
   Stream<Map<String, dynamic>> get onParticipantAcceptedCall => _participantAcceptedCallCtrl.stream;
   Stream<Map<String, dynamic>> get onParticipantRejectedCall => _participantRejectedCallCtrl.stream;
+
+  /// Emitted when a request/proposal changes status — new request received,
+  /// sent request accepted, or sent request rejected.
+  Stream<Map<String, dynamic>> get onRequestNotification => _requestNotificationCtrl.stream;
 
   bool get isConnected => _socket?.connected == true;
 
@@ -296,6 +306,10 @@ class SocketService {
 
     _socket!.on('participant_rejected_call', (data) {
       _participantRejectedCallCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('request_notification', (data) {
+      _requestNotificationCtrl.add(_toMap(data));
     });
 
     _socket!.on('error', (data) {

@@ -16,6 +16,8 @@ define('DB_NAME', 'ms');
 define('DB_USER', 'ms');
 define('DB_PASS', 'ms');
 
+require_once __DIR__ . '/../socket_notify_helper.php';
+
 try {
     // ================= PARSE REQUEST BODY =================
     $body = json_decode(file_get_contents('php://input'), true);
@@ -46,11 +48,21 @@ try {
         [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
     );
 
-    // ================= VERIFY PROPOSAL EXISTS =================
-    $checkStmt = $pdo->prepare("SELECT id FROM proposals WHERE id = :id");
-    $checkStmt->execute([':id' => $request_id]);
+    // ================= FETCH PROPOSAL (sender/receiver for notification) =================
+    $fetchStmt = $pdo->prepare("
+        SELECT p.id, p.sender_id, p.receiver_id, p.request_type,
+               CONCAT_WS(' ', s.firstName, s.lastName) AS sender_name,
+               CONCAT_WS(' ', r.firstName, r.lastName) AS receiver_name
+        FROM proposals p
+        INNER JOIN users s ON s.id = p.sender_id
+        INNER JOIN users r ON r.id = p.receiver_id
+        WHERE p.id = :id
+        LIMIT 1
+    ");
+    $fetchStmt->execute([':id' => $request_id]);
+    $proposal = $fetchStmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$checkStmt->fetch()) {
+    if (!$proposal) {
         http_response_code(404);
         echo json_encode(['success' => false, 'message' => 'Request not found']);
         exit;
@@ -65,6 +77,18 @@ try {
     $updateStmt->execute([
         ':status' => $newStatus,
         ':id'     => $request_id,
+    ]);
+
+    // Push real-time event to admin panel and affected users.
+    notifyRequestEvent([
+        'event'        => $newStatus === 'accepted' ? 'request_accepted' : 'request_rejected',
+        'proposalId'   => $request_id,
+        'senderId'     => (int)$proposal['sender_id'],
+        'receiverId'   => (int)$proposal['receiver_id'],
+        'senderName'   => $proposal['sender_name']   ?? '',
+        'receiverName' => $proposal['receiver_name'] ?? '',
+        'requestType'  => $proposal['request_type']  ?? '',
+        'status'       => $newStatus,
     ]);
 
     $label = $action === 'accept' ? 'accepted' : 'rejected';

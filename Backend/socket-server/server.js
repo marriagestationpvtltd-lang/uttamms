@@ -18,6 +18,11 @@ const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
 
+// Internal secret used by PHP backends to authenticate server-to-server calls
+// such as POST /api/notify-request.  Must match the value set in .env.
+// When not set (empty string) the endpoint is disabled for safety.
+const SOCKET_INTERNAL_SECRET = process.env.SOCKET_INTERNAL_SECRET || '';
+
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
   const dir = path.join(UPLOAD_DIR, sub);
@@ -332,6 +337,82 @@ app.post('/upload', upload.single('file'), (req, res) => {
 
 // GET /health
 app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date() }));
+
+// ──────────────────────────────────────────────────────────────────────────────
+// POST /api/notify-request  — PHP backend → Socket.IO bridge for request events
+//
+// Called by PHP endpoints (send_request, accept/reject_proposal, etc.) after a
+// successful DB write so every connected admin panel and the affected users get
+// an instant Socket.IO push without waiting for a poll cycle.
+//
+// Security: the caller must pass the shared secret in the X-Internal-Secret
+// header.  When SOCKET_INTERNAL_SECRET is not configured the endpoint responds
+// 501 so accidental misconfiguration never silently leaves it wide open.
+//
+// Body (JSON):
+//   event        string  — 'request_sent' | 'request_accepted' | 'request_rejected'
+//   proposalId   number  — proposals.id
+//   senderId     number  — user who sent the original request
+//   receiverId   number  — user who received the request
+//   senderName   string
+//   receiverName string
+//   requestType  string  — e.g. 'Chat', 'Photo', 'Profile'
+//   status       string  — new status: 'pending' | 'accepted' | 'rejected'
+// ──────────────────────────────────────────────────────────────────────────────
+app.post('/api/notify-request', (req, res) => {
+  if (!SOCKET_INTERNAL_SECRET) {
+    return res.status(501).json({ error: 'notify-request endpoint not configured on this server' });
+  }
+
+  const suppliedSecret = (req.headers['x-internal-secret'] || '').trim();
+  if (!suppliedSecret || suppliedSecret !== SOCKET_INTERNAL_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const {
+    event        = '',
+    proposalId   = null,
+    senderId     = null,
+    receiverId   = null,
+    senderName   = '',
+    receiverName = '',
+    requestType  = '',
+    status       = '',
+  } = req.body || {};
+
+  const VALID_EVENTS = new Set(['request_sent', 'request_accepted', 'request_rejected']);
+  if (!VALID_EVENTS.has(event) || !senderId || !receiverId) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+
+  const payload = {
+    event,
+    proposalId: proposalId ? parseInt(proposalId, 10) : null,
+    senderId:   senderId.toString(),
+    receiverId: receiverId.toString(),
+    senderName,
+    receiverName,
+    requestType,
+    status,
+    timestamp:  new Date().toISOString(),
+  };
+
+  // 1. Refresh admin request list in real-time
+  io.to('admin_room').emit('request_update', payload);
+  io.to('admin_activity').emit('request_update', payload);
+
+  // 2. Notify the user whose request state changed so their app can refresh
+  //    • request_sent   → receiver gets notified (they have a new incoming request)
+  //    • request_accepted / rejected → sender gets notified (status of their request changed)
+  if (event === 'request_sent') {
+    io.to(`user:${receiverId.toString()}`).emit('request_notification', payload);
+  } else {
+    io.to(`user:${senderId.toString()}`).emit('request_notification', payload);
+  }
+
+  console.log(`🔔 notify-request: event=${event} sender=${senderId} receiver=${receiverId}`);
+  return res.json({ success: true });
+});
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Activity logging helper

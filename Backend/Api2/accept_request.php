@@ -4,6 +4,7 @@ header("Access-Control-Allow-Origin: *");
 
 require_once __DIR__ . '/db_config.php';
 require_once __DIR__ . '/activity_helper.php';
+require_once __DIR__ . '/../socket_notify_helper.php';
 
 $myid         = isset($_POST['myid'])         ? intval($_POST['myid'])         : 0;
 $sender_id    = isset($_POST['sender_id'])    ? intval($_POST['sender_id'])    : 0;
@@ -27,6 +28,26 @@ try {
 
     if ($stmt->rowCount() > 0) {
         logActivity($myid, 'request_accepted', "$request_type request accepted", $sender_id);
+
+        // Push real-time notification so sender's app and admin panel update instantly.
+        $nameStmt = $pdo->prepare(
+            "SELECT id, CONCAT_WS(' ', firstName, lastName) AS full_name FROM users WHERE id IN (?, ?) LIMIT 2"
+        );
+        $nameStmt->execute([$sender_id, $myid]);
+        $names = [];
+        foreach ($nameStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $names[(int)$row['id']] = $row['full_name'];
+        }
+        notifyRequestEvent([
+            'event'        => 'request_accepted',
+            'senderId'     => $sender_id,
+            'receiverId'   => $myid,
+            'senderName'   => $names[$sender_id] ?? '',
+            'receiverName' => $names[$myid]      ?? '',
+            'requestType'  => $request_type,
+            'status'       => 'accepted',
+        ]);
+
         echo json_encode([
             "status"  => "success",
             "message" => "Request accepted successfully",
