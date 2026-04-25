@@ -131,7 +131,7 @@ try {
         'total'  => $total,
         'page'   => $page,
         'limit'  => $limit,
-        'pages'  => (int) ceil($total / max($limit, 1)),
+        'pages'  => (int) ceil($total / $limit),
         'data'   => $rows,
     ]);
 
