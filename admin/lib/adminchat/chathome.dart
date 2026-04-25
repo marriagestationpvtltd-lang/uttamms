@@ -6060,14 +6060,14 @@ class _ChatWindowState extends State<ChatWindow> {
       );
     } catch (e) {
       // Restore message text so user doesn't lose their content
-      if (mounted && _messageController.text.isEmpty) {
+      if (!mounted) return;
+      if (_messageController.text.isEmpty) {
         _messageController.text = messageText;
         _messageController.selection = TextSelection.fromPosition(
           TextPosition(offset: messageText.length),
         );
         _textBeforeVoice = messageText;
       }
-      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to send message")),
       );
