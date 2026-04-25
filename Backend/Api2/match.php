@@ -49,27 +49,9 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
     $stmt = $pdo->prepare("SELECT minage, maxage FROM user_partner WHERE userid = :uid LIMIT 1");
     $stmt->execute([":uid"=>$userid]);
     $pref = $stmt->fetch();
-
-    if (!$pref) {
-        // Fall back to legacy userpartnerpreferences table (pFromAge / pToAge columns).
-        try {
-            $stmt2 = $pdo->prepare(
-                "SELECT pFromAge AS minage, pToAge AS maxage
-                   FROM userpartnerpreferences
-                  WHERE userId = :uid AND isDelete = 0
-                  LIMIT 1"
-            );
-            $stmt2->execute([":uid" => $userid]);
-            $pref = $stmt2->fetch();
-        } catch (Exception $e) {
-            $pref = null;
-        }
-    }
-
-    if (!$pref) {
-        // No preferences in either table — use a wide default so all
-        // opposite-gender users are returned rather than an empty list.
-        $pref = ['minage' => 18, 'maxage' => 65];
+    if(!$pref){
+        echo json_encode(["success"=>true,"matched_users"=>[]]);
+        exit;
     }
 
     /* ================= CANDIDATES ================= */
@@ -88,9 +70,9 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
             pa.city,
             ec.designation
         FROM users u
-        LEFT JOIN userpersonaldetail upd ON upd.userId = u.id
-        LEFT JOIN permanent_address pa ON pa.userid = u.id
-        LEFT JOIN educationcareer ec ON ec.userid = u.id
+        INNER JOIN userpersonaldetail upd ON upd.userId = u.id
+        LEFT JOIN permanent_address pa ON pa.userId = u.id
+        LEFT JOIN educationcareer ec ON ec.userId = u.id
         WHERE u.id != :userid AND u.gender != :gender
     ");
     $stmt->execute([
@@ -107,35 +89,24 @@ $likedUserIds = array_column($stmtLikes->fetchAll(), 'receiver_id');
         $matchPercent = 0;
         $minAge = !empty($pref['minage']) ? intval($pref['minage']) : null;
         $maxAge = !empty($pref['maxage']) ? intval($pref['maxage']) : null;
-        $rawAge = $c['age'];
+        $age = intval($c['age']);
         /* ================= LIKE STATUS ================= */
          $isLiked = in_array($c['userid'], $likedUserIds);
 
-        // Users without a recorded birth date still show with a neutral match %.
-        if ($rawAge === null || $rawAge === '') {
-            $matchPercent = 50;
-        } else {
-            $age = intval($rawAge);
 
-            if($minAge !== null && $maxAge !== null){
-                if($age >= $minAge && $age <= $maxAge){
-                    $matchPercent = 100;
-                } elseif($age >= $minAge-5 && $age <= $maxAge+5){
-                    $matchPercent = 20;
-                }
-            } elseif($minAge !== null){
-                $matchPercent = ($age >= $minAge) ? 100 : 20;
-            } elseif($maxAge !== null){
-                $matchPercent = ($age <= $maxAge) ? 100 : 20;
-            } else {
-                $matchPercent = 50;
+        if($minAge !== null && $maxAge !== null){
+            if($age >= $minAge && $age <= $maxAge){
+                $matchPercent = 100;
+            } elseif($age >= $minAge-5 && $age <= $maxAge+5){
+                $matchPercent = 20;
             }
+        } elseif($minAge !== null){
+            $matchPercent = ($age >= $minAge) ? 100 : 20;
+        } elseif($maxAge !== null){
+            $matchPercent = ($age <= $maxAge) ? 100 : 20;
         }
 
-        // For display purposes, expose the computed age (or null).
-        $age = ($rawAge !== null && $rawAge !== '') ? intval($rawAge) : null;
-
-        if ($matchPercent < 20) continue;
+        if($matchPercent < 20) continue;
 
         /* ================= PHOTO REQUEST ================= */
         $photo_request = "not sent";

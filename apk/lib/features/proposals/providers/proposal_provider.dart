@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../models/proposal_model.dart';
 import '../services/proposal_service.dart';
@@ -29,10 +28,6 @@ class ProposalProvider extends ChangeNotifier {
   List<ProposalModel> _sent     = [];
   List<ProposalModel> _history  = [];
 
-  // Real-time socket subscription
-  StreamSubscription<Map<String, dynamic>>? _socketSub;
-  String? _currentUserId;
-
   // -------------------------------------------------------------------------
   // Getters
   // -------------------------------------------------------------------------
@@ -45,34 +40,6 @@ class ProposalProvider extends ChangeNotifier {
 
   /// Accepted and rejected proposals (request history).
   List<ProposalModel> get history  => List.unmodifiable(_history);
-
-  // -------------------------------------------------------------------------
-  // Socket subscription
-  // -------------------------------------------------------------------------
-
-  /// Subscribe to real-time request notifications from the socket service.
-  /// Call this once after the user is logged in and the socket is connected.
-  void subscribeToSocketUpdates(Stream<Map<String, dynamic>> stream, String userId) {
-    _currentUserId = userId;
-    _socketSub?.cancel();
-    _socketSub = stream.listen((_) {
-      if (_currentUserId != null) {
-        loadAll(_currentUserId!);
-      }
-    });
-  }
-
-  /// Cancel the socket subscription (call from dispose()).
-  void unsubscribeFromSocketUpdates() {
-    _socketSub?.cancel();
-    _socketSub = null;
-  }
-
-  @override
-  void dispose() {
-    _socketSub?.cancel();
-    super.dispose();
-  }
 
   // -------------------------------------------------------------------------
   // Load all lists

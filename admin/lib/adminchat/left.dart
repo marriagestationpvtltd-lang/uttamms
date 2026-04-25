@@ -671,7 +671,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
         seenIds.add(uid);
 
         // Search filter
-        bool matchesSearch = (user["name"]?.toString() ?? '')
+        bool matchesSearch = user["name"]
             .toLowerCase()
             .contains(_searchQuery.toLowerCase());
 
@@ -740,8 +740,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
         });
         break;
       case 'name':
-        _filteredUsers.sort((a, b) =>
-            (a["name"]?.toString() ?? '').compareTo(b["name"]?.toString() ?? ''));
+        _filteredUsers.sort((a, b) => a["name"].compareTo(b["name"]));
         break;
       case 'matches':
         _filteredUsers.sort((a, b) {
@@ -792,8 +791,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
       chatProvider.updateName(_selectedChat!["name"]);
       chatProvider.updateonline(_selectedChat!["is_online"] == true);
       chatProvider.updatePaidStatus(_selectedChat!["is_paid"] == true);
-      chatProvider.updateProfilePicture(_selectedChat!["profile_picture"]?.toString() ?? '');
-      chatProvider.updateMatchesCount(int.tryParse(_selectedChat!["matches"]?.toString() ?? '0') ?? 0);
     }
   }
 
@@ -813,11 +810,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
         children: [
           // ── HEADER ──────────────────────────────────────────────────
           Container(
-            height: 60,
-            decoration: BoxDecoration(
-              color: c.sidebar,
-              border: Border(bottom: BorderSide(color: c.border, width: 1)),
-            ),
+            height: 56,
+            color: c.sidebar,
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
@@ -1160,8 +1154,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                           }
 
                           var user = _filteredUsers[index];
-                          bool isSelected = _selectedChat?['id']?.toString() ==
-                              user['id']?.toString();
+                          bool isSelected = _selectedChat == user;
 
                           return _buildUserRow(
                             user["name"] ?? "",
@@ -1179,7 +1172,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             isSelected,
                             _unreadCounts[user["id"].toString()] ?? 0,
                             _isUserVerified(user["is_verified"]),
-                            user["gender"]?.toString() ?? "",
                             () {
                               setState(() {
                                 _selectedChat = user;
@@ -1211,26 +1203,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
     bool isSelected,
     int unreadCount,
     bool isVerified,
-    String gender,
     VoidCallback onTap,
   ) {
     final c = ChatColors.of(context);
 
     final bool hasUnread = unreadCount > 0;
-
-    // Determine border color based on gender
-    Color getBorderColor() {
-      if (isSelected || hasUnread) {
-        return c.primary;
-      }
-      // Male: blue border, Female: pink border
-      if (gender.toLowerCase() == 'male' || gender.toLowerCase() == 'm') {
-        return const Color(0xFF3B82F6); // Blue for males
-      } else if (gender.toLowerCase() == 'female' || gender.toLowerCase() == 'f') {
-        return const Color(0xFFEC4899); // Pink for females
-      }
-      return c.border; // Default border color
-    }
 
     return GestureDetector(
       onTap: onTap,
@@ -1241,7 +1218,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
               : hasUnread
                   ? c.primaryLight
                   : c.sidebar,
-          border: Border(left: BorderSide(color: getBorderColor(), width: 3)),
+          border: isSelected
+              ? Border(left: BorderSide(color: c.primary, width: 3))
+              : hasUnread
+                  ? Border(left: BorderSide(color: c.primary, width: 3))
+                  : null,
         ),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         child: Row(

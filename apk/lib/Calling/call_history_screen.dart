@@ -158,7 +158,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     if (call.status == CallStatus.missed && isIncoming) {
       statusIcon = Icons.call_missed;
       statusColor = Colors.red;
-    } else if (call.status == CallStatus.declined || call.status == CallStatus.rejected) {
+    } else if (call.status == CallStatus.declined) {
       statusIcon = Icons.call_end;
       statusColor = Colors.red;
     } else if (call.status == CallStatus.cancelled) {
@@ -239,7 +239,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                           ),
                         ),
                       ),
-                      if (call.status == CallStatus.completed || call.status == CallStatus.ended)
+                      if (call.status == CallStatus.completed)
                         Text(
                           call.getFormattedDuration(),
                           style: TextStyle(
@@ -258,20 +258,16 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               icon: Icon(
                 call.callType == CallType.video
                     ? Icons.videocam
-                    : call.callType == CallType.group
-                        ? Icons.group
-                        : Icons.call,
+                    : Icons.call,
                 color: const Color(0xFFF90E18),
                 size: 24,
               ),
-              onPressed: call.callType == CallType.group
-                  ? null // Group calls cannot be re-dialed directly from history
-                  : () => _makeCall(
-                        otherPersonId,
-                        otherPersonName,
-                        otherPersonImage,
-                        call.callType,
-                      ),
+              onPressed: () => _makeCall(
+                otherPersonId,
+                otherPersonName,
+                otherPersonImage,
+                call.callType,
+              ),
             ),
           ],
         ),

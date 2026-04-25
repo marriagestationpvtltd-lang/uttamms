@@ -42,10 +42,8 @@ class CallScreen extends StatefulWidget {
   /// callType is always 'audio'. status is 'answered' or 'missed'.
   final void Function(String callType, String status, int durationSeconds)? onCallEnded;
   /// Called when admin wants to add a participant to the call.
-  /// Receives the call screen's [BuildContext] so the picker dialog can be
-  /// shown on top of the overlay. Returns `{'id': userId, 'name': userName}`
-  /// or null if cancelled.
-  final Future<Map<String, String>?> Function(BuildContext)? onAddParticipant;
+  /// Returns `{'id': userId, 'name': userName}` or null if cancelled.
+  final Future<Map<String, String>?> Function()? onAddParticipant;
 
   const CallScreen({
     super.key,
@@ -586,7 +584,7 @@ class _CallScreenState extends State<CallScreen>
     if (!_callActive) return; // Can only add participants to active calls
 
     try {
-      final result = await widget.onAddParticipant!(context);
+      final result = await widget.onAddParticipant!();
       if (result == null || (result['id'] ?? '').isEmpty) return;
 
       final newParticipantId = result['id']!;

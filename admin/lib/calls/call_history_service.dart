@@ -9,26 +9,22 @@ import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 
 class AdminCallRecord {
   final String  callId;
-  final String? roomId;
   final String  callerId;
   final String  callerName;
   final String  callerImage;
   final String  recipientId;
   final String  recipientName;
   final String  recipientImage;
-  final String  callType;       // 'audio' | 'video' | 'group'
-  final List<String> participants;
+  final String  callType;       // 'audio' | 'video'
   final DateTime? startTime;
   final DateTime? endTime;
   final int     duration;       // seconds
-  final String  status;         // 'completed'|'missed'|'declined'|'cancelled'|'ended'|'rejected'
+  final String  status;         // 'completed'|'missed'|'declined'|'cancelled'
   final String  initiatedBy;
-  final String? endedBy;
   final String? recordingUrl;
 
   const AdminCallRecord({
     required this.callId,
-    this.roomId,
     required this.callerId,
     required this.callerName,
     required this.callerImage,
@@ -36,26 +32,17 @@ class AdminCallRecord {
     required this.recipientName,
     required this.recipientImage,
     required this.callType,
-    List<String>? participants,
     this.startTime,
     this.endTime,
     required this.duration,
     required this.status,
     required this.initiatedBy,
-    this.endedBy,
     this.recordingUrl,
-  }) : participants = participants ?? const [];
+  });
 
   factory AdminCallRecord.fromJson(Map<String, dynamic> j) {
-    List<String> _parseParticipants(dynamic v) {
-      if (v == null) return [];
-      if (v is List) return v.map((e) => e.toString()).toList();
-      return [];
-    }
-
     return AdminCallRecord(
       callId:         j['callId']?.toString()        ?? '',
-      roomId:         j['roomId']?.toString(),
       callerId:       j['callerId']?.toString()       ?? '',
       callerName:     j['callerName']?.toString()     ?? '',
       callerImage:    j['callerImage']?.toString()    ?? '',
@@ -63,7 +50,6 @@ class AdminCallRecord {
       recipientName:  j['recipientName']?.toString()  ?? '',
       recipientImage: j['recipientImage']?.toString() ?? '',
       callType:       j['callType']?.toString()       ?? 'audio',
-      participants:   _parseParticipants(j['participants']),
       startTime:      j['startTime'] != null
           ? DateTime.tryParse(j['startTime'].toString())
           : null,
@@ -75,7 +61,6 @@ class AdminCallRecord {
           : int.tryParse(j['duration']?.toString() ?? '0') ?? 0,
       status:       j['status']?.toString()      ?? 'missed',
       initiatedBy:  j['initiatedBy']?.toString() ?? '',
-      endedBy:      j['endedBy']?.toString(),
       recordingUrl: j['recordingUrl']?.toString(),
     );
   }

@@ -248,27 +248,7 @@ class _ChatWindowState extends State<ChatWindow> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && _callManager.hasActiveIncomingCall()) {
         final data = _callManager.currentCallData;
-        if (data != null) {
-          if (_callManager.callAlreadyAccepted) {
-            // The dashboard already accepted the call; launch the overlay
-            // directly without showing the incoming-call dialog again.
-            final callerId = data['callerId']?.toString() ?? '';
-            final callerName = data['callerName']?.toString() ?? 'User';
-            final channelName = data['channelName']?.toString() ?? '';
-            final callType = data['callType']?.toString() ?? 'audio';
-            _callManager.clearCallData();
-            if (channelName.isNotEmpty && callerId.isNotEmpty) {
-              _launchIncomingCall(
-                userId: callerId,
-                userName: callerName,
-                channelName: channelName,
-                isVideo: callType == 'video',
-              );
-            }
-          } else {
-            _handleIncomingCallFromUser(data);
-          }
-        }
+        if (data != null) _handleIncomingCallFromUser(data);
       }
     });
 
@@ -2225,11 +2205,9 @@ class _ChatWindowState extends State<ChatWindow> {
   /// Show a dialog to select a user to add to the ongoing call.
   /// Returns the selected user ID or null if cancelled.
   /// Shows a searchable dialog to pick a user to add to the ongoing call.
-  /// [callContext] is the BuildContext of the call screen (inside the overlay),
-  /// so that the dialog appears on top of the call screen rather than behind it.
   /// Returns `{'id': userId, 'name': userName}` on selection, or null on cancel.
   Future<Map<String, String>?> _showAddParticipantDialog(
-      String currentParticipantId, BuildContext callContext) async {
+      String currentParticipantId) async {
     List<Map<String, dynamic>> allUsers = [];
     String? fetchError;
 
@@ -2270,9 +2248,8 @@ class _ChatWindowState extends State<ChatWindow> {
       return null;
     }
 
-    // Use the call screen's context so the dialog opens on top of the overlay.
     return await showDialog<Map<String, String>>(
-      context: callContext,
+      context: context,
       barrierDismissible: true,
       builder: (ctx) => _AddParticipantDialog(
         allUsers: allUsers,
@@ -2307,7 +2284,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   onMinimize: () => isMinimizedNotifier.value = true,
                   onEnd: _removeCallOverlay,
                   onCallEnded: onCallEnded,
-                  onAddParticipant: (ctx) => _showAddParticipantDialog(userId, ctx),
+                  onAddParticipant: () => _showAddParticipantDialog(userId),
                 )
               : CallScreen(
                   currentUserId: '1',
@@ -2317,7 +2294,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   onMinimize: () => isMinimizedNotifier.value = true,
                   onEnd: _removeCallOverlay,
                   onCallEnded: onCallEnded,
-                  onAddParticipant: (ctx) => _showAddParticipantDialog(userId, ctx),
+                  onAddParticipant: () => _showAddParticipantDialog(userId),
                 );
 
           return Stack(
@@ -2726,7 +2703,7 @@ class _ChatWindowState extends State<ChatWindow> {
             children: [
           if (_isSearching)
             Container(
-              color: c.header,
+              color: Colors.white,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: SizedBox(
                 height: 38,
@@ -3491,14 +3468,14 @@ class _ChatWindowState extends State<ChatWindow> {
       Map<String, dynamic>? replyPayload,
       Map<String, dynamic>? reportData]) {
     const kPrimary = Color(0xFFD81B60);
+    const kText = Color(0xFF1E293B);
     const kMuted = Color(0xFF64748B);
-    final c = ChatColors.of(context);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final replyPreview = _buildReplyPreview(
       replyTo: replyTo,
       isSentByMe: isSentByMe,
-      mutedColor: c.muted,
-      primaryColor: c.primary,
+      mutedColor: kMuted,
+      primaryColor: kPrimary,
     );
 
     final statusMessage = deleted
@@ -3514,15 +3491,15 @@ class _ChatWindowState extends State<ChatWindow> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (showEditedLabel) ...[
-              Text(
+              const Text(
                 'Edited',
-                style: TextStyle(fontSize: 10, color: c.muted, fontStyle: FontStyle.italic),
+                style: TextStyle(fontSize: 10, color: kMuted, fontStyle: FontStyle.italic),
               ),
               const SizedBox(width: 4),
             ],
             Text(
               DateFormat('hh:mm a').format(timestamp),
-              style: TextStyle(fontSize: 10, color: c.muted),
+              style: const TextStyle(fontSize: 10, color: kMuted),
             ),
             if (includeSeen && isSentByMe) ...[
               const SizedBox(width: 3),
@@ -3544,13 +3521,13 @@ class _ChatWindowState extends State<ChatWindow> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                   decoration: BoxDecoration(
-                    color: isSentByMe ? c.sentBubble : c.receivedBubble,
+                    color: isSentByMe ? kPrimary : Colors.white,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     displayedMessage,
                     style: TextStyle(
-                      color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
+                      color: isSentByMe ? Colors.white : kText,
                       fontSize: 13,
                       fontStyle: FontStyle.italic,
                     ),
@@ -3588,13 +3565,13 @@ class _ChatWindowState extends State<ChatWindow> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                 decoration: BoxDecoration(
-                  color: isSentByMe ? c.sentBubble : c.receivedBubble,
+                  color: isSentByMe ? kPrimary : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
+                    color: isSentByMe ? Colors.white : kText,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -3721,13 +3698,13 @@ class _ChatWindowState extends State<ChatWindow> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                 decoration: BoxDecoration(
-                  color: isSentByMe ? c.sentBubble : c.receivedBubble,
+                  color: isSentByMe ? kPrimary : Colors.white,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
+                    color: isSentByMe ? Colors.white : kText,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -3741,7 +3718,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                   decoration: BoxDecoration(
-                    color: isSentByMe ? c.sentBubble : c.receivedBubble,
+                    color: isSentByMe ? kPrimary : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(color: Colors.black.withOpacity(0.07), blurRadius: 4, offset: const Offset(0, 1)),
@@ -3849,13 +3826,13 @@ class _ChatWindowState extends State<ChatWindow> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
                 decoration: BoxDecoration(
-                  color: isSentByMe ? c.sentBubble : c.receivedBubble,
+                  color: isSentByMe ? kPrimary : Colors.white,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
+                    color: isSentByMe ? Colors.white : kText,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -4254,13 +4231,13 @@ class _ChatWindowState extends State<ChatWindow> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
               decoration: BoxDecoration(
-                color: isSentByMe ? c.sentBubble : c.receivedBubble,
+                color: isSentByMe ? kPrimary : Colors.white,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 displayedMessage,
                 style: TextStyle(
-                  color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
+                  color: isSentByMe ? Colors.white : kText,
                   fontSize: 13,
                   fontStyle: FontStyle.italic,
                 ),
@@ -4652,7 +4629,7 @@ class _ChatWindowState extends State<ChatWindow> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
             decoration: BoxDecoration(
-              color: isSentByMe ? c.sentBubble : c.receivedBubble,
+              color: isSentByMe ? kPrimary : Colors.white,
               borderRadius: isSentByMe
                   ? const BorderRadius.only(
                       topLeft: Radius.circular(18),
@@ -4677,7 +4654,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
+                    color: isSentByMe ? Colors.white : kText,
                     fontSize: 13,
                     fontStyle: statusMessage != null ? FontStyle.italic : FontStyle.normal,
                   ),

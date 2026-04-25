@@ -71,19 +71,6 @@ class CallManager extends ChangeNotifier {
   Map<String, dynamic>? _currentCallData;
   Timer? _callTimeoutTimer;
 
-  /// Set to true when the admin accepts an incoming call from the dashboard
-  /// popup (i.e. outside the Chat tab).  ChatWindow checks this flag on mount
-  /// and, when true, goes straight to the call overlay instead of showing the
-  /// incoming-call dialog again.
-  bool _callAlreadyAccepted = false;
-  bool get callAlreadyAccepted => _callAlreadyAccepted;
-
-  /// Mark the current incoming call as already accepted so that ChatWindow
-  /// skips the dialog and launches the call overlay directly.
-  void acceptCallFromDashboard() {
-    _callAlreadyAccepted = true;
-  }
-
   void triggerIncomingCall(Map<String, dynamic> data) {
     _currentCallData = data;
     _incomingCallController.add(data);
@@ -104,7 +91,6 @@ class CallManager extends ChangeNotifier {
 
   void clearCallData() {
     _currentCallData = null;
-    _callAlreadyAccepted = false;
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = null;
   }

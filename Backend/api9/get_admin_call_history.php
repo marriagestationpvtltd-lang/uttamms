@@ -9,18 +9,18 @@
  *   page      (int)    – page number, default 1
  *   limit     (int)    – records per page, default 50, max 100
  *   search    (string) – partial match on caller_name or recipient_name
- *   call_type (string) – 'audio', 'video', or 'group'
- *   status    (string) – 'completed' | 'missed' | 'declined' | 'cancelled' | 'ended' | 'rejected'
+ *   call_type (string) – 'audio' or 'video'
+ *   status    (string) – 'completed' | 'missed' | 'declined' | 'cancelled'
  *   date_from (string) – YYYY-MM-DD
  *   date_to   (string) – YYYY-MM-DD
  *
  * Response (JSON):
  *   {
  *     "success":     true,
- *     "calls":       [ { callId, roomId, callerId, callerName, callerImage,
+ *     "calls":       [ { callId, callerId, callerName, callerImage,
  *                         recipientId, recipientName, recipientImage,
- *                         callType, participants, startTime, endTime, duration,
- *                         status, initiatedBy, endedBy, recordingUrl } ],
+ *                         callType, startTime, endTime, duration,
+ *                         status, initiatedBy, recordingUrl } ],
  *     "total":       42,
  *     "page":        1,
  *     "limit":       50,
@@ -77,8 +77,8 @@ $dateFrom = isset($_GET['date_from']) && $_GET['date_from'] !== '' ? trim($_GET[
 $dateTo   = isset($_GET['date_to'])   && $_GET['date_to']   !== '' ? trim($_GET['date_to'])   : null;
 
 // Validate enums
-$allowedTypes    = ['audio', 'video', 'group'];
-$allowedStatuses = ['completed', 'missed', 'declined', 'cancelled', 'ended', 'rejected'];
+$allowedTypes    = ['audio', 'video'];
+$allowedStatuses = ['completed', 'missed', 'declined', 'cancelled'];
 if ($callType !== null && !in_array($callType, $allowedTypes, true))    $callType = null;
 if ($status   !== null && !in_array($status,   $allowedStatuses, true)) $status   = null;
 
@@ -120,10 +120,10 @@ try {
     $dataParams[] = $offset;
 
     $dataStmt = $pdo->prepare("
-        SELECT call_id, room_id, caller_id, caller_name, caller_image,
+        SELECT call_id, caller_id, caller_name, caller_image,
                recipient_id, recipient_name, recipient_image,
-               call_type, participants, start_time, end_time, duration,
-               status, initiated_by, ended_by, recording_url
+               call_type, start_time, end_time, duration,
+               status, initiated_by, recording_url
           FROM call_history
          $whereSql
          ORDER BY start_time DESC
@@ -134,17 +134,8 @@ try {
 
     $calls = [];
     foreach ($rows as $r) {
-        // Decode participants JSON array; fall back to empty array on error.
-        $participantsRaw = $r['participants'] ?? '[]';
-        $participants = [];
-        if ($participantsRaw !== null && $participantsRaw !== '') {
-            $decoded = json_decode($participantsRaw, true);
-            $participants = is_array($decoded) ? $decoded : [];
-        }
-
         $calls[] = [
             'callId'        => $r['call_id'],
-            'roomId'        => $r['room_id']        ?? null,
             'callerId'      => $r['caller_id'],
             'callerName'    => $r['caller_name']     ?? '',
             'callerImage'   => $r['caller_image']    ?? '',
@@ -152,14 +143,12 @@ try {
             'recipientName' => $r['recipient_name']  ?? '',
             'recipientImage'=> $r['recipient_image'] ?? '',
             'callType'      => $r['call_type'],
-            'participants'  => $participants,
             'startTime'     => $r['start_time'],
             'endTime'       => $r['end_time'],
             'duration'      => (int) $r['duration'],
             'status'        => $r['status'],
             'initiatedBy'   => $r['initiated_by'],
-            'endedBy'       => $r['ended_by']        ?? null,
-            'recordingUrl'  => $r['recording_url']   ?? null,
+            'recordingUrl'  => $r['recording_url'] ?? null,
         ];
     }
 } catch (PDOException $e) {

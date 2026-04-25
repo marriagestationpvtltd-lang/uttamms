@@ -20,8 +20,6 @@ class CallHistoryService {
     required String recipientImage,
     required CallType callType,
     required String initiatedBy,
-    String? roomId,
-    List<String>? participants,
   }) async {
     try {
       final callId = const Uuid().v4();
@@ -38,14 +36,12 @@ class CallHistoryService {
           'recipientImage': recipientImage,
           'callType': callType.toString().split('.').last,
           'initiatedBy': initiatedBy,
-          if (roomId != null) 'roomId': roomId,
-          'participants': participants ?? [callerId, recipientId],
         }),
       ).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
-        if (body['success'] == true) return (body['callId'] as String?) ?? callId;
+        if (body['success'] == true) return callId;
       }
       print('⚠️ logCall failed: ${response.statusCode} ${response.body}');
       return callId; // Return generated ID even on server error so we can still update later
@@ -60,7 +56,6 @@ class CallHistoryService {
     required String callId,
     required CallStatus status,
     int duration = 0,
-    String? endedBy,
   }) async {
     if (callId.isEmpty) return;
     try {
@@ -70,7 +65,6 @@ class CallHistoryService {
         body: jsonEncode({
           'status': status.toString().split('.').last,
           'duration': duration,
-          if (endedBy != null) 'endedBy': endedBy,
         }),
       ).timeout(const Duration(seconds: 15));
     } catch (e) {

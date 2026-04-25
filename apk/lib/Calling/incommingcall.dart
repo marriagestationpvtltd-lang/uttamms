@@ -49,7 +49,6 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   late String _callerId;
   late String _callerName;
   late String _recipientName;
-  String _callTypeStr = 'audio'; // 'audio', 'video', or 'group'
 
   bool _joined = false;
   bool _callActive = false;
@@ -104,7 +103,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           callerId: _callerId,
           recipientId: _currentUserId,
           channelName: _channel,
-          callType: _callTypeStr,
+          callType: 'audio',
         );
       } else {
         // _currentUserId may not be loaded yet; emit after user data is ready
@@ -234,7 +233,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
             callerId: _callerId,
             recipientId: _currentUserId,
             channelName: _channel,
-            callType: _callTypeStr,
+            callType: 'audio',
           );
         }
 
@@ -246,7 +245,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           recipientId: _currentUserId,
           recipientName: _currentUserName,
           recipientImage: _currentUserImage,
-          callType: _callTypeStr == 'group' ? CallType.group : CallType.audio,
+          callType: CallType.audio,
           initiatedBy: _callerId,
         );
       }
@@ -261,7 +260,6 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     _callerName = widget.callData['callerName'];
     _recipientName = widget.callData['recipientName'] ?? 'You';
     _chatRoomId = widget.callData['chatRoomId']?.toString() ?? '';
-    _callTypeStr = widget.callData['callType']?.toString() ?? 'audio';
   }
 
   void _initializeOverlay() {
@@ -509,7 +507,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                 recipientName: _recipientName,
                 recipientUid: _localUid.toString(),
                 channelName: _channel,
-                callType: _callTypeStr,
+                callType: 'audio',
               );
               unawaited(NotificationService.sendCallResponseNotification(
                 callerId: _callerId,
@@ -596,7 +594,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
         recipientId: _currentUserId,
         recipientName: _recipientName,
         channelName: _channel,
-        callType: _callTypeStr,
+        callType: 'audio',
       );
       await NotificationService.sendCallResponseNotification(
         callerId: _callerId,
@@ -1107,20 +1105,16 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                         ),
                       ),
                       child: Row(
-                        children: [
+                        children: const [
                           Icon(
-                            _callTypeStr == 'group'
-                                ? Icons.group_rounded
-                                : Icons.phone,
+                            Icons.phone,
                             color: Colors.white,
                             size: 20,
                           ),
-                          const SizedBox(width: 8),
+                          SizedBox(width: 8),
                           Text(
-                            _callTypeStr == 'group'
-                                ? 'Group Voice Call'
-                                : 'Voice Call',
-                            style: const TextStyle(
+                            'Voice Call',
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 16,
                               fontWeight: FontWeight.w500,
