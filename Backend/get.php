@@ -204,6 +204,7 @@ while ($user = $result->fetch_assoc()) {
         'is_paid'           => $is_paid,
         'is_online'         => $is_online,
         'is_verified'       => (bool)($user['isVerified'] ?? false),
+        'gender'            => $user['gender'] ?? '',
     ];
 }
 
