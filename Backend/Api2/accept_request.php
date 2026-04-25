@@ -16,7 +16,17 @@ if ($myid <= 0 || $sender_id <= 0 || empty($request_type)) {
 }
 
 try {
-    // 🔥 Only receiver can accept
+    // 🔥 Only receiver can accept — fetch the proposal ID first so we can include
+    // it in the real-time notification payload for consistent tracking.
+    $fetchStmt = $pdo->prepare("
+        SELECT id FROM proposals
+        WHERE sender_id = ? AND receiver_id = ?
+          AND request_type = ? AND status = 'pending'
+        ORDER BY id DESC LIMIT 1
+    ");
+    $fetchStmt->execute([$sender_id, $myid, $request_type]);
+    $proposalId = $fetchStmt->fetchColumn();
+
     $stmt = $pdo->prepare("
         UPDATE proposals
         SET status = 'accepted', updated_at = NOW()
@@ -40,6 +50,7 @@ try {
         }
         notifyRequestEvent([
             'event'        => 'request_accepted',
+            'proposalId'   => $proposalId ? (int)$proposalId : null,
             'senderId'     => $sender_id,
             'receiverId'   => $myid,
             'senderName'   => $names[$sender_id] ?? '',
