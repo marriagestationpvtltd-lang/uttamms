@@ -14,7 +14,9 @@ import '../../service/partner_pref_api.dart';
 import '../../service/updatepage.dart';
 
 class PartnerPreferencesPage extends StatefulWidget {
-  const PartnerPreferencesPage({super.key});
+  const PartnerPreferencesPage({super.key, this.isEditMode = false});
+
+  final bool isEditMode;
 
   @override
   State<PartnerPreferencesPage> createState() => _PartnerPreferencesPageState();
@@ -740,17 +742,23 @@ class _PartnerPreferencesPageState extends State<PartnerPreferencesPage> {
       setState(() => _isSubmitting = false);
 
       if (result['status'] == 'success' || result['status'] == true) {
-        await UpdateService.updatePageNumber(
-          userId: userId.toString(),
-          pageNo: 8,
-        );
+        if (!widget.isEditMode) {
+          await UpdateService.updatePageNumber(
+            userId: userId.toString(),
+            pageNo: 8,
+          );
+        }
 
         _showSnackBar('Partner preferences saved successfully!');
 
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const IDVerificationScreen()),
-        );
+        if (widget.isEditMode) {
+          if (mounted) Navigator.pop(context);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const IDVerificationScreen()),
+          );
+        }
       } else {
         final errorMsg = result['message'] ?? "Something went wrong";
         print('Partner preference save error: $errorMsg');
