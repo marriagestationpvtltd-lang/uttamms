@@ -1088,17 +1088,126 @@ async function getChatRooms(userId) {
       ORDER BY cr.last_message_time DESC`,
     [userId, userId],
   );
-  return rooms.map(r => ({
-    chatRoomId:          r.id,
-    participants:        JSON.parse(r.participants),
-    participantNames:    JSON.parse(r.participant_names),
-    participantImages:   JSON.parse(r.participant_images),
-    lastMessage:         r.last_message,
-    lastMessageType:     r.last_message_type,
-    lastMessageTime:     r.last_message_time,
-    lastMessageSenderId: r.last_message_sender_id,
-    unreadCount:         r.unread_count,
-  }));
+
+  if (!rooms.length) return [];
+
+  // Collect all unique OTHER-participant IDs across all rooms.
+  // Only accept IDs that are purely numeric strings to guard against
+  // unexpected values that could affect query construction.
+  const allParticipantIds = new Set();
+  for (const r of rooms) {
+    try {
+      const pids = JSON.parse(r.participants);
+      for (const pid of pids) {
+        const pidStr = pid.toString();
+        if (pidStr !== userId.toString() && /^\d+$/.test(pidStr)) {
+          allParticipantIds.add(pidStr);
+        }
+      }
+    } catch (e) { console.error('getChatRooms participants parse error:', e.message); }
+  }
+
+  // Maps to store enrichment data per participant
+  const onlineMap   = new Map(); // userId → { isOnline, lastSeen }
+  const privacyMap  = new Map(); // userId → privacy string
+  const photoReqMap = new Map(); // userId → photo-request status
+
+  if (allParticipantIds.size > 0) {
+    // ids is guaranteed to contain only numeric strings (validated above),
+    // so the IN-clause placeholder construction below is safe.
+    const ids = Array.from(allParticipantIds);
+    const ph  = ids.map(() => '?').join(',');
+
+    // Online status
+    try {
+      const [statusRows] = await pool.query(
+        `SELECT user_id, is_online, last_seen FROM user_online_status WHERE user_id IN (${ph})`,
+        ids,
+      );
+      for (const row of statusRows) {
+        onlineMap.set(row.user_id.toString(), {
+          isOnline: row.is_online === 1,
+          lastSeen: row.last_seen ? row.last_seen.toISOString() : null,
+        });
+      }
+    } catch (e) { console.error('getChatRooms online status error:', e.message); }
+
+    // Privacy setting from users table
+    try {
+      const [userRows] = await pool.query(
+        `SELECT id, privacy FROM users WHERE id IN (${ph}) AND isDelete = 0`,
+        ids,
+      );
+      for (const row of userRows) {
+        privacyMap.set(row.id.toString(), row.privacy || '');
+      }
+    } catch (e) { console.error('getChatRooms privacy error:', e.message); }
+
+    // Photo-request status from proposals table (most recent per other-participant)
+    try {
+      const [photoRows] = await pool.query(
+        `SELECT sender_id, receiver_id, status
+           FROM proposals
+          WHERE request_type = 'Photo'
+            AND ((sender_id = ? AND receiver_id IN (${ph}))
+              OR (receiver_id = ? AND sender_id IN (${ph})))
+          ORDER BY id DESC`,
+        [userId, ...ids, userId, ...ids],
+      );
+      const seen = new Set();
+      for (const row of photoRows) {
+        const sStr  = row.sender_id.toString();
+        const rStr  = row.receiver_id.toString();
+        const other = sStr === userId.toString() ? rStr : sStr;
+        if (!seen.has(other)) {
+          photoReqMap.set(other, row.status || 'not_sent');
+          seen.add(other);
+        }
+      }
+    } catch (e) { console.error('getChatRooms photo request error:', e.message); }
+  }
+
+  return rooms.map(r => {
+    let participants    = [];
+    let participantNames  = {};
+    let participantImages = {};
+    try { participants     = JSON.parse(r.participants);     }
+    catch (e) { console.error(`getChatRooms parse participants [${r.id}]:`, e.message); }
+    try { participantNames  = JSON.parse(r.participant_names);  }
+    catch (e) { console.error(`getChatRooms parse participant_names [${r.id}]:`, e.message); }
+    try { participantImages = JSON.parse(r.participant_images); }
+    catch (e) { console.error(`getChatRooms parse participant_images [${r.id}]:`, e.message); }
+
+    const participantOnlineStatuses = {};
+    const participantLastSeen       = {};
+    const participantPrivacy        = {};
+    const participantPhotoRequests  = {};
+
+    for (const pid of participants) {
+      const pidStr = pid.toString();
+      const status = onlineMap.get(pidStr);
+      participantOnlineStatuses[pidStr] = status ? status.isOnline : false;
+      participantLastSeen[pidStr]       = status ? status.lastSeen : null;
+      participantPrivacy[pidStr]        = privacyMap.get(pidStr) || '';
+      participantPhotoRequests[pidStr]  = photoReqMap.get(pidStr) || 'not_sent';
+    }
+
+    return {
+      chatRoomId:                r.id,
+      participants,
+      participantNames,
+      participantImages,
+      participantPrivacy,
+      participantPhotoRequests,
+      participantOnlineStatuses,
+      participantLastSeen,
+      lastMessage:               r.last_message,
+      lastMessageType:           r.last_message_type,
+      lastMessageTime:           r.last_message_time ? r.last_message_time.toISOString() : null,
+      lastMessageSenderId:       r.last_message_sender_id,
+      unreadCount:               r.unread_count,
+    };
+  });
 }
 
 async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
@@ -1702,14 +1811,17 @@ io.on('connection', (socket) => {
       if (!currentUserId) return callback({ success: false, users: [] });
 
       // Get all online users except the current user and deleted accounts
+      // NOTE: users table uses firstName/lastName/profile_picture, not name/image
       const [rows] = await pool.query(
-        `SELECT u.id, u.name, u.image
+        `SELECT u.id,
+                CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, '')) AS name,
+                COALESCE(u.profile_picture, '') AS image
          FROM users u
          INNER JOIN user_online_status uos ON u.id = uos.user_id
          WHERE uos.is_online = 1
            AND u.isDelete = 0
            AND u.id != ?
-         ORDER BY u.name ASC
+         ORDER BY u.firstName ASC
          LIMIT 100`,
         [currentUserId],
       );
@@ -1718,7 +1830,7 @@ io.on('connection', (socket) => {
         success: true,
         users: rows.map(row => ({
           userId: row.id,
-          userName: row.name || '',
+          userName: (row.name || '').trim(),
           userImage: row.image || '',
         })),
       });
