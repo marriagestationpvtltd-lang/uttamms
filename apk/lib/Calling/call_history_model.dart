@@ -151,6 +151,13 @@ class CallHistory {
 
   // Get call type icon
   String getCallTypeIcon() {
-    return callType == CallType.video ? '📹' : '📞';
+    switch (callType) {
+      case CallType.video:
+        return '📹';
+      case CallType.group:
+        return '👥';
+      case CallType.audio:
+        return '📞';
+    }
   }
 }

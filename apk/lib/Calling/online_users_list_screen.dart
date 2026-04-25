@@ -2,9 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../config/feature_flags.dart';
 import '../service/socket_service.dart';
 import 'OutgoingCall.dart';
 import 'videocall.dart';
+import 'group_call_screen.dart';
 
 /// Screen to display online users for initiating calls
 class OnlineUsersListScreen extends StatefulWidget {
@@ -21,6 +23,74 @@ class _OnlineUsersListScreenState extends State<OnlineUsersListScreen> {
   String? _currentUserName;
   String? _currentUserImage;
   String _errorMessage = '';
+
+  // Group call multi-select state
+  bool _isGroupCallMode = false;
+  final Set<String> _selectedUserIds = {};
+
+  void _toggleGroupCallMode() {
+    setState(() {
+      _isGroupCallMode = !_isGroupCallMode;
+      _selectedUserIds.clear();
+    });
+  }
+
+  void _toggleUserSelection(Map<String, dynamic> user) {
+    final userId = user['userId']?.toString() ?? '';
+    if (userId.isEmpty) return;
+    setState(() {
+      if (_selectedUserIds.contains(userId)) {
+        _selectedUserIds.remove(userId);
+      } else {
+        _selectedUserIds.add(userId);
+      }
+    });
+  }
+
+  void _startGroupCall() {
+    if (_currentUserId == null ||
+        _currentUserName == null ||
+        _currentUserImage == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to start call. Please try again.')),
+      );
+      return;
+    }
+
+    if (_selectedUserIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please select at least one participant.')),
+      );
+      return;
+    }
+
+    final selectedParticipants = _onlineUsers
+        .where((u) =>
+            _selectedUserIds.contains(u['userId']?.toString() ?? ''))
+        .toList();
+
+    final channelName =
+        'group_${_currentUserId}_${DateTime.now().millisecondsSinceEpoch}';
+
+    // Exit group-call mode before navigating
+    setState(() {
+      _isGroupCallMode = false;
+      _selectedUserIds.clear();
+    });
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => GroupCallScreen(
+          currentUserId: _currentUserId!,
+          currentUserName: _currentUserName!,
+          currentUserImage: _currentUserImage!,
+          channelName: channelName,
+          participants: selectedParticipants,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -180,8 +250,19 @@ class _OnlineUsersListScreenState extends State<OnlineUsersListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Online Users'),
+        title: Text(_isGroupCallMode ? 'Select Participants' : 'Online Users'),
         actions: [
+          if (FeatureFlags.enableGroupCalls && !_isGroupCallMode)
+            IconButton(
+              icon: const Icon(Icons.group_add),
+              onPressed: _onlineUsers.isNotEmpty ? _toggleGroupCallMode : null,
+              tooltip: 'Group Call',
+            ),
+          if (_isGroupCallMode)
+            TextButton(
+              onPressed: _toggleGroupCallMode,
+              child: const Text('Cancel', style: TextStyle(color: Colors.white)),
+            ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _fetchOnlineUsers,
@@ -190,6 +271,14 @@ class _OnlineUsersListScreenState extends State<OnlineUsersListScreen> {
         ],
       ),
       body: _buildBody(),
+      floatingActionButton: _isGroupCallMode && _selectedUserIds.isNotEmpty
+          ? FloatingActionButton.extended(
+              onPressed: _startGroupCall,
+              icon: const Icon(Icons.phone),
+              label: Text('Start Group Call (${_selectedUserIds.length})'),
+              backgroundColor: const Color(0xFF7C4DFF),
+            )
+          : null,
     );
   }
 
@@ -250,27 +339,72 @@ class _OnlineUsersListScreenState extends State<OnlineUsersListScreen> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _fetchOnlineUsers,
-      child: ListView.builder(
-        itemCount: _onlineUsers.length,
-        padding: const EdgeInsets.all(8),
-        itemBuilder: (context, index) {
-          final user = _onlineUsers[index];
-          return _buildUserTile(user);
-        },
-      ),
+    return Column(
+      children: [
+        if (_isGroupCallMode)
+          Container(
+            width: double.infinity,
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            color: const Color(0xFF7C4DFF).withOpacity(0.1),
+            child: Text(
+              _selectedUserIds.isEmpty
+                  ? 'Tap users to select them for the group call'
+                  : '${_selectedUserIds.length} participant${_selectedUserIds.length == 1 ? '' : 's'} selected',
+              style: const TextStyle(
+                color: Color(0xFF7C4DFF),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+              ),
+            ),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: _fetchOnlineUsers,
+            child: ListView.builder(
+              itemCount: _onlineUsers.length,
+              padding: EdgeInsets.only(
+                left: 8,
+                right: 8,
+                top: 8,
+                // Extra bottom padding when FAB is visible
+                bottom: _isGroupCallMode && _selectedUserIds.isNotEmpty
+                    ? 80
+                    : 8,
+              ),
+              itemBuilder: (context, index) {
+                final user = _onlineUsers[index];
+                return _buildUserTile(user);
+              },
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildUserTile(Map<String, dynamic> user) {
     final userName = user['userName']?.toString() ?? 'Unknown User';
     final userImage = user['userImage']?.toString() ?? '';
+    final userId = user['userId']?.toString() ?? '';
+    final isSelected = _selectedUserIds.contains(userId);
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       elevation: 2,
+      color: isSelected
+          ? const Color(0xFF7C4DFF).withOpacity(0.08)
+          : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: isSelected
+            ? const BorderSide(color: Color(0xFF7C4DFF), width: 1.5)
+            : BorderSide.none,
+      ),
       child: ListTile(
+        onTap: _isGroupCallMode
+            ? () => _toggleUserSelection(user)
+            : () => _showCallOptions(user),
         leading: Stack(
           children: [
             CircleAvatar(
@@ -306,22 +440,27 @@ class _OnlineUsersListScreenState extends State<OnlineUsersListScreen> {
           'Online',
           style: TextStyle(color: Colors.green, fontSize: 12),
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.phone, color: Colors.green),
-              onPressed: () => _initiateAudioCall(user),
-              tooltip: 'Audio Call',
-            ),
-            IconButton(
-              icon: const Icon(Icons.videocam, color: Colors.blue),
-              onPressed: () => _initiateVideoCall(user),
-              tooltip: 'Video Call',
-            ),
-          ],
-        ),
-        onTap: () => _showCallOptions(user),
+        trailing: _isGroupCallMode
+            ? Checkbox(
+                value: isSelected,
+                onChanged: (_) => _toggleUserSelection(user),
+                activeColor: const Color(0xFF7C4DFF),
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.phone, color: Colors.green),
+                    onPressed: () => _initiateAudioCall(user),
+                    tooltip: 'Audio Call',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.videocam, color: Colors.blue),
+                    onPressed: () => _initiateVideoCall(user),
+                    tooltip: 'Video Call',
+                  ),
+                ],
+              ),
       ),
     );
   }

@@ -258,16 +258,20 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               icon: Icon(
                 call.callType == CallType.video
                     ? Icons.videocam
-                    : Icons.call,
+                    : call.callType == CallType.group
+                        ? Icons.group
+                        : Icons.call,
                 color: const Color(0xFFF90E18),
                 size: 24,
               ),
-              onPressed: () => _makeCall(
-                otherPersonId,
-                otherPersonName,
-                otherPersonImage,
-                call.callType,
-              ),
+              onPressed: call.callType == CallType.group
+                  ? null // Group calls cannot be re-dialed directly from history
+                  : () => _makeCall(
+                        otherPersonId,
+                        otherPersonName,
+                        otherPersonImage,
+                        call.callType,
+                      ),
             ),
           ],
         ),
