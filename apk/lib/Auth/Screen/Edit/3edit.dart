@@ -899,23 +899,8 @@ class _PersonalDetailsPageeState extends State<PersonalDetailsPagee> {
 
                     const SizedBox(height: 35),
 
-                    // Buttons
-                    Row(
-                      children: [
-                        const SizedBox(width: 15),
-                        Expanded(
-                          child: _buildButton(
-                            text: "Continue",
-                            isPrimary: true,
-                            onPressed: () {
-                              _validateAndSubmit();
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 30),
+                    // Extra bottom padding so content is not hidden behind sticky button
+                    const SizedBox(height: 80),
                   ],
                 ),
               ),
@@ -923,6 +908,27 @@ class _PersonalDetailsPageeState extends State<PersonalDetailsPagee> {
             // Progress bubble
 
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: ElevatedButton(
+            onPressed: submitted ? null : _validateAndSubmit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE64B37),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+            child: const Text(
+              'Save Changes',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
       ),
     );

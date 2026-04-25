@@ -660,32 +660,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
 
                   const SizedBox(height: 35),
 
-                  // Buttons
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _buildButton(
-                          text: "Reload Data",
-                          isPrimary: false,
-                          onPressed: () {
-                            _loadSavedData();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: _buildButton(
-                          text: "Save",
-                          isPrimary: true,
-                          onPressed: () {
-                            _validateAndSubmit();
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(height: 30),
+                  // Extra bottom padding so content is not hidden behind sticky button
+                  const SizedBox(height: 80),
                 ],
               ),
             ),
@@ -708,6 +684,27 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                 ),
               ),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: ElevatedButton(
+            onPressed: isLoading ? null : _validateAndSubmit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE64B37),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+            child: Text(
+              isLoading ? 'Saving...' : 'Save Changes',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
       ),
     );

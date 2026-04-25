@@ -249,21 +249,8 @@ class _CommunityDetailsPageEditState extends State<CommunityDetailsPageEdit> {
                   ),
                   const SizedBox(height: 25),
 
-                  // Buttons
-                  Row(
-                    children: [
-
-                      const SizedBox(width: 15),
-                      Expanded(
-                        child: _buildButton(
-                          text: _isLoading ? "Saving..." : "Save",
-                          isPrimary: true,
-                          onPressed: _isLoading ? null : _validateAndSubmit,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 30),
+                  // Extra bottom padding so content is not hidden behind sticky button
+                  const SizedBox(height: 80),
                 ],
               ),
             ),
@@ -275,6 +262,27 @@ class _CommunityDetailsPageEditState extends State<CommunityDetailsPageEdit> {
               child: _progressBubble(0.15, "25%"),
             ),
           ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          child: ElevatedButton(
+            onPressed: _isLoading ? null : _validateAndSubmit,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE64B37),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 52),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              elevation: 0,
+            ),
+            child: Text(
+              _isLoading ? 'Saving...' : 'Save Changes',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
       ),
     );

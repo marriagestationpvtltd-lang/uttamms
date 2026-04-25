@@ -321,13 +321,217 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     return values.where((value) => value.trim().isNotEmpty).join(separator);
   }
 
-  Future<void> _openEditPage(Widget page) async {
+  Future<void> _openEditPage(Widget page, {Future<void> Function()? onReturn}) async {
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => page),
     );
     if (!mounted) return;
-    await fetchProfileData();
+    final callback = onReturn ?? fetchProfileData;
+    await callback();
+  }
+
+  /// Returns the current user's ID string from SharedPreferences, or an empty
+  /// string when no session is found or when the stored data is malformed.
+  Future<String> _getUserId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
+      return userData['id']?.toString() ?? '';
+    } catch (e) {
+      debugPrint('_getUserId error: $e');
+      return '';
+    }
+  }
+
+  /// Joins a list to a comma-separated string. When [v] is already a string it
+  /// is returned as-is, and [null] becomes an empty string.
+  String _joinList(dynamic v) => v is List ? v.join(',') : (v?.toString() ?? '');
+
+  /// Refreshes only the personal-detail fields from the dedicated section API.
+  /// Merges the fresh data into [profileData]['personalDetail'] in place so the
+  /// rest of the profile (family, lifestyle, partner) is not disturbed.
+  Future<void> _refreshPersonalSection() async {
+    final userId = await _getUserId();
+    if (userId.isEmpty) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/Api2/get_personal_detail.php?user_id=$userId'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      if (body['status'] != 'success' || body['data'] == null) return;
+      final d = Map<String, dynamic>.from(body['data'] as Map);
+      if (!mounted) return;
+      setState(() {
+        final pd = _asMap(profileData?['personalDetail']);
+        pd['height_name'] = d['height_name'] ?? pd['height_name'];
+        pd['weight_name'] = d['weight_name'] ?? pd['weight_name'];
+        pd['bloodGroup'] = d['bloodGroup'] ?? pd['bloodGroup'];
+        pd['complexion'] = d['complexion'] ?? pd['complexion'];
+        pd['bodyType'] = d['bodyType'] ?? pd['bodyType'];
+        pd['aboutMe'] = d['aboutMe'] ?? pd['aboutMe'];
+        pd['Disability'] = d['Disability'] ?? pd['Disability'];
+        pd['maritalStatusName'] = d['marital_status_name'] ?? pd['maritalStatusName'];
+        pd['maritalStatusId'] = d['maritalStatusId'] ?? pd['maritalStatusId'];
+        profileData!['personalDetail'] = pd;
+      });
+    } catch (e) {
+      debugPrint('_refreshPersonalSection error: $e');
+    }
+  }
+
+  /// Refreshes only the education/career fields from the dedicated section API.
+  Future<void> _refreshProfessionalSection() async {
+    final userId = await _getUserId();
+    if (userId.isEmpty) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/Api2/get_educationcareer.php?userid=$userId'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      if (body['status'] != 'success' || body['data'] == null) return;
+      final d = Map<String, dynamic>.from(body['data'] as Map);
+      if (!mounted) return;
+      setState(() {
+        final pd = _asMap(profileData?['personalDetail']);
+        pd['educationmedium'] = d['educationmedium'] ?? pd['educationmedium'];
+        pd['educationtype'] = d['educationtype'] ?? pd['educationtype'];
+        pd['faculty'] = d['faculty'] ?? pd['faculty'];
+        pd['degree'] = d['degree'] ?? pd['degree'];
+        pd['areyouworking'] = d['areyouworking'] ?? pd['areyouworking'];
+        pd['occupationtype'] = d['occupationtype'] ?? pd['occupationtype'];
+        pd['companyname'] = d['companyname'] ?? pd['companyname'];
+        pd['designation'] = d['designation'] ?? pd['designation'];
+        pd['workingwith'] = d['workingwith'] ?? pd['workingwith'];
+        pd['annualincome'] = d['annualincome'] ?? pd['annualincome'];
+        pd['businessname'] = d['businessname'] ?? pd['businessname'];
+        profileData!['personalDetail'] = pd;
+      });
+    } catch (e) {
+      debugPrint('_refreshProfessionalSection error: $e');
+    }
+  }
+
+  /// Refreshes only the family-detail fields from the dedicated section API.
+  Future<void> _refreshFamilySection() async {
+    final userId = await _getUserId();
+    if (userId.isEmpty) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/Api2/get_family_details.php?userid=$userId'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      if (body['status'] != 'success' || body['data']?['family'] == null) return;
+      final family = Map<String, dynamic>.from(body['data']['family'] as Map);
+      if (!mounted) return;
+      setState(() {
+        final existing = _asMap(profileData?['familyDetail']);
+        existing['familytype'] = family['familytype'] ?? existing['familytype'];
+        existing['familybackground'] = family['familybackground'] ?? existing['familybackground'];
+        existing['fatherstatus'] = family['fatherstatus'] ?? existing['fatherstatus'];
+        existing['fathername'] = family['fathername'] ?? existing['fathername'];
+        existing['fathereducation'] = family['fathereducation'] ?? existing['fathereducation'];
+        existing['fatheroccupation'] = family['fatheroccupation'] ?? existing['fatheroccupation'];
+        existing['motherstatus'] = family['motherstatus'] ?? existing['motherstatus'];
+        existing['mothercaste'] = family['mothercaste'] ?? existing['mothercaste'];
+        existing['mothereducation'] = family['mothereducation'] ?? existing['mothereducation'];
+        existing['motheroccupation'] = family['motheroccupation'] ?? existing['motheroccupation'];
+        existing['familyorigin'] = family['familyorigin'] ?? existing['familyorigin'];
+        profileData!['familyDetail'] = existing;
+      });
+    } catch (e) {
+      debugPrint('_refreshFamilySection error: $e');
+    }
+  }
+
+  /// Refreshes only the lifestyle fields from the dedicated section API.
+  Future<void> _refreshLifestyleSection() async {
+    final userId = await _getUserId();
+    if (userId.isEmpty) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/Api2/get_lifestyle.php?userid=$userId'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      if (body['status'] != 'success' || body['data'] == null) return;
+      final d = Map<String, dynamic>.from(body['data'] as Map);
+      if (!mounted) return;
+      setState(() {
+        final existing = _asMap(profileData?['lifestyle']);
+        existing['diet'] = d['diet'] ?? existing['diet'];
+        existing['smoke'] = d['smoke'] ?? existing['smoke'];
+        existing['drinks'] = d['drinks'] ?? existing['drinks'];
+        existing['drinktype'] = d['drinktype'] ?? existing['drinktype'];
+        existing['smoketype'] = d['smoketype'] ?? existing['smoketype'];
+        profileData!['lifestyle'] = existing;
+      });
+    } catch (e) {
+      debugPrint('_refreshLifestyleSection error: $e');
+    }
+  }
+
+  /// Refreshes only the partner-preference fields from the dedicated section API.
+  Future<void> _refreshPartnerSection() async {
+    final userId = await _getUserId();
+    if (userId.isEmpty) return;
+    try {
+      final res = await http.get(
+        Uri.parse('$kApiBaseUrl/Api2/get_partner_preferences.php?userid=$userId'),
+      );
+      if (res.statusCode != 200) return;
+      final body = jsonDecode(res.body);
+      if (body['status'] != 'success' || body['data'] == null) return;
+      final d = Map<String, dynamic>.from(body['data'] as Map);
+      if (!mounted) return;
+      setState(() {
+        final existing = _asMap(profileData?['partner']);
+        existing['minage'] = d['minage'] ?? existing['minage'];
+        existing['maxage'] = d['maxage'] ?? existing['maxage'];
+        existing['maritalstatus'] = _joinList(d['maritalstatus']).isNotEmpty
+            ? _joinList(d['maritalstatus'])
+            : existing['maritalstatus'];
+        existing['religion'] = _joinList(d['religion']).isNotEmpty
+            ? _joinList(d['religion'])
+            : existing['religion'];
+        existing['caste'] = _joinList(d['caste']).isNotEmpty
+            ? _joinList(d['caste'])
+            : existing['caste'];
+        existing['qualification'] = _joinList(d['qualification']).isNotEmpty
+            ? _joinList(d['qualification'])
+            : existing['qualification'];
+        existing['proffession'] = _joinList(d['proffession']).isNotEmpty
+            ? _joinList(d['proffession'])
+            : existing['proffession'];
+        existing['annualincome'] = _joinList(d['annualincome']).isNotEmpty
+            ? _joinList(d['annualincome'])
+            : existing['annualincome'];
+        existing['diet'] = _joinList(d['diet']).isNotEmpty
+            ? _joinList(d['diet'])
+            : existing['diet'];
+        existing['smokeaccept'] = d['smokeaccept'] ?? existing['smokeaccept'];
+        existing['drinkaccept'] = d['drinkaccept'] ?? existing['drinkaccept'];
+        existing['familytype'] = _joinList(d['familytype']).isNotEmpty
+            ? _joinList(d['familytype'])
+            : existing['familytype'];
+        existing['country'] = _joinList(d['country']).isNotEmpty
+            ? _joinList(d['country'])
+            : existing['country'];
+        existing['state'] = _joinList(d['state']).isNotEmpty
+            ? _joinList(d['state'])
+            : existing['state'];
+        existing['city'] = _joinList(d['city']).isNotEmpty
+            ? _joinList(d['city'])
+            : existing['city'];
+        existing['otherexpectation'] = d['otherexpectation'] ?? existing['otherexpectation'];
+        profileData!['partner'] = existing;
+      });
+    } catch (e) {
+      debugPrint('_refreshPartnerSection error: $e');
+    }
   }
 
   void _showMoreOptions(BuildContext context) {
@@ -3086,6 +3290,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       PersonalDetailsPagee(
         initialData: _asMap(profileData?['personalDetail']),
       ),
+      onReturn: _refreshPersonalSection,
     );
   }
 
@@ -3273,6 +3478,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
         initialData: _asMap(profileData?['personalDetail']),
         isVerified: context.read<UserState>().isVerified, // Pass verification status to edit screen
       ),
+      onReturn: _refreshPersonalSection,
     );
   }
 
@@ -3281,6 +3487,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       CommunityDetailsPageEdit(
         initialData: _asMap(profileData?['personalDetail']),
       ),
+      onReturn: fetchProfileData,
     );
   }
 
@@ -3289,6 +3496,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       EducationCareerPagee(
         initialData: _asMap(profileData?['personalDetail']),
       ),
+      onReturn: _refreshProfessionalSection,
     );
   }
 
@@ -3297,6 +3505,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       FamilyDetailsPagee(
         initialFamilyData: _asMap(profileData?['familyDetail']),
       ),
+      onReturn: _refreshFamilySection,
     );
   }
 
@@ -3305,6 +3514,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       LifestylePagee(
         initialData: _asMap(profileData?['lifestyle']),
       ),
+      onReturn: _refreshLifestyleSection,
     );
   }
 
@@ -3313,6 +3523,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       PartnerPreferencesPagee(
         initialData: _asMap(profileData?['partner']),
       ),
+      onReturn: _refreshPartnerSection,
     );
   }
 
