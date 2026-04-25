@@ -135,13 +135,18 @@ class _DashboardHomeState extends State<DashboardHome> {
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border(top: BorderSide(color: color, width: 3)),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.15), width: 1),
         boxShadow: [
           BoxShadow(
+            color: color.withOpacity(0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+          BoxShadow(
             color: Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
           ),
         ],
       ),
@@ -152,31 +157,50 @@ class _DashboardHomeState extends State<DashboardHome> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                padding: const EdgeInsets.all(8),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.10),
-                  borderRadius: BorderRadius.circular(8),
+                  gradient: LinearGradient(
+                    colors: [color, color.withOpacity(0.75)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  boxShadow: [
+                    BoxShadow(
+                      color: color.withOpacity(0.30),
+                      blurRadius: 8,
+                      offset: const Offset(0, 3),
+                    ),
+                  ],
                 ),
-                child: Icon(icon, color: color, size: 20),
+                child: Icon(icon, color: Colors.white, size: 18),
               ),
               const Spacer(),
               if (isLive) _buildLiveDot(),
               if (!isLive && onTap != null)
-                Icon(
-                  Icons.open_in_new_rounded,
-                  size: 13,
-                  color: color.withOpacity(0.45),
+                Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Icon(
+                    Icons.open_in_new_rounded,
+                    size: 12,
+                    color: color.withOpacity(0.70),
+                  ),
                 ),
             ],
           ),
           const SizedBox(height: 16),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 26,
-              fontWeight: FontWeight.w700,
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
               color: _kSlate700,
               height: 1,
+              letterSpacing: -0.5,
             ),
           ),
           const SizedBox(height: 5),
@@ -204,10 +228,13 @@ class _DashboardHomeState extends State<DashboardHome> {
     if (onTap == null) return content;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: content,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(14),
+          child: content,
+        ),
       ),
     );
   }
@@ -218,6 +245,19 @@ class _DashboardHomeState extends State<DashboardHome> {
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
         children: [
+          Container(
+            width: 3,
+            height: 18,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+              ),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          const SizedBox(width: 10),
           Text(
             title,
             style: const TextStyle(
@@ -234,10 +274,11 @@ class _DashboardHomeState extends State<DashboardHome> {
               child: GestureDetector(
                 onTap: onViewAll,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: _kPrimary.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(6),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _kPrimary.withOpacity(0.20)),
                   ),
                   child: Row(
                     children: [
@@ -249,36 +290,40 @@ class _DashboardHomeState extends State<DashboardHome> {
                           color: _kPrimary,
                         ),
                       ),
-                      const SizedBox(width: 3),
-                      Icon(Icons.arrow_forward_rounded, size: 11, color: _kPrimary),
+                      const SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_rounded, size: 12, color: _kPrimary),
                     ],
                   ),
                 ),
               ),
             ),
-          if (onViewAll != null && onRefresh != null) const SizedBox(width: 6),
+          if (onViewAll != null && onRefresh != null) const SizedBox(width: 8),
           if (onRefresh != null)
-            GestureDetector(
-              onTap: onRefresh,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: _kPrimary.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    Icon(Icons.refresh_rounded, size: 13, color: _kPrimary),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Refresh',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: _kPrimary,
+            MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(
+                onTap: onRefresh,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _kPrimary.withOpacity(0.06),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _kPrimary.withOpacity(0.15)),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.refresh_rounded, size: 14, color: _kPrimary),
+                      const SizedBox(width: 5),
+                      Text(
+                        'Refresh',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: _kPrimary,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -693,57 +738,221 @@ class _DashboardHomeState extends State<DashboardHome> {
     final hour = DateTime.now().hour;
     final greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
     final dateStr  = _kBannerDateFmt.format(DateTime.now());
+    final totalUsers = _dashboardData?.users.total;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
+      padding: const EdgeInsets.fromLTRB(28, 24, 24, 24),
       decoration: BoxDecoration(
         gradient: const LinearGradient(
-          colors: [Color(0xFF4F46E5), Color(0xFF6366F1)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
+          colors: [Color(0xFF312E81), Color(0xFF4F46E5), Color(0xFF6366F1)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF6366F1).withOpacity(0.30),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
+            color: const Color(0xFF6366F1).withOpacity(0.38),
+            blurRadius: 28,
+            offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: Row(
+      child: Stack(
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$greeting! 👋',
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  'Marriage Station Admin Dashboard',
-                  style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.80)),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  dateStr,
-                  style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.60)),
-                ),
-              ],
+          // Decorative circles
+          Positioned(
+            top: -24,
+            right: 80,
+            child: Container(
+              width: 100,
+              height: 100,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.05),
+              ),
             ),
           ),
-          const Icon(
-            Icons.admin_panel_settings_rounded,
-            size: 56,
-            color: Colors.white10,
+          Positioned(
+            bottom: -30,
+            right: 20,
+            child: Container(
+              width: 140,
+              height: 140,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.04),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 10,
+            right: 140,
+            child: Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.06),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: Colors.white.withOpacity(0.20)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6, height: 6,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFF34D399),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              const Text(
+                                'Admin Panel · Live',
+                                style: TextStyle(fontSize: 11, color: Colors.white70, fontWeight: FontWeight.w500),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      '$greeting! 👋',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Marriage Station Admin Dashboard',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.white70,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      dateStr,
+                      style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.55)),
+                    ),
+                    if (totalUsers != null) ...[
+                      const SizedBox(height: 14),
+                      Row(
+                        children: [
+                          _bannerStat('$totalUsers', 'Members'),
+                          const SizedBox(width: 16),
+                          _bannerStat('${_dashboardData?.users.active ?? 0}', 'Active'),
+                          const SizedBox(width: 16),
+                          _bannerStat('${_dashboardData?.users.verified ?? 0}', 'Verified'),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (widget.onNavigate != null)
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GestureDetector(
+                      onTap: () => widget.onNavigate?.call(1),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.18),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white.withOpacity(0.25)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.people_alt_rounded, size: 16, color: Colors.white),
+                            SizedBox(width: 8),
+                            Text(
+                              'Members',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    GestureDetector(
+                      onTap: () => widget.onNavigate?.call(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white.withOpacity(0.18)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.payments_rounded, size: 16, color: Colors.white70),
+                            SizedBox(width: 8),
+                            Text(
+                              'Payments',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
         ],
       ),
+    );
+  }
+
+  Widget _bannerStat(String value, String label) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+            color: Colors.white,
+            height: 1,
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(fontSize: 11, color: Colors.white.withOpacity(0.65)),
+        ),
+      ],
     );
   }
 

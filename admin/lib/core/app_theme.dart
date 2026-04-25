@@ -81,3 +81,57 @@ ThemeData buildDarkTheme() {
     textTheme: GoogleFonts.poppinsTextTheme(base.textTheme),
   );
 }
+
+// ─── Shared card decoration ───────────────────────────────────────────────────
+BoxDecoration kCardDecoration({
+  Color? bg,
+  Color? borderColor,
+  double radius = 14,
+  List<BoxShadow>? shadows,
+}) {
+  return BoxDecoration(
+    color: bg ?? kSurface,
+    borderRadius: BorderRadius.circular(radius),
+    border: Border.all(color: borderColor ?? kBorder, width: 1),
+    boxShadow: shadows ?? [
+      const BoxShadow(color: Color(0x08000000), blurRadius: 12, offset: Offset(0, 4)),
+    ],
+  );
+}
+
+// ─── Gradient presets ─────────────────────────────────────────────────────────
+const kGradientPrimary = LinearGradient(
+  colors: [Color(0xFF4F46E5), Color(0xFF6366F1), Color(0xFF818CF8)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const kGradientEmerald = LinearGradient(
+  colors: [Color(0xFF059669), Color(0xFF10B981)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const kGradientAmber = LinearGradient(
+  colors: [Color(0xFFD97706), Color(0xFFF59E0B)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const kGradientRose = LinearGradient(
+  colors: [Color(0xFFDC2626), Color(0xFFEF4444)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const kGradientSky = LinearGradient(
+  colors: [Color(0xFF0284C7), Color(0xFF0EA5E9)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
+
+const kGradientViolet = LinearGradient(
+  colors: [Color(0xFF7C3AED), Color(0xFF8B5CF6)],
+  begin: Alignment.topLeft,
+  end: Alignment.bottomRight,
+);
