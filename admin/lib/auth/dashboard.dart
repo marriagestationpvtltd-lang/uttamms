@@ -675,6 +675,7 @@ class _DashboardPageState extends State<DashboardPage> {
       6: permissions.canManageRequests,         // Requests
       7: permissions.canManageSettings,         // Call Settings
       8: permissions.canViewActivities,         // Activities
+      // Index 9 (Call History) removed during stable-state restoration
     };
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
