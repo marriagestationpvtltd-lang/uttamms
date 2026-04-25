@@ -3491,7 +3491,6 @@ class _ChatWindowState extends State<ChatWindow> {
       Map<String, dynamic>? replyPayload,
       Map<String, dynamic>? reportData]) {
     const kPrimary = Color(0xFFD81B60);
-    const kText = Color(0xFF1E293B);
     const kMuted = Color(0xFF64748B);
     final c = ChatColors.of(context);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
