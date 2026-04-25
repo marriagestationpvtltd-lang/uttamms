@@ -322,18 +322,14 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
       // If the user who just messaged is not yet in the list, fetch them so
       // they appear immediately at the top rather than waiting for the next
-      // full page load.
-      final alreadyInList =
-          _users.any((u) => u['id']?.toString() == userId);
-      if (!alreadyInList) {
+      // full page load. Otherwise move them to the front of _users so the
+      // 'recent' sort is instant even before chat_rooms_update arrives.
+      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
+      if (idx == -1) {
         _fetchSingleUser(userId);
         // _fetchSingleUser calls _applyFilters() once the user is loaded.
         return;
       }
-
-      // Move the user to the front of _users so the 'recent' sort is instant
-      // even before the next chat_rooms_update arrives from the server.
-      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
       if (idx > 0) {
         final user = _users.removeAt(idx);
         _users.insert(0, user);
