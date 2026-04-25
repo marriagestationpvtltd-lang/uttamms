@@ -662,6 +662,34 @@ class SocketService {
     return completer.future;
   }
 
+  /// Fetch the list of online users (request-response via Socket.IO ack).
+  Future<List<Map<String, dynamic>>> getOnlineUsers(String userId) async {
+    final completer = Completer<List<Map<String, dynamic>>>();
+    if (_socket == null || !_socket!.connected) {
+      completer.complete([]);
+      return completer.future;
+    }
+    _socket!.emitWithAck(
+      'get_online_users',
+      {'userId': userId},
+      ack: (response) {
+        final map = _toMap(response);
+        if (map['success'] == true && map['users'] is List) {
+          final users = (map['users'] as List)
+              .map((user) => Map<String, dynamic>.from(user as Map))
+              .toList();
+          if (!completer.isCompleted) completer.complete(users);
+        } else {
+          if (!completer.isCompleted) completer.complete([]);
+        }
+      },
+    );
+    Future.delayed(kRequestTimeout, () {
+      if (!completer.isCompleted) completer.complete([]);
+    });
+    return completer.future;
+  }
+
   /// Fetch the user's chat room list (request-response via Socket.IO ack).
   Future<List<dynamic>> getChatRooms(String userId) async {
     final completer = Completer<List<dynamic>>();
