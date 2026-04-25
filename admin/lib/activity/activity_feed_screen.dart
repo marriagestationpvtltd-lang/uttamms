@@ -40,6 +40,9 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   StreamSubscription<Map<String, dynamic>>? _activitySub;
   StreamSubscription<Map<String, dynamic>>? _adminActivitySub;
 
+  // Negative counter ensures real-time synthetic IDs never collide with DB IDs.
+  static int _syntheticIdCounter = -1;
+
   // Filter state
   String? _selectedType;    // null = All
   String _searchText = '';
@@ -82,7 +85,7 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
       final createdAt  = timestamp != null ? DateTime.tryParse(timestamp) ?? DateTime.now() : DateTime.now();
 
       final activity = UserActivity(
-        id:           createdAt.millisecondsSinceEpoch,
+        id:           _syntheticIdCounter--,
         userId:       int.tryParse(senderId) ?? 0,
         userName:     senderName,
         targetId:     int.tryParse(receiverId),
@@ -91,6 +94,9 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
         description:  '$senderName → $receiverName: $message',
         createdAt:    createdAt,
       );
+      // Prepend the real-time item. When user_activity fires ~750 ms later
+      // and triggers a full reset fetch, the API response will replace these
+      // synthetic entries with the persisted DB records (no permanent duplicates).
       setState(() => _activities.insert(0, activity));
     });
   }

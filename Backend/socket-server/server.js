@@ -294,7 +294,7 @@ const VALID_ACTIVITY_TYPES = new Set([
  * @returns {string}
  */
 function maskSensitiveData(text) {
-  if (typeof text !== 'string') return text;
+  if (typeof text !== 'string') return String(text ?? '');
   // Match optional leading '+', then 8–15 digits (with spaces or dashes between)
   return text.replace(/\+?(?:\d[\s\-]?){7,14}\d/g, (match) => {
     const digits = match.replace(/\D/g, '');
@@ -856,7 +856,9 @@ io.on('connection', (socket) => {
 
   // ── admin_join ────────────────────────────────────────────────────────────
   // Admin panel emits this to subscribe to real-time activity and message events.
+  // Only sockets authenticated as the admin user (userId === '1') may join.
   socket.on('admin_join', () => {
+    if (authenticatedUserId !== '1') return;
     socket.join('admin_activity');
     socket.join('admin_room');
     console.log(`🛡️  Admin socket ${socket.id} joined admin_activity and admin_room`);
