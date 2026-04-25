@@ -51,10 +51,15 @@ class ActivityService {
 
     if (response.statusCode == 200) {
       final decoded = json.decode(response.body) as Map<String, dynamic>;
+      // Determine success from the outer envelope before unwrapping.
+      final outerSuccess =
+          decoded['success'] == true || decoded['status'] == 'success';
       // Support both res.data and res.data.data wrapping
-      final payload = decoded['data'] is Map<String, dynamic>
+      final innerData = decoded['data'] is Map<String, dynamic>
           ? decoded['data'] as Map<String, dynamic>
           : decoded;
+      // Merge the outer success flag into the payload so fromJson reads it correctly.
+      final payload = <String, dynamic>{...innerData, 'success': outerSuccess};
       return ActivityFeedResponse.fromJson(payload);
     }
     throw Exception('Failed to load activities: ${response.statusCode}');
