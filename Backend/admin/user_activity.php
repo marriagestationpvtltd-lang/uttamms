@@ -93,7 +93,7 @@ try {
     $countStmt = $pdo->prepare("
         SELECT COUNT(*) AS total
         FROM   user_activities ua
-        JOIN   users u ON u.id = ua.user_id
+        LEFT JOIN users u ON u.id = ua.user_id
         $whereSQL
     ");
     $countStmt->execute($params);
@@ -104,18 +104,20 @@ try {
         SELECT
             ua.id,
             ua.user_id,
-            CONCAT(u.firstName, ' ', u.lastName) AS user_name,
-            u.email                               AS user_email,
+            COALESCE(
+                ua.user_name,
+                CONCAT(u.firstName, ' ', u.lastName)
+            )                                        AS user_name,
+            u.email                                  AS user_email,
             ua.activity_type,
             ua.description,
-            ua.target_user_id,
-            CONCAT(t.firstName, ' ', t.lastName) AS target_user_name,
-            ua.ip_address,
-            ua.device_info,
+            ua.target_id,
+            ua.target_name,
+            CONCAT(t.firstName, ' ', t.lastName)     AS target_user_name,
             ua.created_at
         FROM user_activities ua
-        JOIN users u ON u.id = ua.user_id
-        LEFT JOIN users t ON t.id = ua.target_user_id
+        LEFT JOIN users u ON u.id = ua.user_id
+        LEFT JOIN users t ON t.id = ua.target_id
         $whereSQL
         ORDER BY ua.created_at DESC
         LIMIT ? OFFSET ?

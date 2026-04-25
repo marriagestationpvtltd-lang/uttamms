@@ -59,7 +59,7 @@ class ActivityFeedResponse {
         .map((e) => UserActivity.fromJson(e as Map<String, dynamic>))
         .toList();
     return ActivityFeedResponse(
-      success:    json['success'] == true,
+      success:    json['success'] == true || json['status'] == 'success',
       activities: list,
       total:      json['total'] is int ? json['total'] : int.tryParse(json['total'].toString()) ?? 0,
       page:       json['page']  is int ? json['page']  : int.tryParse(json['page'].toString())  ?? 1,

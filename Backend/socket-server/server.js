@@ -289,11 +289,23 @@ const VALID_ACTIVITY_TYPES = new Set([
 async function logActivity({ userId, userName = '', targetId = null, targetName = null, activityType, description = '' }) {
   if (!userId || !VALID_ACTIVITY_TYPES.has(activityType)) return;
   try {
-    await pool.query(
+    const [result] = await pool.query(
       `INSERT INTO user_activities (user_id, user_name, target_id, target_name, activity_type, description)
        VALUES (?, ?, ?, ?, ?, ?)`,
       [userId, userName, targetId || null, targetName || null, activityType, description],
     );
+    // Emit real-time activity event to the admin room so the admin panel
+    // updates immediately without waiting for its polling interval.
+    io.to('admin_activity').emit('user_activity', {
+      id:            result.insertId,
+      user_id:       userId,
+      user_name:     userName,
+      target_id:     targetId || null,
+      target_name:   targetName || null,
+      activity_type: activityType,
+      description,
+      created_at:    new Date().toISOString(),
+    });
   } catch (err) {
     console.error('logActivity error:', err.message);
   }
@@ -823,6 +835,18 @@ io.on('connection', (socket) => {
   // ── leave_room ────────────────────────────────────────────────────────────
   socket.on('leave_room', ({ chatRoomId }) => {
     if (chatRoomId) socket.leave(chatRoomId);
+  });
+
+  // ── admin_join ────────────────────────────────────────────────────────────
+  // Admin panel emits this to subscribe to real-time activity events.
+  socket.on('admin_join', () => {
+    socket.join('admin_activity');
+    console.log(`🛡️  Admin socket ${socket.id} joined admin_activity room`);
+  });
+
+  // ── admin_leave ───────────────────────────────────────────────────────────
+  socket.on('admin_leave', () => {
+    socket.leave('admin_activity');
   });
 
   // ── set_active_chat ───────────────────────────────────────────────────────

@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import 'activity_model.dart';
 import 'activity_service.dart';
+import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 
 // ─── Design tokens (shared with dashboard) ────────────────────────────────────
 const _kPrimary   = Color(0xFF6366F1);
@@ -26,6 +27,7 @@ class ActivityFeedScreen extends StatefulWidget {
 
 class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   final ActivityService _service = ActivityService();
+  final AdminSocketService _socketService = AdminSocketService();
   final ScrollController _scrollController = ScrollController();
 
   List<UserActivity> _activities = [];
@@ -35,6 +37,7 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   int _page = 1;
   int _totalPages = 1;
   Timer? _refreshTimer;
+  StreamSubscription<Map<String, dynamic>>? _activitySub;
 
   // Filter state
   String? _selectedType;    // null = All
@@ -62,11 +65,16 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
       (_) { if (mounted) _fetchActivities(reset: true, silent: true); },
     );
     _scrollController.addListener(_onScroll);
+    // Subscribe to real-time activity events from the socket server
+    _activitySub = _socketService.onUserActivity.listen((_) {
+      if (mounted) _fetchActivities(reset: true, silent: true);
+    });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _activitySub?.cancel();
     _scrollController.dispose();
     _searchCtrl.dispose();
     super.dispose();

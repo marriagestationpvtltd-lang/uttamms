@@ -55,6 +55,7 @@ class AdminSocketService {
   final _participantAcceptedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _participantRejectedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _connectionCtrl = StreamController<bool>.broadcast();
+  final _userActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -82,6 +83,9 @@ class AdminSocketService {
   Stream<Map<String, dynamic>> get onParticipantAcceptedCall => _participantAcceptedCallCtrl.stream;
   Stream<Map<String, dynamic>> get onParticipantRejectedCall => _participantRejectedCallCtrl.stream;
   Stream<bool> get onConnectionChange => _connectionCtrl.stream;
+  /// Emitted by the server whenever a user activity is logged. Admin panel
+  /// uses this for real-time activity feed updates.
+  Stream<Map<String, dynamic>> get onUserActivity => _userActivityCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -109,6 +113,8 @@ class AdminSocketService {
       _connectionCtrl.add(true);
       // Authenticate as admin
       _socket!.emit('authenticate', {'userId': kAdminUserId});
+      // Join the admin_activity room to receive real-time activity events
+      _socket!.emit('admin_join');
     });
 
     _socket!.onDisconnect((_) {
@@ -211,6 +217,10 @@ class AdminSocketService {
 
     _socket!.on('participant_rejected_call', (data) {
       _participantRejectedCallCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('user_activity', (data) {
+      if (data is Map) _userActivityCtrl.add(Map<String, dynamic>.from(data));
     });
 
     _socket!.connect();
