@@ -775,6 +775,11 @@ const PENDING_CALL_TTL_MS = 60000; // 60 seconds — matches FCM notification li
 // Used to detect busy state and reject new incoming calls automatically.
 const activeCallUsers = new Map();
 
+// Tracks extra (conference) participants added to ongoing calls.
+// channelName (string) → Set<userId (string)>
+// Used to ensure all added participants receive call_ended when the call stops.
+const conferenceParticipants = new Map();
+
 function _cleanExpiredPendingCalls() {
   const now = Date.now();
   for (const [channelName, call] of activePendingCalls) {
@@ -1698,6 +1703,19 @@ io.on('connection', (socket) => {
         ...rest, callerId, recipientId,
       });
     }
+    // Notify any conference participants that were added to this call.
+    if (rest.channelName && conferenceParticipants.has(rest.channelName)) {
+      for (const participantId of conferenceParticipants.get(rest.channelName)) {
+        const pidStr = participantId.toString();
+        // Skip the original caller/recipient who were already notified above.
+        if (pidStr === callerId?.toString() || pidStr === recipientId?.toString()) continue;
+        activeCallUsers.delete(pidStr);
+        io.to(`user:${pidStr}`).emit('call_ended', {
+          ...rest, callerId, recipientId,
+        });
+      }
+      conferenceParticipants.delete(rest.channelName);
+    }
   });
 
   // ── switch_to_video_request ──────────────────────────────────────────────
@@ -1733,6 +1751,15 @@ io.on('connection', (socket) => {
   socket.on('add_participant_to_call', (data) => {
     const { newParticipantId, channelName, callType, adminId, adminName, existingParticipantId, ...rest } = data || {};
     if (!newParticipantId || !channelName) return;
+
+    // Track only the newly added participant so they receive call_ended when
+    // the call stops. The original callerId/recipientId are already notified
+    // via the call_end handler's direct emit, so they are intentionally
+    // excluded here to avoid duplicate events.
+    if (!conferenceParticipants.has(channelName)) {
+      conferenceParticipants.set(channelName, new Set());
+    }
+    conferenceParticipants.get(channelName).add(newParticipantId.toString());
 
     // Notify the new participant they're being added to a call
     io.to(`user:${newParticipantId.toString()}`).emit('added_to_call', {
@@ -1825,6 +1852,11 @@ io.on('connection', (socket) => {
     userActiveChatRoom.delete(authenticatedUserId);
     // If this user was in an active call, remove them from busy tracking.
     activeCallUsers.delete(authenticatedUserId);
+    // Remove disconnected user from any conference participant sets.
+    for (const [channelName, participants] of conferenceParticipants) {
+      participants.delete(authenticatedUserId);
+      if (participants.size === 0) conferenceParticipants.delete(channelName);
+    }
 
     await upsertOnlineStatus(authenticatedUserId, false);
 
