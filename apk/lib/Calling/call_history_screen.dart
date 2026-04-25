@@ -158,7 +158,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     if (call.status == CallStatus.missed && isIncoming) {
       statusIcon = Icons.call_missed;
       statusColor = Colors.red;
-    } else if (call.status == CallStatus.declined) {
+    } else if (call.status == CallStatus.declined || call.status == CallStatus.rejected) {
       statusIcon = Icons.call_end;
       statusColor = Colors.red;
     } else if (call.status == CallStatus.cancelled) {
@@ -239,7 +239,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                           ),
                         ),
                       ),
-                      if (call.status == CallStatus.completed)
+                      if (call.status == CallStatus.completed || call.status == CallStatus.ended)
                         Text(
                           call.getFormattedDuration(),
                           style: TextStyle(

@@ -165,8 +165,10 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
   static Color _statusColor(String s) {
     switch (s) {
       case 'completed': return _kEmerald;
+      case 'ended':     return _kEmerald;
       case 'missed':    return _kAmber;
       case 'declined':  return _kRose;
+      case 'rejected':  return _kRose;
       case 'cancelled': return _kSlate400;
       default:          return _kPrimary;
     }
@@ -174,7 +176,8 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
 
   static IconData _callTypeIcon(String type, String status) {
     if (type == 'video') return Icons.videocam_rounded;
-    if (status == 'missed' || status == 'declined') return Icons.call_missed_rounded;
+    if (type == 'group') return Icons.group_rounded;
+    if (status == 'missed' || status == 'declined' || status == 'rejected') return Icons.call_missed_rounded;
     return Icons.call_rounded;
   }
 
@@ -305,15 +308,24 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
           const SizedBox(width: 8),
           _chip('Video', _callType == 'video', _kViolet, isDark, cs,
             onTap: () { setState(() => _callType = _callType == 'video' ? null : 'video'); _fetch(reset: true); }),
+          const SizedBox(width: 8),
+          _chip('Group', _callType == 'group', _kAmber, isDark, cs,
+            onTap: () { setState(() => _callType = _callType == 'group' ? null : 'group'); _fetch(reset: true); }),
           const SizedBox(width: 16),
           _chip('Completed', _status == 'completed', _kEmerald, isDark, cs,
             onTap: () { setState(() => _status = _status == 'completed' ? null : 'completed'); _fetch(reset: true); }),
+          const SizedBox(width: 8),
+          _chip('Ended', _status == 'ended', _kEmerald, isDark, cs,
+            onTap: () { setState(() => _status = _status == 'ended' ? null : 'ended'); _fetch(reset: true); }),
           const SizedBox(width: 8),
           _chip('Missed',    _status == 'missed',    _kAmber,   isDark, cs,
             onTap: () { setState(() => _status = _status == 'missed' ? null : 'missed'); _fetch(reset: true); }),
           const SizedBox(width: 8),
           _chip('Declined',  _status == 'declined',  _kRose,    isDark, cs,
             onTap: () { setState(() => _status = _status == 'declined' ? null : 'declined'); _fetch(reset: true); }),
+          const SizedBox(width: 8),
+          _chip('Rejected',  _status == 'rejected',  _kRose,    isDark, cs,
+            onTap: () { setState(() => _status = _status == 'rejected' ? null : 'rejected'); _fetch(reset: true); }),
           const SizedBox(width: 8),
           _chip('Cancelled', _status == 'cancelled', _kSlate400, isDark, cs,
             onTap: () { setState(() => _status = _status == 'cancelled' ? null : 'cancelled'); _fetch(reset: true); }),
@@ -452,14 +464,27 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                       decoration: BoxDecoration(
-                        color: (call.callType == 'video' ? _kViolet : _kSky).withOpacity(0.12),
+                        color: (call.callType == 'video'
+                            ? _kViolet
+                            : call.callType == 'group'
+                                ? _kAmber
+                                : _kSky)
+                            .withOpacity(0.12),
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        call.callType == 'video' ? '📹 Video' : '📞 Audio',
+                        call.callType == 'video'
+                            ? '📹 Video'
+                            : call.callType == 'group'
+                                ? '👥 Group'
+                                : '📞 Audio',
                         style: TextStyle(
                           fontSize: 10, fontWeight: FontWeight.w700,
-                          color: call.callType == 'video' ? _kViolet : _kSky,
+                          color: call.callType == 'video'
+                              ? _kViolet
+                              : call.callType == 'group'
+                                  ? _kAmber
+                                  : _kSky,
                         ),
                       ),
                     ),
@@ -490,6 +515,15 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
                     Icon(Icons.timelapse_rounded, size: 12, color: cs.onSurface.withOpacity(0.45)),
                     const SizedBox(width: 4),
                     Text(dur, style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.55))),
+                    if (call.participants.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Icon(Icons.people_outline_rounded, size: 12, color: cs.onSurface.withOpacity(0.45)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${call.participants.length}',
+                        style: TextStyle(fontSize: 11, color: cs.onSurface.withOpacity(0.55)),
+                      ),
+                    ],
                   ],
                 ),
               ],
