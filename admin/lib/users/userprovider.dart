@@ -246,6 +246,7 @@ class UserProvider with ChangeNotifier {
         _applyFilters();
         clearSelection();
 
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['message']?.toString() ??
@@ -254,6 +255,7 @@ class UserProvider with ChangeNotifier {
           ),
         );
       } else {
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['message']?.toString() ?? 'Failed to suspend users'),
@@ -262,6 +264,7 @@ class UserProvider with ChangeNotifier {
         );
       }
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: $e'),
@@ -296,6 +299,7 @@ class UserProvider with ChangeNotifier {
         _applyFilters();
         clearSelection();
 
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['message']?.toString() ??
@@ -304,6 +308,7 @@ class UserProvider with ChangeNotifier {
           ),
         );
       } else {
+        if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(result['message']?.toString() ?? 'Failed to delete users'),
@@ -312,6 +317,7 @@ class UserProvider with ChangeNotifier {
         );
       }
     } catch (e) {
+      if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error: $e'),
