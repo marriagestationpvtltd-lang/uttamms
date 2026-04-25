@@ -102,6 +102,9 @@ if ($filter_type === 'matched') {
 }
 
 if ($search !== '') {
+    // Escape LIKE meta-characters in the search term so they are treated
+    // as literals.  bind_param already handles SQL injection; this only
+    // prevents '%' or '_' in the search string from acting as wildcards.
     $escapedSearch = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search) . '%';
     $whereParts[] = "(u.firstName LIKE ? OR u.lastName LIKE ? OR upd.memberid LIKE ?)";
     $bindTypes  .= "sss";

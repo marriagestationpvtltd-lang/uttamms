@@ -234,6 +234,9 @@ $data = [
     ],
     "contactDetail" => [
         "email" => $row['email'] ?? '',
+        // contactNo is the single contact number stored in the users table.
+        // It is used for both the phone and whatsapp fields since there is
+        // no separate whatsapp column in the database schema.
         "phone" => $row['contactNo'] ?? '',
         "whatsapp" => $row['contactNo'] ?? '',
         "country_code" => ''
