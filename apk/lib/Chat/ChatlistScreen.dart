@@ -177,12 +177,20 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
       final nonAdminRooms =
           parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+
+      // Seed online statuses from cached enriched room data
+      final Map<String, bool> cachedOnline = {};
+      final Map<String, DateTime?> cachedLastSeen = {};
+      _extractOnlineStatusesFromRooms(parsedRooms, cachedOnline, cachedLastSeen);
+
       setState(() {
         _socketChatRooms = parsedRooms;
         _cachedTotalRooms = nonAdminRooms.length;
         _chatRoomsInitialized = true;
         _totalUnreadCount = totalUnread;
         _totalUnreadConversations = unreadConvs;
+        _onlineStatuses.addAll(cachedOnline);
+        _lastSeenTimes.addAll(cachedLastSeen);
       });
       return true;
     } catch (e) {
@@ -450,6 +458,31 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
+  /// Extracts online status and last-seen data from enriched rooms returned by
+  /// the server's [getChatRooms] endpoint and populates [onlineOut] / [lastSeenOut].
+  void _extractOnlineStatusesFromRooms(
+    List<Map<String, dynamic>> rooms,
+    Map<String, bool> onlineOut,
+    Map<String, DateTime?> lastSeenOut,
+  ) {
+    for (final room in rooms) {
+      final rawOnline =
+          room['participantOnlineStatuses'];
+      final rawLastSeen =
+          room['participantLastSeen'];
+      if (rawOnline is Map) {
+        rawOnline.forEach((key, value) {
+          onlineOut[key.toString()] = value == true;
+        });
+      }
+      if (rawLastSeen is Map) {
+        rawLastSeen.forEach((key, value) {
+          lastSeenOut[key.toString()] = SocketService.parseTimestamp(value);
+        });
+      }
+    }
+  }
+
   /// Initialise chat rooms via Socket.IO and subscribe to real-time updates.
   void _initChatRoomsStream() {
     if (userId.isEmpty) return;
@@ -476,12 +509,20 @@ class _ChatListScreenState extends State<ChatListScreen>
         }
         final nonAdminRooms =
             parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+
+        // Seed initial online statuses and last-seen times from enriched room data
+        final Map<String, bool> seedOnline = {};
+        final Map<String, DateTime?> seedLastSeen = {};
+        _extractOnlineStatusesFromRooms(parsedRooms, seedOnline, seedLastSeen);
+
         setState(() {
           _socketChatRooms = parsedRooms;
           _cachedTotalRooms = nonAdminRooms.length;
           _chatRoomsInitialized = true;
           _totalUnreadCount = totalUnread;
           _totalUnreadConversations = unreadConvs;
+          _onlineStatuses.addAll(seedOnline);
+          _lastSeenTimes.addAll(seedLastSeen);
         });
         // Persist fresh data for next launch
         _saveChatRoomsToCache(parsedRooms);
@@ -508,11 +549,19 @@ class _ChatListScreenState extends State<ChatListScreen>
       }
       final nonAdminRooms =
           parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+
+      // Merge latest online statuses from the refreshed room data
+      final Map<String, bool> updatedOnline = {};
+      final Map<String, DateTime?> updatedLastSeen = {};
+      _extractOnlineStatusesFromRooms(parsedRooms, updatedOnline, updatedLastSeen);
+
       setState(() {
         _socketChatRooms = parsedRooms;
         _cachedTotalRooms = nonAdminRooms.length;
         _totalUnreadCount = totalUnread;
         _totalUnreadConversations = unreadConvs;
+        _onlineStatuses.addAll(updatedOnline);
+        _lastSeenTimes.addAll(updatedLastSeen);
       });
       // Keep cache up-to-date with real-time changes
       _saveChatRoomsToCache(parsedRooms);
