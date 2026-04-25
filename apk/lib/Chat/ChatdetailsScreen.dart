@@ -755,6 +755,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         _otherUserLastSeen  = lastSeen;
       });
     });
+
+    // Fetch the current status immediately so the correct online/offline state
+    // is shown when the chat screen first opens (before any status-change event).
+    _socketService.getUserStatus(widget.receiverId).then((data) {
+      if (!mounted) return;
+      final bool online = data['isOnline'] == true;
+      final DateTime? lastSeen = SocketService.parseTimestamp(data['lastSeen']);
+      setState(() {
+        _isOtherUserOnline = online;
+        _otherUserLastSeen  = lastSeen;
+      });
+    });
   }
 
   /// Format lastSeen timestamp into a human-readable "last active" string.
