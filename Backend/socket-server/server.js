@@ -286,6 +286,23 @@ const VALID_ACTIVITY_TYPES = new Set([
   'login','logout','photo_uploaded','package_bought',
 ]);
 
+/**
+ * Masks sensitive data (e.g. phone numbers) in a string.
+ * Replaces all but the first two and last two digits of any 8-15 digit
+ * phone-like sequence with asterisks.
+ * @param {string} text
+ * @returns {string}
+ */
+function maskSensitiveData(text) {
+  if (typeof text !== 'string') return String(text ?? '');
+  // Match optional leading '+', then 8–15 digits (with spaces or dashes between)
+  return text.replace(/\+?(?:\d[\s\-]?){7,14}\d/g, (match) => {
+    const digits = match.replace(/\D/g, '');
+    if (digits.length < 8) return match;
+    return digits.slice(0, 2) + '*'.repeat(digits.length - 4) + digits.slice(-2);
+  });
+}
+
 async function logActivity({ userId, userName = '', targetId = null, targetName = null, activityType, description = '' }) {
   if (!userId || !VALID_ACTIVITY_TYPES.has(activityType)) return;
   try {
@@ -838,15 +855,19 @@ io.on('connection', (socket) => {
   });
 
   // ── admin_join ────────────────────────────────────────────────────────────
-  // Admin panel emits this to subscribe to real-time activity events.
+  // Admin panel emits this to subscribe to real-time activity and message events.
+  // Only sockets authenticated as the admin user (userId === '1') may join.
   socket.on('admin_join', () => {
+    if (authenticatedUserId !== '1') return;
     socket.join('admin_activity');
-    console.log(`🛡️  Admin socket ${socket.id} joined admin_activity room`);
+    socket.join('admin_room');
+    console.log(`🛡️  Admin socket ${socket.id} joined admin_activity and admin_room`);
   });
 
   // ── admin_leave ───────────────────────────────────────────────────────────
   socket.on('admin_leave', () => {
     socket.leave('admin_activity');
+    socket.leave('admin_room');
   });
 
   // ── set_active_chat ───────────────────────────────────────────────────────
@@ -922,6 +943,20 @@ io.on('connection', (socket) => {
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
     io.to(chatRoomId).emit('new_message', clientMsg);
+
+    // ── Real-time admin monitoring ────────────────────────────────────────
+    // Emit full message content (with sensitive data masked) to the admin room
+    // so admins see exact messages in real-time.
+    if (safeMessageType === 'text') {
+      io.to('admin_room').emit('admin_activity', {
+        sender_id:     senderId,
+        receiver_id:   receiverId,
+        sender_name:   user1Name  || `User ${senderId}`,
+        receiver_name: user2Name  || `User ${receiverId}`,
+        message:       maskSensitiveData(safeMessage),
+        timestamp,
+      });
+    }
   });
 
   // ── get_messages ──────────────────────────────────────────────────────────
@@ -1542,7 +1577,7 @@ setInterval(async () => {
       targetId:     msg.receiverId,
       targetName:   msg.user2Name || '',
       activityType: 'message_sent',
-      description:  `${msg.user1Name || 'User '+msg.senderId} le ${msg.user2Name || 'User '+msg.receiverId} lai message pathayo`,
+      description:  `${msg.user1Name || 'User '+msg.senderId} → ${msg.user2Name || 'User '+msg.receiverId}: ${maskSensitiveData(msg.message || '')}`,
     }).catch(() => {});
   }
 

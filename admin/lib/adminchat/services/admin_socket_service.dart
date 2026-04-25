@@ -56,6 +56,7 @@ class AdminSocketService {
   final _participantRejectedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _connectionCtrl = StreamController<bool>.broadcast();
   final _userActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _adminActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -86,6 +87,9 @@ class AdminSocketService {
   /// Emitted by the server whenever a user activity is logged. Admin panel
   /// uses this for real-time activity feed updates.
   Stream<Map<String, dynamic>> get onUserActivity => _userActivityCtrl.stream;
+  /// Emitted by the server immediately when a user sends a text message.
+  /// Payload: { sender_id, receiver_id, sender_name, receiver_name, message, timestamp }
+  Stream<Map<String, dynamic>> get onAdminActivity => _adminActivityCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -223,6 +227,10 @@ class AdminSocketService {
       if (data is Map) _userActivityCtrl.add(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('admin_activity', (data) {
+      if (data is Map) _adminActivityCtrl.add(Map<String, dynamic>.from(data));
+    });
+
     _socket!.connect();
   }
 
@@ -257,6 +265,8 @@ class AdminSocketService {
     _participantAcceptedCallCtrl.close();
     _participantRejectedCallCtrl.close();
     _connectionCtrl.close();
+    _userActivityCtrl.close();
+    _adminActivityCtrl.close();
   }
 
   Future<bool> ensureConnected() async {
