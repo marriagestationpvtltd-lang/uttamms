@@ -70,6 +70,8 @@ if (empty($_FILES['tone']) || $_FILES['tone']['error'] !== UPLOAD_ERR_OK) {
 $allowedMimes = [
     'audio/mpeg', 'audio/mp3', 'audio/aac', 'audio/ogg',
     'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/x-m4a', 'audio/m4a',
+    // webm audio (Flutter sends audio/webm for .webm files via _audioMediaType)
+    'audio/webm', 'video/webm',
     // Flutter Web sends files as application/octet-stream; extension check below handles safety
     'application/octet-stream',
 ];
@@ -77,7 +79,7 @@ $allowedMimes = [
 $fileMime = mime_content_type($_FILES['tone']['tmp_name']);
 if (!in_array($fileMime, $allowedMimes, true)) {
     http_response_code(422);
-    echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, aac, ogg, wav, m4a']);
+    echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, mp4, aac, ogg, wav, m4a, webm']);
     exit;
 }
 
@@ -99,7 +101,7 @@ if (!is_dir($uploadDir)) {
 
 $originalName = basename($_FILES['tone']['name']);
 $ext          = strtolower(pathinfo($originalName, PATHINFO_EXTENSION));
-$allowedExts  = ['mp3', 'aac', 'ogg', 'wav', 'm4a'];
+$allowedExts  = ['mp3', 'mp4', 'aac', 'ogg', 'wav', 'm4a', 'webm'];
 if (!in_array($ext, $allowedExts, true)) {
     $ext = 'mp3';
 }
