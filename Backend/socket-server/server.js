@@ -2007,7 +2007,7 @@ io.on('connection', (socket) => {
             SET end_time = UTC_TIMESTAMP(),
                 duration = GREATEST(0, TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP())),
                 status   = IF(status = 'missed', 'missed',
-                           IF(duration > 0, 'ended', 'missed')),
+                           IF(TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP()) > 0, 'ended', 'missed')),
                 ended_by = COALESCE(ended_by, ?)
           WHERE (caller_id = ? OR recipient_id = ?)
             AND end_time IS NULL
