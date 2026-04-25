@@ -6,12 +6,11 @@ import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../Auth/Screen/Edit/3edit.dart';
-import '../Auth/Screen/Edit/Community.dart';
-import '../Auth/Screen/Edit/Personal.dart' show PersonalDetailsPageEdit;
-import '../Auth/Screen/Edit/edit5.dart';
-import '../Auth/Screen/Edit/edit6.dart';
-import '../Auth/Screen/Edit/edit7.dart';
+import '../Auth/Screen/signupscreen2.dart';
+import '../Auth/Screen/signupscreen3.dart';
+import '../Auth/Screen/signupscreen5.dart';
+import '../Auth/Screen/signupscreen6.dart';
+import '../Auth/Screen/signupscreen8.dart';
 import '../Auth/Screen/signupscreen9.dart';
 import '../Auth/SuignupModel/signup_model.dart';
 import '../DeleteAccount/deleteAccointScreen.dart';
@@ -716,35 +715,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
         iconColor: AppColors.secondary,
         title: 'Personal Details',
         subtitle: 'Update your personal information',
-        onTap: () => _openEdit(PersonalDetailsPageEdit()),
+        onTap: () => _openEdit(const PersonalDetailsPage(isEditMode: true)),
       ),
       _buildTile(
         icon: Icons.people_outline,
         iconColor: Colors.teal,
         title: 'Community Details',
         subtitle: 'Religion, caste, mother tongue',
-        onTap: () => _openEdit(CommunityDetailsPageEdit()),
+        onTap: () => _openEdit(const CommunityDetailsPage(isEditMode: true)),
       ),
       _buildTile(
         icon: Icons.work_outline,
         iconColor: Colors.indigo,
         title: 'Education & Career',
         subtitle: 'Degree, designation, income',
-        onTap: () => _openEdit(EducationCareerPagee()),
+        onTap: () => _openEdit(const EducationCareerPage(isEditMode: true)),
       ),
       _buildTile(
         icon: Icons.family_restroom,
         iconColor: Colors.deepOrange,
         title: 'Family Details',
         subtitle: 'Family background information',
-        onTap: () => _openEdit(FamilyDetailsPagee()),
+        onTap: () => _openEdit(const FamilyDetailsPage(isEditMode: true)),
       ),
       _buildTile(
         icon: Icons.favorite_outline,
         iconColor: Colors.pink,
         title: 'Lifestyle',
         subtitle: 'Habits and lifestyle preferences',
-        onTap: () => _openEdit(LifestylePagee()),
+        onTap: () => _openEdit(const LifestylePage(isEditMode: true)),
       ),
       _buildTile(
         icon: Icons.search,

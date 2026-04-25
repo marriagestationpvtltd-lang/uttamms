@@ -9,11 +9,11 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../Auth/Screen/Edit/3edit.dart';
-import '../Auth/Screen/Edit/Community.dart';
-import '../Auth/Screen/Edit/edit5.dart';
-import '../Auth/Screen/Edit/edit6.dart';
-import '../Auth/Screen/Edit/edit7.dart';
+import '../Auth/Screen/signupscreen2.dart';
+import '../Auth/Screen/signupscreen3.dart';
+import '../Auth/Screen/signupscreen5.dart';
+import '../Auth/Screen/signupscreen6.dart';
+import '../Auth/Screen/signupscreen8.dart';
 import '../Auth/Screen/signupscreen9.dart';
 import '../Auth/Screen/signupscreen10.dart';
 import '../Auth/SuignupModel/signup_model.dart';
@@ -3287,7 +3287,8 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   void _editBasicInfo() {
     _openEditPage(
-      PersonalDetailsPagee(
+      PersonalDetailsPage(
+        isEditMode: true,
         initialData: _asMap(profileData?['personalDetail']),
       ),
       onReturn: _refreshPersonalSection,
@@ -3474,9 +3475,9 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
     // Pass verification status directly to edit screen - no confirmation dialog
     // The edit screen will handle locking verified fields with visual indicators
     _openEditPage(
-      PersonalDetailsPagee(
+      PersonalDetailsPage(
+        isEditMode: true,
         initialData: _asMap(profileData?['personalDetail']),
-        isVerified: context.read<UserState>().isVerified, // Pass verification status to edit screen
       ),
       onReturn: _refreshPersonalSection,
     );
@@ -3484,7 +3485,8 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   void _editCommunityDetails() {
     _openEditPage(
-      CommunityDetailsPageEdit(
+      CommunityDetailsPage(
+        isEditMode: true,
         initialData: _asMap(profileData?['personalDetail']),
       ),
       onReturn: fetchProfileData,
@@ -3493,7 +3495,8 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   void _editProfessionalDetails() {
     _openEditPage(
-      EducationCareerPagee(
+      EducationCareerPage(
+        isEditMode: true,
         initialData: _asMap(profileData?['personalDetail']),
       ),
       onReturn: _refreshProfessionalSection,
@@ -3502,8 +3505,9 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   void _editFamilyDetails() {
     _openEditPage(
-      FamilyDetailsPagee(
-        initialFamilyData: _asMap(profileData?['familyDetail']),
+      FamilyDetailsPage(
+        isEditMode: true,
+        initialData: _asMap(profileData?['familyDetail']),
       ),
       onReturn: _refreshFamilySection,
     );
@@ -3511,7 +3515,8 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   void _editLifestyle() {
     _openEditPage(
-      LifestylePagee(
+      LifestylePage(
+        isEditMode: true,
         initialData: _asMap(profileData?['lifestyle']),
       ),
       onReturn: _refreshLifestyleSection,

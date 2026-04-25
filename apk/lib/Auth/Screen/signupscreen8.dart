@@ -12,7 +12,14 @@ import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class LifestylePage extends StatefulWidget {
-  const LifestylePage({super.key});
+  const LifestylePage({
+    super.key,
+    this.isEditMode = false,
+    this.initialData,
+  });
+
+  final bool isEditMode;
+  final Map<String, dynamic>? initialData;
 
   @override
   State<LifestylePage> createState() => _LifestylePageState();
@@ -82,6 +89,30 @@ class _LifestylePageState extends State<LifestylePage> {
   @override
   void initState() {
     super.initState();
+    if (widget.isEditMode && widget.initialData != null) {
+      _populateFromInitialData(widget.initialData!);
+    }
+  }
+
+  String? _getValidValue(dynamic value, List<String> options) {
+    if (value == null) return null;
+    final str = value.toString();
+    if (str.isEmpty) return null;
+    try {
+      return options.firstWhere(
+        (o) => o.toLowerCase() == str.toLowerCase(),
+      );
+    } catch (_) {
+      return str;
+    }
+  }
+
+  void _populateFromInitialData(Map<String, dynamic> data) {
+    _selectedDiet = _getValidValue(data['diet'], _dietOptions);
+    _selectedDrink = _getValidValue(data['drinks'], _drinkOptions);
+    _selectedDrinkType = _getValidValue(data['drinktype'], _drinkTypeOptions);
+    _selectedSmoke = _getValidValue(data['smoke'], _smokeOptions);
+    _selectedSmokeType = _getValidValue(data['smoketype'], _smokeTypeOptions);
   }
 
   @override
@@ -590,19 +621,25 @@ class _LifestylePageState extends State<LifestylePage> {
       if (data['status'] == 'success') {
         _showSuccess(data['message'] ?? "Lifestyle details saved successfully!");
 
-        // Update page number
-        await UpdateService.updatePageNumber(
-          userId: userId.toString(),
-          pageNo: 7,
-        );
-
-        // Navigate to next page
-        Future.delayed(const Duration(seconds: 1), () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const PartnerPreferencesPage()),
+        if (widget.isEditMode) {
+          Future.delayed(const Duration(seconds: 1), () {
+            if (mounted) Navigator.pop(context);
+          });
+        } else {
+          // Update page number
+          await UpdateService.updatePageNumber(
+            userId: userId.toString(),
+            pageNo: 7,
           );
-        });
+
+          // Navigate to next page
+          Future.delayed(const Duration(seconds: 1), () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => const PartnerPreferencesPage()),
+            );
+          });
+        }
       } else {
         _showError(data['message'] ?? "Submission failed. Please try again.");
       }
