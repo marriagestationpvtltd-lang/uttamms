@@ -17,6 +17,9 @@ const { v4: uuidv4 } = require('uuid');
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
+// Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
+// Any value other than the exact string 'false' (including undefined/missing) enables calls.
+const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
 
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
@@ -101,36 +104,12 @@ pool.getConnection()
         \`duration\`        INT          NOT NULL DEFAULT 0,
         \`status\`          ENUM('completed','missed','declined','cancelled') NOT NULL DEFAULT 'missed',
         \`initiated_by\`    VARCHAR(50)  NOT NULL,
-        \`recording_uid\`   VARCHAR(200) DEFAULT NULL,
-        \`recording_sid\`   VARCHAR(200) DEFAULT NULL,
-        \`recording_resource_id\` VARCHAR(500) DEFAULT NULL,
-        \`recording_url\`   VARCHAR(1000) DEFAULT NULL,
         INDEX \`idx_caller\`     (\`caller_id\`),
         INDEX \`idx_recipient\`  (\`recipient_id\`),
         INDEX \`idx_start_time\` (\`start_time\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log('✅ call_history table ready');
-
-    // Add recording columns to call_history if not present (idempotent upgrade).
-    const recordingCols = ['recording_uid', 'recording_sid', 'recording_resource_id', 'recording_url'];
-    for (const col of recordingCols) {
-      const [[exists]] = await conn.query(
-        `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-          WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'call_history' AND COLUMN_NAME = ?
-          LIMIT 1`,
-        [dbName, col],
-      );
-      if (!exists) {
-        const def = col === 'recording_url'
-          ? 'VARCHAR(1000) DEFAULT NULL'
-          : col === 'recording_resource_id'
-            ? 'VARCHAR(500) DEFAULT NULL'
-            : 'VARCHAR(200) DEFAULT NULL';
-        await conn.query(`ALTER TABLE call_history ADD COLUMN \`${col}\` ${def}`);
-        console.log(`✅ Added ${col} column to call_history`);
-      }
-    }
 
     // Create user_activities table if not present (idempotent).
     await conn.query(`
@@ -455,88 +434,11 @@ app.get('/api/calls', async (req, res) => {
       duration:       r.duration,
       status:         r.status,
       initiatedBy:    r.initiated_by,
-      recordingUrl:   r.recording_url || null,
     }));
 
     res.json({ success: true, calls });
   } catch (err) {
     console.error('GET /api/calls error:', err.message);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// GET /api/admin/calls — Admin endpoint: paginated call history for all users
-app.get('/api/admin/calls', async (req, res) => {
-  try {
-    const page     = Math.max(1, parseInt(req.query.page  || '1',   10));
-    const limit    = Math.min(100, Math.max(1, parseInt(req.query.limit || '50', 10)));
-    const offset   = (page - 1) * limit;
-    const search   = (req.query.search  || '').toString().trim();
-    const callType = (req.query.callType || '').toString().trim();
-    const status   = (req.query.status  || '').toString().trim();
-    const dateFrom = (req.query.dateFrom || '').toString().trim();
-    const dateTo   = (req.query.dateTo   || '').toString().trim();
-
-    const where  = [];
-    const params = [];
-
-    if (search) {
-      where.push('(caller_name LIKE ? OR recipient_name LIKE ? OR caller_id = ? OR recipient_id = ?)');
-      const like = `%${search}%`;
-      params.push(like, like, search, search);
-    }
-    if (callType === 'audio' || callType === 'video') {
-      where.push('call_type = ?');
-      params.push(callType);
-    }
-    const allowedStatuses = ['completed', 'missed', 'declined', 'cancelled'];
-    if (allowedStatuses.includes(status)) {
-      where.push('status = ?');
-      params.push(status);
-    }
-    if (dateFrom) { where.push('DATE(start_time) >= ?'); params.push(dateFrom); }
-    if (dateTo)   { where.push('DATE(start_time) <= ?'); params.push(dateTo);   }
-
-    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-
-    const [[{ total }]] = await pool.query(
-      `SELECT COUNT(*) AS total FROM call_history ${whereSql}`,
-      params,
-    );
-
-    const dataParams = [...params, limit, offset];
-    const [rows] = await pool.query(
-      `SELECT * FROM call_history ${whereSql} ORDER BY start_time DESC LIMIT ? OFFSET ?`,
-      dataParams,
-    );
-
-    const calls = rows.map(r => ({
-      callId:         r.call_id,
-      callerId:       r.caller_id,
-      callerName:     r.caller_name,
-      callerImage:    r.caller_image,
-      recipientId:    r.recipient_id,
-      recipientName:  r.recipient_name,
-      recipientImage: r.recipient_image,
-      callType:       r.call_type,
-      startTime:      r.start_time ? r.start_time.toISOString() : null,
-      endTime:        r.end_time   ? r.end_time.toISOString()   : null,
-      duration:       r.duration,
-      status:         r.status,
-      initiatedBy:    r.initiated_by,
-      recordingUrl:   r.recording_url || null,
-    }));
-
-    res.json({
-      success:    true,
-      calls,
-      total:      Number(total),
-      page,
-      limit,
-      totalPages: total > 0 ? Math.ceil(Number(total) / limit) : 1,
-    });
-  } catch (err) {
-    console.error('GET /api/admin/calls error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -563,197 +465,6 @@ app.delete('/api/calls/user/:userId', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/calls/user/:userId error:', err.message);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Agora Cloud Recording REST API integration
-// Docs: https://docs.agora.io/en/cloud-recording/
-//
-// Required env vars:
-//   AGORA_APP_ID          – Agora App ID (same as mobile app)
-//   AGORA_CUSTOMER_ID     – Agora Customer ID (RESTful API credential)
-//   AGORA_CUSTOMER_SECRET – Agora Customer Secret
-//   AGORA_STORAGE_VENDOR  – 1=Qiniu, 2=Amazon S3, 3=Alibaba, 6=Microsoft Azure
-//   AGORA_STORAGE_REGION  – Storage region number (vendor-specific)
-//   AGORA_STORAGE_BUCKET  – Storage bucket name
-//   AGORA_STORAGE_KEY     – Storage access key
-//   AGORA_STORAGE_SECRET  – Storage secret
-// ──────────────────────────────────────────────────────────────────────────────
-
-const AGORA_APP_ID          = process.env.AGORA_APP_ID          || '';
-const AGORA_CUSTOMER_ID     = process.env.AGORA_CUSTOMER_ID     || '';
-const AGORA_CUSTOMER_SECRET = process.env.AGORA_CUSTOMER_SECRET || '';
-const AGORA_STORAGE_VENDOR  = parseInt(process.env.AGORA_STORAGE_VENDOR  || '0', 10);
-const AGORA_STORAGE_REGION  = parseInt(process.env.AGORA_STORAGE_REGION  || '0', 10);
-const AGORA_STORAGE_BUCKET  = process.env.AGORA_STORAGE_BUCKET  || '';
-const AGORA_STORAGE_KEY     = process.env.AGORA_STORAGE_KEY     || '';
-const AGORA_STORAGE_SECRET  = process.env.AGORA_STORAGE_SECRET  || '';
-
-const AGORA_RECORDING_BASE  = `https://api.agora.io/v1/apps/${AGORA_APP_ID}/cloud_recording`;
-
-function _agoraAuthHeader() {
-  const cred = Buffer.from(`${AGORA_CUSTOMER_ID}:${AGORA_CUSTOMER_SECRET}`).toString('base64');
-  return `Basic ${cred}`;
-}
-
-function _agoraEnabled() {
-  return AGORA_APP_ID && AGORA_CUSTOMER_ID && AGORA_CUSTOMER_SECRET && AGORA_STORAGE_BUCKET;
-}
-
-// POST /api/calls/:callId/start-recording
-// Body: { channelName, uid (string UID used for recording bot) }
-app.post('/api/calls/:callId/start-recording', async (req, res) => {
-  if (!_agoraEnabled()) {
-    return res.status(501).json({ error: 'Agora cloud recording is not configured on this server.' });
-  }
-  try {
-    const { callId } = req.params;
-    const { channelName, uid = '0' } = req.body || {};
-    if (!channelName) return res.status(400).json({ error: 'channelName is required' });
-
-    // 1. Acquire a resource
-    const acquireResp = await fetch(`${AGORA_RECORDING_BASE}/acquire`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: _agoraAuthHeader() },
-      body: JSON.stringify({ cname: channelName, uid, clientRequest: { resourceExpiredHour: 24 } }),
-    });
-    if (!acquireResp.ok) {
-      const txt = await acquireResp.text();
-      console.error('Agora acquire failed:', acquireResp.status, txt);
-      return res.status(502).json({ error: 'Failed to acquire Agora recording resource' });
-    }
-    const { resourceId } = await acquireResp.json();
-
-    // 2. Start composite recording
-    const startResp = await fetch(
-      `${AGORA_RECORDING_BASE}/resourceid/${resourceId}/mode/mix/start`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: _agoraAuthHeader() },
-        body: JSON.stringify({
-          cname: channelName,
-          uid,
-          clientRequest: {
-            token: '',   // pass token if the channel requires one
-            recordingConfig: {
-              maxIdleTime:          30,
-              streamTypes:          2,   // 0=audio only, 1=video only, 2=audio+video
-              channelType:          0,   // 0=communication
-              videoStreamType:      0,
-              transcodingConfig: {
-                width: 360, height: 640, fps: 15, bitrate: 500,
-                mixedVideoLayout: 1, backgroundColor: '#000000',
-              },
-            },
-            storageConfig: {
-              vendor:    AGORA_STORAGE_VENDOR,
-              region:    AGORA_STORAGE_REGION,
-              bucket:    AGORA_STORAGE_BUCKET,
-              accessKey: AGORA_STORAGE_KEY,
-              secretKey: AGORA_STORAGE_SECRET,
-              fileNamePrefix: ['recordings', channelName],
-            },
-          },
-        }),
-      },
-    );
-    if (!startResp.ok) {
-      const txt = await startResp.text();
-      console.error('Agora start-recording failed:', startResp.status, txt);
-      return res.status(502).json({ error: 'Failed to start Agora recording' });
-    }
-    const { sid } = await startResp.json();
-
-    // Persist resourceId and sid in call_history for later stop
-    await pool.query(
-      'UPDATE call_history SET recording_resource_id = ?, recording_sid = ?, recording_uid = ? WHERE call_id = ?',
-      [resourceId, sid, uid, callId],
-    );
-
-    console.log(`🎙️  Recording started for callId=${callId} resourceId=${resourceId} sid=${sid}`);
-    res.json({ success: true, resourceId, sid });
-  } catch (err) {
-    console.error('POST /api/calls/:callId/start-recording error:', err.message);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// POST /api/calls/:callId/stop-recording
-app.post('/api/calls/:callId/stop-recording', async (req, res) => {
-  if (!_agoraEnabled()) {
-    return res.status(501).json({ error: 'Agora cloud recording is not configured on this server.' });
-  }
-  try {
-    const { callId } = req.params;
-
-    // Fetch recording state from DB
-    const [[call]] = await pool.query(
-      'SELECT recording_resource_id, recording_sid, recording_uid, caller_id, recipient_id FROM call_history WHERE call_id = ? LIMIT 1',
-      [callId],
-    );
-    if (!call || !call.recording_resource_id || !call.recording_sid) {
-      return res.status(404).json({ error: 'No active recording found for this call' });
-    }
-
-    // We need the channelName — derive from the call_id or fetch it; use call_id as channel
-    // (matches what the mobile app uses as channelName = callId UUID)
-    const channelName = callId;
-    const uid         = call.recording_uid || '0';
-
-    const stopResp = await fetch(
-      `${AGORA_RECORDING_BASE}/resourceid/${call.recording_resource_id}/sid/${call.recording_sid}/mode/mix/stop`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: _agoraAuthHeader() },
-        body: JSON.stringify({
-          cname: channelName,
-          uid,
-          clientRequest: {},
-        }),
-      },
-    );
-    if (!stopResp.ok) {
-      const txt = await stopResp.text();
-      console.error('Agora stop-recording failed:', stopResp.status, txt);
-      return res.status(502).json({ error: 'Failed to stop Agora recording' });
-    }
-    const stopData = await stopResp.json();
-
-    // Extract the recording file URL(s) from serverResponse
-    const serverResponse = stopData.serverResponse || {};
-    const fileList = serverResponse.fileList || [];
-    let recordingUrl = null;
-    if (Array.isArray(fileList) && fileList.length > 0) {
-      // Use the first file (typically the composite audio+video file)
-      const firstFile = fileList[0];
-      recordingUrl = firstFile.fileName
-        ? `https://${AGORA_STORAGE_BUCKET}.s3.amazonaws.com/${firstFile.fileName}`
-        : null;
-    } else if (typeof fileList === 'string') {
-      recordingUrl = fileList;
-    }
-
-    if (recordingUrl) {
-      await pool.query(
-        'UPDATE call_history SET recording_url = ? WHERE call_id = ?',
-        [recordingUrl, callId],
-      );
-    }
-
-    // Notify admin room that a recording is now available
-    io.to('admin_activity').emit('call_recording_ready', {
-      callId,
-      recordingUrl,
-      callerId:    call.caller_id,
-      recipientId: call.recipient_id,
-    });
-
-    console.log(`🎙️  Recording stopped for callId=${callId} url=${recordingUrl}`);
-    res.json({ success: true, recordingUrl, fileList });
-  } catch (err) {
-    console.error('POST /api/calls/:callId/stop-recording error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1531,6 +1242,7 @@ io.on('connection', (socket) => {
   // Caller emits this to invite a recipient. Delivered to recipient's personal
   // room if they are online; caller should also send a FCM push as fallback.
   socket.on('call_invite', async (data) => {
+    if (!CALLS_ENABLED) return;
     const { recipientId, callerId, ...rest } = data || {};
     if (!recipientId) return;
 
