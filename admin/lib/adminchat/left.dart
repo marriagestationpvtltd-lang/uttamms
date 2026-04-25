@@ -262,11 +262,44 @@ class _ChatSidebarState extends State<ChatSidebar> {
     _newMessageSub = _socketService.onNewMessage.listen((data) {
       if (!mounted) return;
       final senderIdStr = data['senderId']?.toString() ?? '';
-      if (senderIdStr.isEmpty || senderIdStr == senderId.toString()) return;
-      _handleIncomingMessage(
-        senderIdStr: senderIdStr,
-        message: _messagePreviewFromSocket(data),
-      );
+      final receiverIdStr = data['receiverId']?.toString() ?? '';
+
+      // Determine which user's conversation row should be updated/sorted.
+      final String userId;
+      final bool isIncoming;
+      if (senderIdStr == senderId.toString()) {
+        // Admin sent the message – bring the receiver to the top.
+        if (receiverIdStr.isEmpty || receiverIdStr == senderId.toString()) return;
+        userId = receiverIdStr;
+        isIncoming = false;
+      } else {
+        // User sent a message to admin.
+        if (senderIdStr.isEmpty) return;
+        userId = senderIdStr;
+        isIncoming = true;
+        // Play notification sound / show browser notification.
+        _handleIncomingMessage(
+          senderIdStr: senderIdStr,
+          message: _messagePreviewFromSocket(data),
+        );
+      }
+
+      // Update conversationMap so this user sorts to the top under 'recent'.
+      final preview = _messagePreviewFromSocket(data);
+      conversationMap[userId] = {
+        ...?conversationMap[userId],
+        'lastMessage': data['message']?.toString() ?? '',
+        'lastMessagePreview': preview,
+        'lastTimestamp': DateTime.now(),
+        'lastMessageType': data['messageType']?.toString() ?? 'text',
+      };
+
+      // Increment local unread badge for incoming messages from non-active users.
+      if (isIncoming && _selectedChat?['id']?.toString() != userId) {
+        _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
+      }
+
+      _applyFilters();
     });
 
     _statusSub?.cancel();
