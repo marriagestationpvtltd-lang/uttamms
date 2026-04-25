@@ -698,9 +698,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
       }).toList();
 
       // Apply sorting
-      if (_sortBy != 'recent') {
-        _sortUsers();
-      }
+      _sortUsers();
 
       // Ensure selected chat is still in filtered list.
       // Use ID-based lookup so stale object references (after _users is
@@ -1172,6 +1170,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             isSelected,
                             _unreadCounts[user["id"].toString()] ?? 0,
                             _isUserVerified(user["is_verified"]),
+                            user["gender"]?.toString() ?? "",
                             () {
                               setState(() {
                                 _selectedChat = user;
@@ -1203,11 +1202,17 @@ class _ChatSidebarState extends State<ChatSidebar> {
     bool isSelected,
     int unreadCount,
     bool isVerified,
+    String gender,
     VoidCallback onTap,
   ) {
     final c = ChatColors.of(context);
 
     final bool hasUnread = unreadCount > 0;
+
+    // Gender-based avatar background colour (shown when there is no photo).
+    final Color avatarFallbackColor = gender.toLowerCase() == 'female'
+        ? const Color(0xFFFCE4EC) // soft pink for female
+        : const Color(0xFFE3F2FD); // soft blue for male
 
     return GestureDetector(
       onTap: onTap,
@@ -1231,12 +1236,20 @@ class _ChatSidebarState extends State<ChatSidebar> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: c.cardBg,
+                  backgroundColor: profileImage.isEmpty ? avatarFallbackColor : c.cardBg,
                   backgroundImage: profileImage.isNotEmpty
                       ? NetworkImage(profileImage)
                       : null,
                   child: profileImage.isEmpty
-                      ? Icon(Icons.person, color: Colors.grey[400], size: 20)
+                      ? Icon(
+                          gender.toLowerCase() == 'female'
+                              ? Icons.female
+                              : Icons.male,
+                          color: gender.toLowerCase() == 'female'
+                              ? const Color(0xFFE91E63)
+                              : const Color(0xFF1565C0),
+                          size: 20,
+                        )
                       : null,
                 ),
                 Positioned(
