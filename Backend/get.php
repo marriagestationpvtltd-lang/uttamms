@@ -30,17 +30,19 @@ $search       = trim($_GET['search'] ?? '');
 // ── Pre-compute opposite-gender counts (for match count field) ────────────────
 // This replaces one per-user COUNT query with a single aggregation.
 $genderCounts = ['Male' => 0, 'Female' => 0];
-$gcRes = $conn->query(
-    "SELECT gender, COUNT(*) AS cnt FROM users WHERE id != " . ADMIN_ID . " GROUP BY gender"
-);
+$gcStmt = $conn->prepare("SELECT gender, COUNT(*) AS cnt FROM users WHERE id != ? GROUP BY gender");
+$adminId = ADMIN_ID;
+$gcStmt->bind_param("i", $adminId);
+$gcStmt->execute();
+$gcRes = $gcStmt->get_result();
 while ($r = $gcRes->fetch_assoc()) {
     $genderCounts[$r['gender']] = intval($r['cnt']);
 }
 
 // ── Build WHERE clause ────────────────────────────────────────────────────────
-$whereParts = ["u.id != " . ADMIN_ID];
-$params     = [];
-$types      = '';
+$whereParts = ["u.id != ?"];
+$params     = [ADMIN_ID];
+$types      = 'i';
 
 if ($singleUserId > 0) {
     $whereParts[] = "u.id = ?";

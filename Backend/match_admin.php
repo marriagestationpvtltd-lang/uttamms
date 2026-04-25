@@ -239,7 +239,11 @@ while ($row = $matches->fetch_assoc()) {
         ? round(($matchedWeight / $totalWeight) * 100)
         : 50;
 
-    // Apply filter_type='matched' (only users with >0% match)
+    // Apply filter_type='matched': only include profiles with >0% match.
+    // Match percentage is calculated in PHP (complex weighted logic) so it
+    // cannot be pushed to SQL without duplicating the logic. Pagination
+    // (per_page rows fetched per request) limits the dataset size to keep
+    // this in-memory filter fast in practice.
     if ($filterType === 'matched' && $hasPreference && $matchPercent === 0) {
         continue;
     }

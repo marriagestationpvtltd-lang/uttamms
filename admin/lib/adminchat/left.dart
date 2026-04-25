@@ -1243,8 +1243,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
                   child: profileImage.isEmpty
                       ? Icon(
                           gender.toLowerCase() == 'female'
-                              ? Icons.person
-                              : Icons.person,
+                              ? Icons.female
+                              : Icons.male,
                           color: gender.toLowerCase() == 'female'
                               ? const Color(0xFFE91E63)
                               : const Color(0xFF1565C0),
