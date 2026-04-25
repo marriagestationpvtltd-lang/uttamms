@@ -14,6 +14,7 @@ import '../adminchat/chatprovider.dart';
 import '../adminchat/loading.dart';
 import '../adminchat/services/web_notification_service.dart';
 import '../activity/activity_feed_screen.dart';
+import '../activity/message_monitor_screen.dart';
 import '../dashboard/dashboardhome.dart';
 import '../document/screens/docscreen.dart';
 import '../package/packageScreen.dart';
@@ -85,6 +86,7 @@ class _DashboardPageState extends State<DashboardPage> {
       ),
       const CallSettingsScreen(),
       const ActivityFeedScreen(),
+      const MessageMonitorScreen(),
     ];
     _startGlobalConversationListener();
     _onChatNotifEvent = _handleChatNotifJsEvent;
@@ -230,6 +232,7 @@ class _DashboardPageState extends State<DashboardPage> {
     _NavItem(icon: Icons.handshake_rounded,   label: 'Requests'),
     _NavItem(icon: Icons.tune_rounded,        label: 'Call Settings'),
     _NavItem(icon: Icons.timeline_rounded,    label: 'Activities'),
+    _NavItem(icon: Icons.monitor_heart_rounded, label: 'Messages'),
   ];
 
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
@@ -422,6 +425,7 @@ class _DashboardPageState extends State<DashboardPage> {
                   6: permissions.canManageRequests,
                   7: permissions.canManageSettings,
                   8: permissions.canViewActivities,
+                  9: permissions.canMonitorMessages,
                 };
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -675,7 +679,7 @@ class _DashboardPageState extends State<DashboardPage> {
       6: permissions.canManageRequests,         // Requests
       7: permissions.canManageSettings,         // Call Settings
       8: permissions.canViewActivities,         // Activities
-      // Index 9 (Call History) removed during stable-state restoration
+      9: permissions.canMonitorMessages,        // Messages
     };
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
