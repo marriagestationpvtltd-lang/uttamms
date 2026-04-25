@@ -1177,6 +1177,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             isSelected,
                             _unreadCounts[user["id"].toString()] ?? 0,
                             _isUserVerified(user["is_verified"]),
+                            user["gender"]?.toString() ?? "",
                             () {
                               setState(() {
                                 _selectedChat = user;
@@ -1208,11 +1209,26 @@ class _ChatSidebarState extends State<ChatSidebar> {
     bool isSelected,
     int unreadCount,
     bool isVerified,
+    String gender,
     VoidCallback onTap,
   ) {
     final c = ChatColors.of(context);
 
     final bool hasUnread = unreadCount > 0;
+
+    // Determine border color based on gender
+    Color getBorderColor() {
+      if (isSelected || hasUnread) {
+        return c.primary;
+      }
+      // Male: blue border, Female: pink border
+      if (gender.toLowerCase() == 'male' || gender.toLowerCase() == 'm') {
+        return const Color(0xFF3B82F6); // Blue for males
+      } else if (gender.toLowerCase() == 'female' || gender.toLowerCase() == 'f') {
+        return const Color(0xFFEC4899); // Pink for females
+      }
+      return c.border; // Default border color
+    }
 
     return GestureDetector(
       onTap: onTap,
@@ -1223,11 +1239,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
               : hasUnread
                   ? c.primaryLight
                   : c.sidebar,
-          border: isSelected
-              ? Border(left: BorderSide(color: c.primary, width: 3))
-              : hasUnread
-                  ? Border(left: BorderSide(color: c.primary, width: 3))
-                  : null,
+          border: Border(left: BorderSide(color: getBorderColor(), width: 3)),
         ),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         child: Row(
