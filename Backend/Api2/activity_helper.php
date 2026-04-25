@@ -100,9 +100,8 @@ if (!function_exists('logActivity')) {
             $stmt = $db->prepare("
                 INSERT INTO user_activities
                     (user_id, activity_type, description,
-                     target_user_id, target_name, user_name,
-                     ip_address, device_info)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     target_id, target_name, user_name)
+                VALUES (?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $userId,
@@ -111,8 +110,6 @@ if (!function_exists('logActivity')) {
                 $targetUserId,
                 $targetName,
                 $userName,
-                $ipAddress,
-                $deviceInfo,
             ]);
 
         } catch (Throwable $e) {

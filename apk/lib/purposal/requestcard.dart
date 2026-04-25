@@ -19,6 +19,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'Purposalmodel.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/service/socket_service.dart';
 
 class RequestCardDynamic extends StatefulWidget {
   final ProposalModel data;
@@ -565,6 +566,13 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
             targetUserId: widget.data.senderId ?? '',
             description: '${widget.data.requestType ?? 'Request'} request accepted',
           );
+          // Notify admin panel in real-time via socket
+          SocketService().emitNewActivity(
+            userId:       widget.userid,
+            activityType: ActivityType.requestAccepted,
+            description:  '${widget.data.requestType ?? 'Request'} request accepted',
+            targetId:     widget.data.senderId ?? '',
+          );
           final senderName = await NotificationInboxService.getCurrentUserDisplayName();
           await NotificationService.sendRequestAccepted(
             recipientUserId: widget.data.senderId ?? '',
@@ -761,6 +769,13 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
             activityType: ActivityType.requestRejected,
             targetUserId: widget.data.senderId ?? '',
             description: '${widget.data.requestType ?? 'Request'} request rejected',
+          );
+          // Notify admin panel in real-time via socket
+          SocketService().emitNewActivity(
+            userId:       widget.userid,
+            activityType: ActivityType.requestRejected,
+            description:  '${widget.data.requestType ?? 'Request'} request rejected',
+            targetId:     widget.data.senderId ?? '',
           );
           final senderName = await NotificationInboxService.getCurrentUserDisplayName();
           await NotificationService.sendRequestRejected(

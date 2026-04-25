@@ -10,6 +10,7 @@ import '../Startup/MainControllere.dart';
 import '../constant/design_system.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/service/socket_service.dart';
 
 class PaymentPage extends StatefulWidget {
   final double amount;
@@ -1076,7 +1077,13 @@ class _PaymentPageState extends State<PaymentPage> {
         ActivityService.instance.log(
           userId: userId.toString(),
           activityType: ActivityType.packageBought,
-          description: 'Package ${widget.packageId} purchased via $paidBy',
+          description: 'Package ${widget.packageName} purchased via $paidBy',
+        );
+        // Notify admin panel in real-time via socket
+        SocketService().emitNewActivity(
+          userId:       userId.toString(),
+          activityType: ActivityType.packageBought,
+          description:  'Package ${widget.packageName} purchased via $paidBy',
         );
         _showPaymentSuccessDialog();
 

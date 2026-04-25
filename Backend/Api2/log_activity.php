@@ -75,17 +75,15 @@ $target_user_id = ($target_user_id > 0) ? $target_user_id : null;
 try {
     $stmt = $pdo->prepare("
         INSERT INTO user_activities
-            (user_id, activity_type, description, target_user_id, ip_address, device_info)
+            (user_id, activity_type, description, target_id)
         VALUES
-            (?, ?, ?, ?, ?, ?)
+            (?, ?, ?, ?)
     ");
     $stmt->execute([
         $user_id,
         $activity_type,
         $description,
         $target_user_id,
-        $ip_address,
-        $device_info,
     ]);
 
     echo json_encode(['success' => true]);

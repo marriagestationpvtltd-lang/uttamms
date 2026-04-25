@@ -410,6 +410,30 @@ class SocketService {
     });
   }
 
+  /// Emit a new_activity event so the admin panel receives real-time updates
+  /// for every user action (like, request, login, package purchase, etc.).
+  ///
+  /// Call this fire-and-forget after every successful user action, alongside
+  /// [ActivityService.instance.log] (which handles the DB insert via PHP).
+  void emitNewActivity({
+    required String userId,
+    required String activityType,
+    String userName = '',
+    String description = '',
+    String? targetId,
+    String? targetName,
+  }) {
+    if (userId.isEmpty || activityType.isEmpty) return;
+    _socket?.emit('new_activity', {
+      'userId':       userId,
+      'userName':     userName,
+      'activityType': activityType,
+      'description':  description,
+      if (targetId   != null) 'targetId':   targetId,
+      if (targetName != null) 'targetName': targetName,
+    });
+  }
+
   // ── Call signaling emit methods ───────────────────────────────────────────
 
   /// Notify the recipient of an incoming call (real-time, for online users).

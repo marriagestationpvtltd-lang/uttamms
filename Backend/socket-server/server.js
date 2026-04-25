@@ -870,6 +870,41 @@ io.on('connection', (socket) => {
     socket.leave('admin_room');
   });
 
+  // ── new_activity ──────────────────────────────────────────────────────────
+  // Flutter app emits this after every user action (like, request, login, etc.)
+  // The server forwards the event to the admin room so the admin dashboard
+  // updates in real-time without waiting for the polling interval.
+  // The DB insert is already handled by the PHP API that performed the action,
+  // so we only forward here to avoid duplicate rows.
+  socket.on('new_activity', (data) => {
+    const {
+      userId,
+      userName     = '',
+      activityType = '',
+      description  = '',
+      targetId     = null,
+      targetName   = null,
+    } = data || {};
+
+    if (!userId || !activityType) {
+      console.warn(`⚠️  new_activity ignored: missing userId or activityType (userId=${userId})`);
+      return;
+    }
+
+    console.log(`📊 new_activity: userId=${userId} type=${activityType}`);
+
+    // Forward to admin room for immediate UI update
+    io.to('admin_room').emit('admin_activity', {
+      user_id:       userId,
+      user_name:     userName  || `User ${userId}`,
+      activity_type: activityType,
+      description:   description || activityType,
+      target_id:     targetId   || null,
+      target_name:   targetName || null,
+      created_at:    new Date().toISOString(),
+    });
+  });
+
   // ── set_active_chat ───────────────────────────────────────────────────────
   socket.on('set_active_chat', async ({ userId, chatRoomId, isActive }) => {
     const uid = (userId || authenticatedUserId || '').toString();
