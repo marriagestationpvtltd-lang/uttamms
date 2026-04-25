@@ -20,9 +20,7 @@
  *   }
  */
 
-// NOTE: display_errors is enabled here to surface 500 errors during debugging.
-// Set this back to 0 (or remove the line) once the upload issue is resolved.
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
@@ -91,12 +89,25 @@ if ($_FILES['tone']['size'] > 5 * 1024 * 1024) {
 }
 
 // ── Save file ─────────────────────────────────────────────────────────────────
-$uploadDir = __DIR__ . '/../../uploads/ringtones/';
+// Build the upload directory relative to the server document root so the path
+// remains valid regardless of where in the directory tree this script lives.
+if (empty($_SERVER['DOCUMENT_ROOT'])) {
+    error_log('upload_call_tone: DOCUMENT_ROOT is not set');
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server configuration error. Please contact support.']);
+    exit;
+}
+$docRoot   = rtrim($_SERVER['DOCUMENT_ROOT'], '/');
+$uploadDir = $docRoot . '/uploads/ringtones/';
 if (!is_dir($uploadDir)) {
-    // 0777 ensures the web-server user can write files regardless of umask.
-    // Tighten to 0755 once the server's user/group ownership is confirmed correct.
-    mkdir($uploadDir, 0777, true);
-    chmod($uploadDir, 0777);
+    // Use @ to suppress warnings; check is_dir again to handle race conditions
+    // where a concurrent request already created the directory.
+    if (!@mkdir($uploadDir, 0755, true) && !is_dir($uploadDir)) {
+        error_log('upload_call_tone: failed to create directory ' . $uploadDir);
+        http_response_code(500);
+        echo json_encode(['success' => false, 'message' => 'Server configuration error. Please contact support.']);
+        exit;
+    }
 }
 
 $originalName = basename($_FILES['tone']['name']);

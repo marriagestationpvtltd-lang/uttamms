@@ -1,0 +1,12 @@
+# Deny direct execution of any PHP scripts uploaded to this directory.
+
+# Block PHP execution in uploads
+<FilesMatch "\.ph(p[0-9]?|tml|ar)$">
+    Require all denied
+</FilesMatch>
+
+# Ensure files are served as plain content, never executed
+AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .phps .phar
+
+# Disable directory listings
+Options -Indexes
