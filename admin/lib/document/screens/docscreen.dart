@@ -308,9 +308,9 @@ class _DocumentsPageState extends State<DocumentsPage>
         padding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.10),
+          color: Colors.white.withOpacity(0.15),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: color.withOpacity(0.30)),
+          border: Border.all(color: Colors.white.withOpacity(0.25)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -322,10 +322,10 @@ class _DocumentsPageState extends State<DocumentsPage>
                     color: color, shape: BoxShape.circle)),
             const SizedBox(width: 6),
             Text('$label  $count',
-                style: TextStyle(
+                style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: color)),
+                    color: Colors.white)),
           ],
         ),
       );
@@ -333,89 +333,143 @@ class _DocumentsPageState extends State<DocumentsPage>
   // ── top bar ──────────────────────────────────────────────────────────────────
   Widget _buildTopBar(DocumentsProvider provider) {
     final total = provider.documents.length;
-    final cardBg = Theme.of(context).colorScheme.surface;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: cardBg,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF312E81), Color(0xFF4F46E5), Color(0xFF6366F1)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF6366F1).withOpacity(0.30),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 14, 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.description_rounded,
-                  size: 20, color: _kPrimary),
-              const SizedBox(width: 8),
-              const Text('Document Verification',
-                  style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF4F46E5))),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.refresh_rounded, size: 20),
-                tooltip: 'Refresh',
-                onPressed: provider.isLoading
-                    ? null
-                    : () => provider.fetchDocuments(),
-                color: Colors.grey.shade600,
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.description_rounded,
+                    size: 20, color: Colors.white),
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: [
-              _statChip('Total', total, _kPrimary),
-              _statChip('Pending',
-                  provider.pendingDocuments.length, _kPending),
-              _statChip('Approved',
-                  provider.approvedDocuments.length, _kApproved),
-              _statChip('Rejected',
-                  provider.rejectedDocuments.length, _kRejected),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Document Verification',
+                        style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white)),
+                    Text('$total documents total',
+                        style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.white.withOpacity(0.72))),
+                  ],
+                ),
+              ),
+              Container(
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white.withOpacity(0.25)),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.refresh_rounded,
+                      size: 18, color: Colors.white),
+                  tooltip: 'Refresh',
+                  onPressed: provider.isLoading
+                      ? null
+                      : () => provider.fetchDocuments(),
+                  constraints: const BoxConstraints(
+                      minWidth: 36, minHeight: 36),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            height: 38,
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search by name, email, document type…',
-                hintStyle:
-                    TextStyle(fontSize: 13, color: Colors.grey.shade400),
-                prefixIcon: Icon(Icons.search,
-                    size: 18, color: Colors.grey.shade400),
-                suffixIcon: _query.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, size: 16),
-                        onPressed: () => _searchController.clear(),
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: isDark ? Colors.white.withOpacity(0.10) : Colors.grey.shade200),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: isDark ? Colors.white.withOpacity(0.10) : Colors.grey.shade200),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide:
-                      const BorderSide(color: _kPrimary, width: 1.5),
-                ),
-                fillColor: isDark ? const Color(0xFF263248) : Colors.grey.shade50,
-                filled: true,
-                contentPadding: EdgeInsets.zero,
-                isDense: true,
-              ),
-              style: const TextStyle(fontSize: 13),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _statChip('Total', total, Colors.white),
+                const SizedBox(width: 8),
+                _statChip('Pending',
+                    provider.pendingDocuments.length, _kPending),
+                const SizedBox(width: 8),
+                _statChip('Approved',
+                    provider.approvedDocuments.length, _kApproved),
+                const SizedBox(width: 8),
+                _statChip('Rejected',
+                    provider.rejectedDocuments.length, _kRejected),
+              ],
             ),
           ),
-          const SizedBox(height: 4),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(DocumentsProvider provider) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardBg = Theme.of(context).colorScheme.surface;
+    return Container(
+      color: cardBg,
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      child: SizedBox(
+        height: 40,
+        child: TextField(
+          controller: _searchController,
+          decoration: InputDecoration(
+            hintText: 'Search by name, email, document type…',
+            hintStyle: TextStyle(fontSize: 13, color: Colors.grey.shade400),
+            prefixIcon: Icon(Icons.search,
+                size: 18, color: Colors.grey.shade400),
+            suffixIcon: _query.isNotEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.clear, size: 16),
+                    onPressed: () => _searchController.clear(),
+                  )
+                : null,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.10)
+                      : Colors.grey.shade200),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide(
+                  color: isDark
+                      ? Colors.white.withOpacity(0.10)
+                      : Colors.grey.shade200),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: _kPrimary, width: 1.5),
+            ),
+            fillColor: isDark ? const Color(0xFF263248) : Colors.grey.shade50,
+            filled: true,
+            contentPadding:
+                const EdgeInsets.symmetric(vertical: 0, horizontal: 12),
+            isDense: true,
+          ),
+          style: const TextStyle(fontSize: 13),
+        ),
       ),
     );
   }
@@ -926,6 +980,7 @@ class _DocumentsPageState extends State<DocumentsPage>
           child: Column(
             children: [
               _buildTopBar(provider),
+              _buildSearchBar(provider),
               _buildTabBar(provider),
               Expanded(
                 child: TabBarView(

@@ -514,17 +514,23 @@ class _DashboardPageState extends State<DashboardPage> {
             _onItemTapped(index);
             _scaffoldKey.currentState?.closeDrawer();
           },
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(9),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             decoration: BoxDecoration(
-              color: isActive ? _kAccent.withOpacity(0.14) : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
+              gradient: isActive
+                  ? LinearGradient(
+                      colors: [_kAccent.withOpacity(0.22), Colors.transparent],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(9),
               border: Border(
                 left: BorderSide(
                   color: isActive ? _kAccent : Colors.transparent,
-                  width: 3,
+                  width: 4,
                 ),
               ),
             ),

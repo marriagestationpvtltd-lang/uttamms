@@ -39,33 +39,72 @@ class _RequestsPageState extends State<RequestsPage> {
 
   // ── header ────────────────────────────────────────────────────────────────
   Widget _buildHeader(RequestProvider provider) {
-    final cardBg = Theme.of(context).colorScheme.surface;
+    final stats = provider.stats;
     return Container(
-      color: cardBg,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFF065F46), Color(0xFF059669), Color(0xFF10B981)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF10B981).withOpacity(0.30),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
       child: Row(
         children: [
-          const Icon(Icons.people_alt_outlined, color: _kPrimary, size: 22),
-          const SizedBox(width: 8),
-          const Expanded(
-            child: Text(
-              'Request & Match Control',
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: _kSlate700,
-                letterSpacing: -0.3,
-              ),
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.people_alt_outlined,
+                color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Request & Match Control',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                Text(
+                  '${stats?.total ?? 0} total requests',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.white.withOpacity(0.72),
+                  ),
+                ),
+              ],
             ),
           ),
-          IconButton(
-            onPressed: () => provider.fetchRequests(reset: true),
-            icon: const Icon(Icons.refresh_rounded, color: _kPrimary, size: 20),
-            tooltip: 'Refresh',
-            style: IconButton.styleFrom(
-              backgroundColor: _kPrimary.withOpacity(0.08),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8)),
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withOpacity(0.25)),
+            ),
+            child: IconButton(
+              onPressed: () => provider.fetchRequests(reset: true),
+              icon: const Icon(Icons.refresh_rounded,
+                  color: Colors.white, size: 18),
+              tooltip: 'Refresh',
+              constraints:
+                  const BoxConstraints(minWidth: 36, minHeight: 36),
+              padding: EdgeInsets.zero,
             ),
           ),
         ],
