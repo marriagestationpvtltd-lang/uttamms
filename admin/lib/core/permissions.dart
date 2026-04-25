@@ -22,6 +22,7 @@ class AdminPermissions {
   bool get canViewDashboard   => true; // all roles
   bool get canManageSettings  => role == AdminRole.superAdmin;
   bool get canViewActivities  => role == AdminRole.superAdmin || role == AdminRole.moderator;
+  bool get canMonitorMessages => role == AdminRole.superAdmin || role == AdminRole.moderator;
 
   static AdminPermissions fromRole(String? role) {
     return AdminPermissions(role ?? AdminRole.support);

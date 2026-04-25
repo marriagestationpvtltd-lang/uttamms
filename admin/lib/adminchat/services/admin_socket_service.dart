@@ -57,6 +57,9 @@ class AdminSocketService {
   final _connectionCtrl = StreamController<bool>.broadcast();
   final _userActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _adminActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  // Receives the server-side send_message event emitted to admin_room so the
+  // message monitor screen can display every message in real-time.
+  final _sendMessageMonitorCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -90,6 +93,11 @@ class AdminSocketService {
   /// Emitted by the server immediately when a user sends a text message.
   /// Payload: { sender_id, receiver_id, sender_name, receiver_name, message, timestamp }
   Stream<Map<String, dynamic>> get onAdminActivity => _adminActivityCtrl.stream;
+  /// Emitted by the server for every sent message (all types) — used by the
+  /// admin message monitor screen to show live messages with sender/receiver info.
+  /// Payload: { messageId, chatRoomId, senderId, receiverId, senderName,
+  ///            receiverName, message, messageType, timestamp }
+  Stream<Map<String, dynamic>> get onMessageMonitor => _sendMessageMonitorCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -231,6 +239,12 @@ class AdminSocketService {
       if (data is Map) _adminActivityCtrl.add(Map<String, dynamic>.from(data));
     });
 
+    // Server emits 'send_message' to admin_room for every sent message so the
+    // admin monitor sees it in real-time regardless of which chat room it is in.
+    _socket!.on('send_message', (data) {
+      if (data is Map) _sendMessageMonitorCtrl.add(Map<String, dynamic>.from(data));
+    });
+
     _socket!.connect();
   }
 
@@ -267,6 +281,7 @@ class AdminSocketService {
     _connectionCtrl.close();
     _userActivityCtrl.close();
     _adminActivityCtrl.close();
+    _sendMessageMonitorCtrl.close();
   }
 
   Future<bool> ensureConnected() async {

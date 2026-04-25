@@ -306,6 +306,17 @@ function maskSensitiveData(text) {
   });
 }
 
+/**
+ * Safely parses a JSON string field from a DB row.
+ * Returns null if the value is null / undefined or cannot be parsed.
+ * @param {any} value
+ * @returns {any}
+ */
+function parseJsonField(value) {
+  if (!value) return null;
+  try { return JSON.parse(value); } catch (_) { return null; }
+}
+
 async function logActivity({ userId, userName = '', targetId = null, targetName = null, activityType, description = '' }) {
   if (!userId || !VALID_ACTIVITY_TYPES.has(activityType)) return;
   try {
@@ -465,6 +476,169 @@ app.delete('/api/calls/user/:userId', async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error('DELETE /api/calls/user/:userId error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Admin REST API — chat history
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Middleware: verifies the Authorization: Bearer <token> header against the
+ * admin_tokens table that is shared with the PHP backend.
+ * On success, attaches req.adminId.
+ * On failure, returns 401.
+ */
+async function requireAdminToken(req, res, next) {
+  const authHeader = (req.headers['authorization'] || '').trim();
+  const match = authHeader.match(/^Bearer\s+(\S+)$/i);
+  if (!match) {
+    return res.status(401).json({ error: 'Authorization token required' });
+  }
+
+  const token = match[1];
+  try {
+    const [[row]] = await pool.query(
+      `SELECT a.id, a.is_active
+         FROM admin_tokens t
+         JOIN admins a ON a.id = t.admin_id
+        WHERE t.token = ? AND t.expires_at > NOW()
+        LIMIT 1`,
+      [token],
+    );
+
+    if (!row) {
+      return res.status(401).json({ error: 'Invalid or expired token' });
+    }
+    if (!row.is_active) {
+      return res.status(403).json({ error: 'Admin account is disabled' });
+    }
+
+    req.adminId = row.id;
+    next();
+  } catch (err) {
+    console.error('requireAdminToken error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /api/admin/chat-history
+ *
+ * Returns paginated chat messages for admin monitoring.
+ * Requires a valid admin bearer token (same token issued by the PHP login endpoint).
+ *
+ * Query params (all optional):
+ *   chatRoomId  – filter to one chat room
+ *   userId      – filter to messages where sender_id OR receiver_id = userId
+ *   user1Id     – \
+ *   user2Id     –  } filter to the exact chat room that contains both users
+ *   page        – (default 1)
+ *   limit       – (default 50, max 200)
+ *
+ * Response:
+ *   { success, total, page, limit, pages, messages: [ { ... } ] }
+ */
+app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
+  try {
+    const limit   = Math.min(parseInt(req.query.limit || '50', 10), 200);
+    const page    = Math.max(1, parseInt(req.query.page || '1', 10));
+    const offset  = (page - 1) * limit;
+
+    const chatRoomId = (req.query.chatRoomId || '').toString().trim();
+    const userId     = (req.query.userId     || '').toString().trim();
+    const user1Id    = (req.query.user1Id    || '').toString().trim();
+    const user2Id    = (req.query.user2Id    || '').toString().trim();
+
+    const where  = [];
+    const params = [];
+
+    if (chatRoomId) {
+      where.push('m.chat_room_id = ?');
+      params.push(chatRoomId);
+    } else if (user1Id && user2Id) {
+      // The chat room id contains both user IDs — use JSON_CONTAINS on chat_rooms
+      where.push(
+        `m.chat_room_id IN (
+           SELECT id FROM chat_rooms
+            WHERE JSON_CONTAINS(participants, JSON_QUOTE(?))
+              AND JSON_CONTAINS(participants, JSON_QUOTE(?))
+         )`,
+      );
+      params.push(user1Id, user2Id);
+    } else if (userId) {
+      where.push('(m.sender_id = ? OR m.receiver_id = ?)');
+      params.push(userId, userId);
+    }
+
+    const whereSQL = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    // Count
+    const [[{ total }]] = await pool.query(
+      `SELECT COUNT(*) AS total FROM chat_messages m ${whereSQL}`,
+      params,
+    );
+
+    // Data
+    const [rows] = await pool.query(
+      `SELECT
+          m.message_id     AS messageId,
+          m.chat_room_id   AS chatRoomId,
+          m.sender_id      AS senderId,
+          m.receiver_id    AS receiverId,
+          m.message,
+          m.message_type   AS messageType,
+          m.is_read        AS isRead,
+          m.is_delivered   AS isDelivered,
+          m.is_deleted_for_sender   AS isDeletedForSender,
+          m.is_deleted_for_receiver AS isDeletedForReceiver,
+          m.is_edited      AS isEdited,
+          m.is_unsent      AS isUnsent,
+          m.liked,
+          m.replied_to     AS repliedTo,
+          m.created_at     AS timestamp,
+          CONCAT(u1.firstName, ' ', u1.lastName) AS senderName,
+          CONCAT(u2.firstName, ' ', u2.lastName) AS receiverName
+       FROM chat_messages m
+       LEFT JOIN users u1 ON u1.id = m.sender_id
+       LEFT JOIN users u2 ON u2.id = m.receiver_id
+       ${whereSQL}
+       ORDER BY m.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset],
+    );
+
+    const messages = rows.map(r => ({
+      messageId:            r.messageId,
+      chatRoomId:           r.chatRoomId,
+      senderId:             r.senderId,
+      receiverId:           r.receiverId,
+      senderName:           (r.senderName || '').trim() || `User ${r.senderId}`,
+      receiverName:         (r.receiverName || '').trim() || `User ${r.receiverId}`,
+      message:              r.message,
+      messageType:          r.messageType,
+      isRead:               r.isRead === 1,
+      isDelivered:          r.isDelivered === 1,
+      isDeletedForSender:   r.isDeletedForSender === 1,
+      isDeletedForReceiver: r.isDeletedForReceiver === 1,
+      isEdited:             r.isEdited === 1,
+      isUnsent:             r.isUnsent === 1,
+      liked:                r.liked === 1,
+      repliedTo:            parseJsonField(r.repliedTo),
+      timestamp:            r.timestamp ? r.timestamp.toISOString() : null,
+    }));
+
+    res.json({
+      success: true,
+      total:   Number(total),
+      page,
+      limit,
+      pages:   Math.ceil(Number(total) / limit),
+      messages,
+    });
+  } catch (err) {
+    console.error('GET /api/admin/chat-history error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -983,8 +1157,23 @@ io.on('connection', (socket) => {
     io.to(chatRoomId).emit('new_message', clientMsg);
 
     // ── Real-time admin monitoring ────────────────────────────────────────
-    // Emit full message content (with sensitive data masked) to the admin room
-    // so admins see exact messages in real-time.
+    // Emit a dedicated send_message event to admin_room for ALL message types
+    // so the admin monitor sees every message instantly without refresh.
+    io.to('admin_room').emit('send_message', {
+      messageId,
+      chatRoomId,
+      senderId,
+      receiverId,
+      senderName:   user1Name  || `User ${senderId}`,
+      receiverName: user2Name  || `User ${receiverId}`,
+      message:      safeMessageType === 'text'
+                      ? maskSensitiveData(safeMessage)
+                      : safeMessage,
+      messageType:  safeMessageType,
+      timestamp,
+    });
+    // Keep legacy admin_activity for text messages (backward-compat with the
+    // activity feed screen that consumes admin_activity events).
     if (safeMessageType === 'text') {
       io.to('admin_room').emit('admin_activity', {
         sender_id:     senderId,
