@@ -9,9 +9,24 @@
 -- PHP backend).
 -- =============================================================================
 
--- Idempotent: ADD COLUMN IF NOT EXISTS is supported on MySQL 8.0.3+ and
--- MariaDB 10.0+.  For older MySQL 5.7 installs the INFORMATION_SCHEMA guard
--- below is used instead.
+-- Idempotent guard using INFORMATION_SCHEMA (compatible with MySQL 5.7+).
+DROP PROCEDURE IF EXISTS _migration_add_is_unsent;
 
-ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS
-    is_unsent TINYINT(1) NOT NULL DEFAULT 0;
+DELIMITER $$
+CREATE PROCEDURE _migration_add_is_unsent()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM   INFORMATION_SCHEMA.COLUMNS
+        WHERE  TABLE_SCHEMA = DATABASE()
+          AND  TABLE_NAME   = 'chat_messages'
+          AND  COLUMN_NAME  = 'is_unsent'
+    ) THEN
+        ALTER TABLE chat_messages
+            ADD COLUMN is_unsent TINYINT(1) NOT NULL DEFAULT 0;
+    END IF;
+END$$
+DELIMITER ;
+
+CALL _migration_add_is_unsent();
+DROP PROCEDURE IF EXISTS _migration_add_is_unsent;
