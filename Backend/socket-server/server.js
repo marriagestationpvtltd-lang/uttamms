@@ -1091,16 +1091,20 @@ async function getChatRooms(userId) {
 
   if (!rooms.length) return [];
 
-  // Collect all unique OTHER-participant IDs across all rooms
+  // Collect all unique OTHER-participant IDs across all rooms.
+  // Only accept IDs that are purely numeric strings to guard against
+  // unexpected values that could affect query construction.
   const allParticipantIds = new Set();
   for (const r of rooms) {
     try {
       const pids = JSON.parse(r.participants);
       for (const pid of pids) {
         const pidStr = pid.toString();
-        if (pidStr !== userId.toString()) allParticipantIds.add(pidStr);
+        if (pidStr !== userId.toString() && /^\d+$/.test(pidStr)) {
+          allParticipantIds.add(pidStr);
+        }
       }
-    } catch (_) {}
+    } catch (e) { console.error('getChatRooms participants parse error:', e.message); }
   }
 
   // Maps to store enrichment data per participant
@@ -1109,6 +1113,8 @@ async function getChatRooms(userId) {
   const photoReqMap = new Map(); // userId → photo-request status
 
   if (allParticipantIds.size > 0) {
+    // ids is guaranteed to contain only numeric strings (validated above),
+    // so the IN-clause placeholder construction below is safe.
     const ids = Array.from(allParticipantIds);
     const ph  = ids.map(() => '?').join(',');
 
@@ -1165,9 +1171,12 @@ async function getChatRooms(userId) {
     let participants    = [];
     let participantNames  = {};
     let participantImages = {};
-    try { participants     = JSON.parse(r.participants);     } catch (_) {}
-    try { participantNames  = JSON.parse(r.participant_names);  } catch (_) {}
-    try { participantImages = JSON.parse(r.participant_images); } catch (_) {}
+    try { participants     = JSON.parse(r.participants);     }
+    catch (e) { console.error(`getChatRooms parse participants [${r.id}]:`, e.message); }
+    try { participantNames  = JSON.parse(r.participant_names);  }
+    catch (e) { console.error(`getChatRooms parse participant_names [${r.id}]:`, e.message); }
+    try { participantImages = JSON.parse(r.participant_images); }
+    catch (e) { console.error(`getChatRooms parse participant_images [${r.id}]:`, e.message); }
 
     const participantOnlineStatuses = {};
     const participantLastSeen       = {};
