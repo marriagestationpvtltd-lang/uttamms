@@ -23,7 +23,7 @@ class AdminCallRecord {
   final String  initiatedBy;
   final String? recordingUrl;
 
-  const AdminCallRecord({
+  AdminCallRecord({
     required this.callId,
     required this.callerId,
     required this.callerName,
@@ -74,7 +74,7 @@ class AdminCallHistoryResponse {
   final int                   limit;
   final int                   totalPages;
 
-  const AdminCallHistoryResponse({
+  AdminCallHistoryResponse({
     required this.success,
     required this.calls,
     required this.total,
