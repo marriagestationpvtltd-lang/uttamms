@@ -27,6 +27,7 @@ import '../pushnotification/pushservice.dart';
 import '../Notification/notificationscreen.dart';
 import '../Notification/notification_inbox_service.dart';
 import '../Calling/call_history_screen.dart';
+import '../Calling/online_users_list_screen.dart';
 import 'ChatdetailsScreen.dart';
 import 'adminchat.dart';
 import '../service/socket_service.dart';
@@ -1846,6 +1847,18 @@ class _ChatListScreenState extends State<ChatListScreen>
                     ),
                   ),
               ],
+            ),
+            IconButton(
+              icon: const Icon(Icons.people_alt_rounded),
+              tooltip: 'Online Users',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const OnlineUsersListScreen(),
+                  ),
+                );
+              },
             ),
             IconButton(
               icon: const Icon(Icons.call),

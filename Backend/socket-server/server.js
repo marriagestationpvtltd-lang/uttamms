@@ -1532,6 +1532,41 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── get_online_users ──────────────────────────────────────────────────────
+  // Fetch list of online users for initiating group/conference calls
+  socket.on('get_online_users', async ({ userId }, callback) => {
+    if (typeof callback !== 'function') return;
+    try {
+      const currentUserId = (userId || '').toString();
+      if (!currentUserId) return callback({ success: false, users: [] });
+
+      // Get all online users except the current user and deleted accounts
+      const [rows] = await pool.query(
+        `SELECT u.id, u.name, u.image
+         FROM users u
+         INNER JOIN user_online_status uos ON u.id = uos.user_id
+         WHERE uos.is_online = 1
+           AND u.isDelete = 0
+           AND u.id != ?
+         ORDER BY u.name ASC
+         LIMIT 100`,
+        [currentUserId],
+      );
+
+      callback({
+        success: true,
+        users: rows.map(row => ({
+          userId: row.id,
+          userName: row.name || '',
+          userImage: row.image || '',
+        })),
+      });
+    } catch (err) {
+      console.error('get_online_users error:', err.message);
+      callback({ success: false, users: [], error: err.message });
+    }
+  });
+
   // ── call_invite ───────────────────────────────────────────────────────────
   // Caller emits this to invite a recipient. Delivered to recipient's personal
   // room if they are online; caller should also send a FCM push as fallback.
