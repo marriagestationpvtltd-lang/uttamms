@@ -64,6 +64,7 @@ class _DashboardPageState extends State<DashboardPage> {
   static const int _adminSenderId = 1;
   final AdminSocketService _socketService = AdminSocketService();
   StreamSubscription<Map<String, dynamic>>? _globalMessageSub;
+  StreamSubscription<Map<String, dynamic>>? _globalIncomingCallSub;
   // Tracks known user names fetched lazily for notification display.
   final Map<String, String> _globalUserNames = {};
   // JS event listener reference kept so we can remove it on dispose.
@@ -99,6 +100,7 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     _globalMessageSub?.cancel();
+    _globalIncomingCallSub?.cancel();
     html.window.removeEventListener('chatNotification', _onChatNotifEvent);
     super.dispose();
   }
@@ -128,6 +130,20 @@ class _DashboardPageState extends State<DashboardPage> {
         userId: senderId,
         message: _messagePreviewFromSocket(data),
       );
+    });
+
+    // Global incoming-call listener: works regardless of which page is open.
+    // When the admin is NOT on the Chat page the ChatWindow widget is not
+    // mounted and would miss the event, so we handle it here by switching to
+    // the Chat tab.  ChatWindow will then detect the pending call via
+    // CallManager and show the incoming-call dialog (with ringtone).
+    _globalIncomingCallSub?.cancel();
+    _globalIncomingCallSub = _socketService.onIncomingCall.listen((data) {
+      if (!mounted) return;
+      // Chat page is already active – ChatWindow's own listener handles this.
+      if (_selectedIndex == 5) return;
+      // Switch to the Chat tab so the incoming call UI can be shown.
+      setState(() => _selectedIndex = 5);
     });
   }
 

@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
+    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,7 +22,6 @@ import '../Package/PackageScreen.dart';
 import '../pushnotification/pushservice.dart';
 import '../service/socket_service.dart';
 import '../service/sound_settings_service.dart';
-import 'call_tone_settings.dart';
 import 'tokengenerator.dart';
 import 'call_history_model.dart';
 import 'call_history_service.dart';
@@ -38,6 +38,8 @@ class IncomingVideoCallScreen extends StatefulWidget {
 }
 
 class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
+  static const String _kWebRingtoneAsset = 'audio/ring_classic.wav';
+
   late RtcEngine _engine;
   bool _engineInitialized = false;
 
@@ -69,13 +71,7 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
   StreamSubscription<Map<String, dynamic>>? _socketCancelSubscription;
   StreamSubscription<Map<String, dynamic>>? _socketEndedSubscription;
 
-  final AudioPlayer _ringtonePlayer = AudioPlayer();
-  CallToneSettings _callToneSettings = const CallToneSettings();
-  bool _callToneSettingsLoaded = false;
   bool _isPlayingRingtone = false;
-  bool _isRestartingRingtone = false;
-  StreamSubscription<PlayerState>? _playerStateSub;
-  Timer? _ringtoneRestartTimer;
   Timer? _vibrationTimer;
 
   // Network quality tracking
@@ -143,53 +139,8 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
     }
   }
 
-  Future<void> _ensureCallToneSettingsLoaded() async {
-    if (_callToneSettingsLoaded) return;
-    _callToneSettings = await CallToneSettingsService.instance.load();
-    _callToneSettingsLoaded = true;
-  }
-
-  Future<void> _playConfiguredTone() async {
-    Object? lastError;
-    for (final source in _callToneSettings.playbackSources) {
-      try {
-        await _ringtonePlayer.play(
-          source.isRemote ? UrlSource(source.value) : AssetSource(source.value),
-        );
-        return;
-      } catch (e) {
-        lastError = e;
-      }
-    }
-    if (lastError != null) throw lastError;
-  }
-
   Future<void> _playRingtone() async {
     try {
-      await _ensureCallToneSettingsLoaded();
-      await _ringtonePlayer.setReleaseMode(ReleaseMode.stop);
-
-      _playerStateSub?.cancel();
-      _playerStateSub = _ringtonePlayer.onPlayerStateChanged.listen((state) {
-        if ((state == PlayerState.completed || state == PlayerState.stopped) &&
-            _isPlayingRingtone &&
-            !_isRestartingRingtone &&
-            !_ending &&
-            mounted) {
-          _isRestartingRingtone = true;
-          _ringtoneRestartTimer?.cancel();
-          _ringtoneRestartTimer = Timer(const Duration(milliseconds: 500), () {
-            if (!_ending && mounted && _isPlayingRingtone) {
-              _playConfiguredTone().whenComplete(() {
-                _isRestartingRingtone = false;
-              });
-            } else {
-              _isRestartingRingtone = false;
-            }
-          });
-        }
-      });
-
       _isPlayingRingtone = true;
 
       // Repeating vibration while the call is ringing (1.5s interval).
@@ -210,12 +161,16 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
 
       // On web use dart:html AudioElement (more reliable vs autoplay restrictions).
       if (kIsWeb) {
-        await WebRingtonePlayer.instance.play(_callToneSettings.assetPath);
+        await WebRingtonePlayer.instance.play(_kWebRingtoneAsset);
         debugPrint('✅ Incoming video call ringtone started (web)');
         return;
       }
 
-      await _playConfiguredTone();
+      // On mobile, use the device's default ringtone (system sound).
+      await FlutterRingtonePlayer().play(
+        android: AndroidSounds.ringtone,
+        looping: true,
+      );
       debugPrint('✅ Incoming video call ringtone started');
     } catch (e) {
       debugPrint('Error playing incoming video call ringtone: $e');
@@ -224,18 +179,13 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
 
   Future<void> _stopRingtone() async {
     try {
-      _ringtoneRestartTimer?.cancel();
-      _ringtoneRestartTimer = null;
-      _playerStateSub?.cancel();
-      _playerStateSub = null;
       _isPlayingRingtone = false;
-      _isRestartingRingtone = false;
       _vibrationTimer?.cancel();
       _vibrationTimer = null;
       if (kIsWeb) {
         await WebRingtonePlayer.instance.stop();
       } else {
-        await _ringtonePlayer.stop();
+        await FlutterRingtonePlayer().stop();
       }
       debugPrint('✅ Incoming video call ringtone stopped');
     } catch (e) {
@@ -1529,10 +1479,7 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
     _cancelSubscription?.cancel();
     _socketCancelSubscription?.cancel();
     _socketEndedSubscription?.cancel();
-    _ringtoneRestartTimer?.cancel();
-    _playerStateSub?.cancel();
     _vibrationTimer?.cancel();
-    unawaited(_ringtonePlayer.dispose());
     // Release Agora engine if not already released by _endCall
     if (_engineInitialized) {
       unawaited(_releaseEngineAsync());

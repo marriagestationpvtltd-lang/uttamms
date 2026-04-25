@@ -7,13 +7,14 @@ import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:permission_handler/permission_handler.dart'
     if (dart.library.html) 'package:ms2026/utils/web_permission_stub.dart';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
+    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../Chat/call_overlay_manager.dart';
 import '../navigation/app_navigation.dart';
 import '../pushnotification/pushservice.dart';
 import '../service/socket_service.dart';
-import 'call_tone_settings.dart';
 import 'tokengenerator.dart';
 import 'call_history_model.dart';
 import 'call_history_service.dart';
@@ -100,13 +101,8 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
   Timer? _qualityUpdateTimer;
 
   // Ringtone state
-  final AudioPlayer _ringtonePlayer = AudioPlayer();
   bool _isPlayingRingtone = false;
-  bool _isRestartingRingtone = false;
-  CallToneSettings _callToneSettings = const CallToneSettings();
-  bool _callToneSettingsLoaded = false;
-  StreamSubscription<PlayerState>? _playerStateSub;
-  Timer? _ringtoneRestartTimer;
+  Timer? _vibrationTimer;
 
   // PiP (local video preview) draggable offset (from top-right)
   Offset _pipOffset = const Offset(20, 40);
@@ -143,91 +139,29 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     if (!widget.isOutgoingCall) return;
 
     try {
-      await _ensureCallToneSettingsLoaded();
       await _stopRingtone();
 
-      // Use ReleaseMode.stop + timer-based repeat instead of ReleaseMode.loop.
-      // ReleaseMode.loop is unreliable on some Android devices and does not
-      // recover when Agora's enableAudio() takes over the audio session
-      // (audio-focus loss fires PlayerState.stopped, not .completed).
-      await _ringtonePlayer.setReleaseMode(ReleaseMode.stop);
+      if (mounted) setState(() => _isPlayingRingtone = true);
 
-      _playerStateSub?.cancel();
-      _playerStateSub = _ringtonePlayer.onPlayerStateChanged.listen((state) {
-        debugPrint('🔊 Ringtone player state changed: $state');
-        // Restart on both .completed (normal end) and .stopped (audio focus
-        // lost, e.g. when Agora initializes) so the caller always hears the
-        // ringing tone while waiting for the recipient.
-        if ((state == PlayerState.completed || state == PlayerState.stopped) &&
-            _isPlayingRingtone &&
-            !_isRestartingRingtone &&
-            !_ending &&
-            mounted) {
-          _isRestartingRingtone = true;
-          _ringtoneRestartTimer?.cancel();
-          // Small delay lets the audio session stabilize after Agora init
-          // and avoids rapid-fire restart loops.
-          _ringtoneRestartTimer = Timer(const Duration(milliseconds: 500), () {
-            if (!_ending && mounted && _isPlayingRingtone) {
-              debugPrint('🔁 Ringtone interrupted/completed – restarting');
-              _playConfiguredTone().whenComplete(() {
-                _isRestartingRingtone = false;
-                debugPrint('✅ Ringtone restart complete');
-              });
-            } else {
-              _isRestartingRingtone = false;
-            }
-          });
-        }
-      });
-
-      // Set the flag BEFORE starting playback so the state listener can
-      // detect completion/stop events even if the tone finishes very quickly.
-      if (mounted) {
-        setState(() => _isPlayingRingtone = true);
-      }
-
-      await _playConfiguredTone();
+      // On mobile, use the device's default ringtone (system sound).
+      await FlutterRingtonePlayer().play(
+        android: AndroidSounds.ringtone,
+        looping: true,
+      );
       debugPrint('🎵 Started playing calling tone');
     } catch (e) {
       debugPrint('❌ Error playing calling tone: $e');
     }
   }
 
-  Future<void> _ensureCallToneSettingsLoaded() async {
-    if (_callToneSettingsLoaded) return;
-    _callToneSettings = await CallToneSettingsService.instance.load();
-    _callToneSettingsLoaded = true;
-  }
-
-  Future<void> _playConfiguredTone() async {
-    Object? lastError;
-    for (final source in _callToneSettings.playbackSources) {
-      try {
-        await _ringtonePlayer.play(
-          source.isRemote ? UrlSource(source.value) : AssetSource(source.value),
-        );
-        return;
-      } catch (e) {
-        lastError = e;
-      }
-    }
-    if (lastError != null) throw lastError;
-  }
-
   Future<void> _stopRingtone() async {
     try {
-      _ringtoneRestartTimer?.cancel();
-      _ringtoneRestartTimer = null;
-      _playerStateSub?.cancel();
-      _playerStateSub = null;
-      await _ringtonePlayer.stop();
+      _vibrationTimer?.cancel();
+      _vibrationTimer = null;
+      await FlutterRingtonePlayer().stop();
 
       if (!mounted) return;
-      setState(() {
-        _isPlayingRingtone = false;
-        _isRestartingRingtone = false;
-      });
+      setState(() => _isPlayingRingtone = false);
     } catch (e) {
       debugPrint('Error stopping calling tone: $e');
     }
@@ -529,7 +463,6 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
 
       // Skip ringtone for audio→video upgrades (call already connected)
       if (widget.isOutgoingCall && widget.forcedChannelName == null) {
-        await _ensureCallToneSettingsLoaded();
         await _playRingtone();
       }
 
@@ -1361,9 +1294,7 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
     _socketBlockedSub?.cancel();
     _connectivitySubscription?.cancel();
     _controlsHideTimer?.cancel();
-    _ringtoneRestartTimer?.cancel();
-    _playerStateSub?.cancel();
-    _ringtonePlayer.dispose();
+    _vibrationTimer?.cancel();
     // Release Agora engine if not already released by _endCall
     if (_engineInitialized) {
       unawaited(_releaseEngineAsync());

@@ -1,6 +1,7 @@
 import 'package:adminmrz/adminchat/services/pushservice.dart';
 import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/adminchat/services/callmanager.dart';
+import 'package:adminmrz/adminchat/services/web_notification_service.dart';
 import 'package:adminmrz/adminchat/video_call_page.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -240,6 +241,16 @@ class _ChatWindowState extends State<ChatWindow> {
     // Connect the Socket.IO service and start listening for events.
     _socketService.connect();
     _setupSocketListeners();
+
+    // Handle any pending incoming call that was stored in CallManager before
+    // this screen was mounted (e.g. the dashboard auto-navigated here because
+    // a call arrived while the admin was on a different tab).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _callManager.hasActiveIncomingCall()) {
+        final data = _callManager.currentCallData;
+        if (data != null) _handleIncomingCallFromUser(data);
+      }
+    });
 
     // Load messages once the socket is ready (or immediately if already connected).
     if (_socketService.isConnected) {
@@ -617,6 +628,9 @@ class _ChatWindowState extends State<ChatWindow> {
       return;
     }
 
+    // Start looping ringtone for the incoming call.
+    WebNotificationService.playCallRingtone();
+
     Timer? autoRejectTimer;
     StreamSubscription<Map<String, dynamic>>? cancelSub;
     StreamSubscription<Map<String, dynamic>>? endedSub;
@@ -637,6 +651,7 @@ class _ChatWindowState extends State<ChatWindow> {
     void dismissDialog(bool accepted) {
       if (dismissed) return;
       dismissed = true;
+      WebNotificationService.stopCallRingtone();
       final ctx = incomingCallDialogContext;
       if (ctx != null && Navigator.of(ctx, rootNavigator: true).canPop()) {
         Navigator.of(ctx, rootNavigator: true).pop(accepted);
