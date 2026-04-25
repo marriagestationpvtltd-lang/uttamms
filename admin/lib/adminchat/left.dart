@@ -67,6 +67,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
   bool _isLoadingMore = false;
   bool _hasMore = true;
   bool _isInitialLoading = true;
+  bool _hasFetchError = false;
   final ScrollController _scrollController = ScrollController();
   Timer? _searchDebounce;
   // Last-seen text refresh timer (client-side only, no HTTP)
@@ -161,6 +162,14 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
       if (response.statusCode == 200) {
         final jsonResponse = jsonDecode(response.body);
+
+        // Server may return status=false with an error message when a query fails.
+        if (jsonResponse["status"] == false) {
+          debugPrint('get.php error: ${jsonResponse["message"]}');
+          if (mounted) setState(() => _hasFetchError = true);
+          return;
+        }
+
         final List<dynamic> newUsers = (jsonResponse["data"] as List?) ?? [];
 
         // Support totalRecords / total fields from the server
@@ -221,15 +230,20 @@ class _ChatSidebarState extends State<ChatSidebar> {
           await _refreshChatRooms();
         }
 
+        if (mounted) setState(() => _hasFetchError = false);
         _applyFilters();
         _handleExternalSelection();
         // Persist page-1 results so subsequent visits show content immediately
         if (reset && _searchQuery.isEmpty) {
           _saveCachedUsers();
         }
+      } else {
+        debugPrint('get.php returned status ${response.statusCode}');
+        if (mounted) setState(() => _hasFetchError = true);
       }
     } catch (error) {
       debugPrint('Error fetching users: $error');
+      if (mounted) setState(() => _hasFetchError = true);
     } finally {
       if (mounted) {
         setState(() {
@@ -709,7 +723,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
         seenIds.add(uid);
 
         // Search filter
-        bool matchesSearch = user["name"]
+        bool matchesSearch = (user["name"] as String? ?? '')
             .toLowerCase()
             .contains(_searchQuery.toLowerCase());
 
@@ -1144,18 +1158,42 @@ class _ChatSidebarState extends State<ChatSidebar> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.person_off,
-                                size: 40, color: Colors.grey[300]),
+                            Icon(
+                              _hasFetchError ? Icons.wifi_off : Icons.person_off,
+                              size: 40,
+                              color: Colors.grey[300],
+                            ),
                             const SizedBox(height: 10),
                             Text(
-                              'No users found',
+                              _hasFetchError
+                                  ? 'Failed to load users'
+                                  : 'No users found',
                               style: TextStyle(color: c.muted, fontSize: 13),
                             ),
-                            if (_showOnlyPaid ||
-                                _showOnlyOnline ||
-                                _showWithMatches ||
-                                _showOnlyUnread ||
-                                _searchQuery.isNotEmpty)
+                            const SizedBox(height: 6),
+                            Semantics(
+                              label: 'Reload user list',
+                              child: TextButton.icon(
+                                onPressed: () => fetchUsers(reset: true),
+                                icon: Icon(Icons.refresh, size: 14, color: c.primary),
+                                label: Text(
+                                  'Reload',
+                                  style: TextStyle(fontSize: 12, color: c.primary),
+                                ),
+                                style: TextButton.styleFrom(
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  minimumSize: Size.zero,
+                                ),
+                              ),
+                            ),
+                            if (!_hasFetchError &&
+                                (_showOnlyPaid ||
+                                    _showOnlyOnline ||
+                                    _showWithMatches ||
+                                    _showOnlyUnread ||
+                                    _searchQuery.isNotEmpty))
                               TextButton(
                                 onPressed: _resetFilters,
                                 style: TextButton.styleFrom(
