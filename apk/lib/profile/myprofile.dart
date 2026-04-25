@@ -327,23 +327,39 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       MaterialPageRoute(builder: (context) => page),
     );
     if (!mounted) return;
-    await (onReturn ?? fetchProfileData)();
+    final callback = onReturn ?? fetchProfileData;
+    await callback();
   }
+
+  /// Returns the current user's ID string from SharedPreferences, or an empty
+  /// string when no session is found or when the stored data is malformed.
+  Future<String> _getUserId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
+      return userData['id']?.toString() ?? '';
+    } catch (e) {
+      debugPrint('_getUserId error: $e');
+      return '';
+    }
+  }
+
+  /// Joins a list to a comma-separated string. When [v] is already a string it
+  /// is returned as-is, and [null] becomes an empty string.
+  String _joinList(dynamic v) => v is List ? v.join(',') : (v?.toString() ?? '');
 
   /// Refreshes only the personal-detail fields from the dedicated section API.
   /// Merges the fresh data into [profileData]['personalDetail'] in place so the
   /// rest of the profile (family, lifestyle, partner) is not disturbed.
   Future<void> _refreshPersonalSection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
-    final userId = userData['id']?.toString() ?? '';
+    final userId = await _getUserId();
     if (userId.isEmpty) return;
     try {
       final res = await http.get(
         Uri.parse('$kApiBaseUrl/Api2/get_personal_detail.php?user_id=$userId'),
       );
       if (res.statusCode != 200) return;
-      final body = json.decode(res.body);
+      final body = jsonDecode(res.body);
       if (body['status'] != 'success' || body['data'] == null) return;
       final d = Map<String, dynamic>.from(body['data'] as Map);
       if (!mounted) return;
@@ -367,16 +383,14 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   /// Refreshes only the education/career fields from the dedicated section API.
   Future<void> _refreshProfessionalSection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
-    final userId = userData['id']?.toString() ?? '';
+    final userId = await _getUserId();
     if (userId.isEmpty) return;
     try {
       final res = await http.get(
         Uri.parse('$kApiBaseUrl/Api2/get_educationcareer.php?userid=$userId'),
       );
       if (res.statusCode != 200) return;
-      final body = json.decode(res.body);
+      final body = jsonDecode(res.body);
       if (body['status'] != 'success' || body['data'] == null) return;
       final d = Map<String, dynamic>.from(body['data'] as Map);
       if (!mounted) return;
@@ -402,16 +416,14 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   /// Refreshes only the family-detail fields from the dedicated section API.
   Future<void> _refreshFamilySection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
-    final userId = userData['id']?.toString() ?? '';
+    final userId = await _getUserId();
     if (userId.isEmpty) return;
     try {
       final res = await http.get(
         Uri.parse('$kApiBaseUrl/Api2/get_family_details.php?userid=$userId'),
       );
       if (res.statusCode != 200) return;
-      final body = json.decode(res.body);
+      final body = jsonDecode(res.body);
       if (body['status'] != 'success' || body['data']?['family'] == null) return;
       final family = Map<String, dynamic>.from(body['data']['family'] as Map);
       if (!mounted) return;
@@ -437,16 +449,14 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   /// Refreshes only the lifestyle fields from the dedicated section API.
   Future<void> _refreshLifestyleSection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
-    final userId = userData['id']?.toString() ?? '';
+    final userId = await _getUserId();
     if (userId.isEmpty) return;
     try {
       final res = await http.get(
         Uri.parse('$kApiBaseUrl/Api2/get_lifestyle.php?userid=$userId'),
       );
       if (res.statusCode != 200) return;
-      final body = json.decode(res.body);
+      final body = jsonDecode(res.body);
       if (body['status'] != 'success' || body['data'] == null) return;
       final d = Map<String, dynamic>.from(body['data'] as Map);
       if (!mounted) return;
@@ -466,58 +476,55 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
 
   /// Refreshes only the partner-preference fields from the dedicated section API.
   Future<void> _refreshPartnerSection() async {
-    final prefs = await SharedPreferences.getInstance();
-    final userData = jsonDecode(prefs.getString('user_data') ?? '{}');
-    final userId = userData['id']?.toString() ?? '';
+    final userId = await _getUserId();
     if (userId.isEmpty) return;
     try {
       final res = await http.get(
         Uri.parse('$kApiBaseUrl/Api2/get_partner_preferences.php?userid=$userId'),
       );
       if (res.statusCode != 200) return;
-      final body = json.decode(res.body);
+      final body = jsonDecode(res.body);
       if (body['status'] != 'success' || body['data'] == null) return;
       final d = Map<String, dynamic>.from(body['data'] as Map);
-      String joinList(dynamic v) => v is List ? v.join(',') : (v?.toString() ?? '');
       if (!mounted) return;
       setState(() {
         final existing = _asMap(profileData?['partner']);
         existing['minage'] = d['minage'] ?? existing['minage'];
         existing['maxage'] = d['maxage'] ?? existing['maxage'];
-        existing['maritalstatus'] = joinList(d['maritalstatus']).isNotEmpty
-            ? joinList(d['maritalstatus'])
+        existing['maritalstatus'] = _joinList(d['maritalstatus']).isNotEmpty
+            ? _joinList(d['maritalstatus'])
             : existing['maritalstatus'];
-        existing['religion'] = joinList(d['religion']).isNotEmpty
-            ? joinList(d['religion'])
+        existing['religion'] = _joinList(d['religion']).isNotEmpty
+            ? _joinList(d['religion'])
             : existing['religion'];
-        existing['caste'] = joinList(d['caste']).isNotEmpty
-            ? joinList(d['caste'])
+        existing['caste'] = _joinList(d['caste']).isNotEmpty
+            ? _joinList(d['caste'])
             : existing['caste'];
-        existing['qualification'] = joinList(d['qualification']).isNotEmpty
-            ? joinList(d['qualification'])
+        existing['qualification'] = _joinList(d['qualification']).isNotEmpty
+            ? _joinList(d['qualification'])
             : existing['qualification'];
-        existing['proffession'] = joinList(d['proffession']).isNotEmpty
-            ? joinList(d['proffession'])
+        existing['proffession'] = _joinList(d['proffession']).isNotEmpty
+            ? _joinList(d['proffession'])
             : existing['proffession'];
-        existing['annualincome'] = joinList(d['annualincome']).isNotEmpty
-            ? joinList(d['annualincome'])
+        existing['annualincome'] = _joinList(d['annualincome']).isNotEmpty
+            ? _joinList(d['annualincome'])
             : existing['annualincome'];
-        existing['diet'] = joinList(d['diet']).isNotEmpty
-            ? joinList(d['diet'])
+        existing['diet'] = _joinList(d['diet']).isNotEmpty
+            ? _joinList(d['diet'])
             : existing['diet'];
         existing['smokeaccept'] = d['smokeaccept'] ?? existing['smokeaccept'];
         existing['drinkaccept'] = d['drinkaccept'] ?? existing['drinkaccept'];
-        existing['familytype'] = joinList(d['familytype']).isNotEmpty
-            ? joinList(d['familytype'])
+        existing['familytype'] = _joinList(d['familytype']).isNotEmpty
+            ? _joinList(d['familytype'])
             : existing['familytype'];
-        existing['country'] = joinList(d['country']).isNotEmpty
-            ? joinList(d['country'])
+        existing['country'] = _joinList(d['country']).isNotEmpty
+            ? _joinList(d['country'])
             : existing['country'];
-        existing['state'] = joinList(d['state']).isNotEmpty
-            ? joinList(d['state'])
+        existing['state'] = _joinList(d['state']).isNotEmpty
+            ? _joinList(d['state'])
             : existing['state'];
-        existing['city'] = joinList(d['city']).isNotEmpty
-            ? joinList(d['city'])
+        existing['city'] = _joinList(d['city']).isNotEmpty
+            ? _joinList(d['city'])
             : existing['city'];
         existing['otherexpectation'] = d['otherexpectation'] ?? existing['otherexpectation'];
         profileData!['partner'] = existing;
