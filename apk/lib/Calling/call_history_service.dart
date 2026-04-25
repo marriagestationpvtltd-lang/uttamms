@@ -72,6 +72,40 @@ class CallHistoryService {
     }
   }
 
+  // Start Agora Cloud Recording for a call.
+  // This is fire-and-forget – recording failures must not affect the call itself.
+  // [channelName] must match the Agora channel used for the call.
+  static Future<void> startRecording({
+    required String callId,
+    required String channelName,
+  }) async {
+    if (callId.isEmpty || channelName.isEmpty) return;
+    try {
+      await http.post(
+        Uri.parse('$_kCallApiBase/api/calls/$callId/start-recording'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'channelName': channelName, 'uid': '0'}),
+      ).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      print('⚠️ startRecording error (non-fatal): $e');
+    }
+  }
+
+  // Stop Agora Cloud Recording for a call.
+  // Fire-and-forget – failures must not affect the call-end flow.
+  static Future<void> stopRecording({required String callId}) async {
+    if (callId.isEmpty) return;
+    try {
+      await http.post(
+        Uri.parse('$_kCallApiBase/api/calls/$callId/stop-recording'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({}),
+      ).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      print('⚠️ stopRecording error (non-fatal): $e');
+    }
+  }
+
   // Get call history as a one-shot Stream (emits once with current data).
   // Used in ChatDetailsScreen to listen for updates via a StreamSubscription.
   static Stream<List<CallHistory>> getCallHistory(String userId, {int limit = 100}) {

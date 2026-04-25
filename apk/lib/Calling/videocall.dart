@@ -571,6 +571,14 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
                 autoSubscribeVideo: true,
               ));
             }
+            // Start cloud recording (fire-and-forget; only from outgoing caller side)
+            if (widget.isOutgoingCall && widget.forcedChannelName == null &&
+                _callHistoryId != null && _callHistoryId!.isNotEmpty) {
+              unawaited(CallHistoryService.startRecording(
+                callId:      _callHistoryId!,
+                channelName: _channel,
+              ));
+            }
             _startCallTimer();
             _syncOverlayState();
             _scheduleControlsHide(); // Start auto-hide once call is active
@@ -715,6 +723,11 @@ class _VideoCallScreenState extends State<VideoCallScreen> with WidgetsBindingOb
         callStatus = CallStatus.missed;
       } else {
         callStatus = CallStatus.cancelled;
+      }
+
+      // Stop cloud recording if the call was active (fire-and-forget)
+      if (callStatus == CallStatus.completed && widget.isOutgoingCall && widget.forcedChannelName == null) {
+        unawaited(CallHistoryService.stopRecording(callId: _callHistoryId!));
       }
 
       await CallHistoryService.updateCallEnd(

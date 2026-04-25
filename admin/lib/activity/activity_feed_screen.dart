@@ -52,13 +52,13 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   static const int _pageSize = 50;
 
   static const List<_FilterChip> _filterChips = [
-    _FilterChip(label: 'All',      type: null,               color: _kPrimary),
-    _FilterChip(label: 'Like',     type: 'like_sent',        color: _kRose),
-    _FilterChip(label: 'Message',  type: 'message_sent',     color: _kSky),
-    _FilterChip(label: 'Call',     type: 'call_made',        color: _kEmerald),
-    _FilterChip(label: 'Request',  type: 'request_sent',     color: _kAmber),
-    _FilterChip(label: 'Login',    type: 'login',            color: _kViolet),
-    _FilterChip(label: 'Package',  type: 'package_bought',   color: _kPink),
+    _FilterChip(label: 'All',      type: null,                                color: _kPrimary),
+    _FilterChip(label: 'Like',     type: 'like_sent',                         color: _kRose),
+    _FilterChip(label: 'Message',  type: 'message_sent',                      color: _kSky),
+    _FilterChip(label: 'Call',     type: 'call_made,call_received',            color: _kEmerald),
+    _FilterChip(label: 'Request',  type: 'request_sent',                      color: _kAmber),
+    _FilterChip(label: 'Login',    type: 'login',                             color: _kViolet),
+    _FilterChip(label: 'Package',  type: 'package_bought',                    color: _kPink),
   ];
 
   @override
