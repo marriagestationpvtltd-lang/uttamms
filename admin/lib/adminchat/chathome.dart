@@ -112,6 +112,10 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _scrollLocked = true;
   bool _initialScrollDone = false;
 
+  // Cached ChatProvider reference — stored in initState so it can be
+  // safely accessed from dispose() without risking a deactivated-ancestor error.
+  ChatProvider? _chatProviderRef;
+
   // Floating date indicator (WhatsApp-style)
   final ValueNotifier<String?> _floatingDateNotifier = ValueNotifier(null);
   Timer? _floatingDateTimer;
@@ -207,7 +211,10 @@ class _ChatWindowState extends State<ChatWindow> {
     super.initState();
     _initializeWebSpeech();
     _initializeRecorder();
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+    // Cache provider reference before any async gap so dispose() can access it
+    // safely without looking up a potentially deactivated widget ancestor.
+    _chatProviderRef = Provider.of<ChatProvider>(context, listen: false);
+    final chatProvider = _chatProviderRef!;
     if (chatProvider.id != null) {
       _fetchMatchDetails();
     }
@@ -1602,8 +1609,10 @@ class _ChatWindowState extends State<ChatWindow> {
 
   void _clearAdminTypingStatus() {
     _typingTimer?.cancel();
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final receiverId = chatProvider.id?.toString();
+    // Use the cached provider reference — safe to call even from dispose()
+    // because it does NOT look up the widget tree via context.
+    final chatProvider = _chatProviderRef;
+    final receiverId = chatProvider?.id?.toString();
     final roomId =
         receiverId != null && receiverId.isNotEmpty ? AdminSocketService.chatRoomId(receiverId) : null;
     final wasTyping = _adminTypingActive;
