@@ -791,6 +791,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
       chatProvider.updateName(_selectedChat!["name"]);
       chatProvider.updateonline(_selectedChat!["is_online"] == true);
       chatProvider.updatePaidStatus(_selectedChat!["is_paid"] == true);
+      chatProvider.updateProfilePicture(_selectedChat!["profile_picture"]?.toString() ?? '');
+      chatProvider.updateMatchesCount(int.tryParse(_selectedChat!["matches"]?.toString() ?? '0') ?? 0);
     }
   }
 
@@ -810,8 +812,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
         children: [
           // ── HEADER ──────────────────────────────────────────────────
           Container(
-            height: 56,
-            color: c.sidebar,
+            height: 60,
+            decoration: BoxDecoration(
+              color: c.sidebar,
+              border: Border(bottom: BorderSide(color: c.border, width: 1)),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [

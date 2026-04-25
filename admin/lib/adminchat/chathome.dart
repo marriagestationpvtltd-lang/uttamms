@@ -2726,7 +2726,7 @@ class _ChatWindowState extends State<ChatWindow> {
             children: [
           if (_isSearching)
             Container(
-              color: Colors.white,
+              color: c.header,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: SizedBox(
                 height: 38,
@@ -3491,14 +3491,14 @@ class _ChatWindowState extends State<ChatWindow> {
       Map<String, dynamic>? replyPayload,
       Map<String, dynamic>? reportData]) {
     const kPrimary = Color(0xFFD81B60);
-    const kText = Color(0xFF1E293B);
     const kMuted = Color(0xFF64748B);
+    final c = ChatColors.of(context);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final replyPreview = _buildReplyPreview(
       replyTo: replyTo,
       isSentByMe: isSentByMe,
-      mutedColor: kMuted,
-      primaryColor: kPrimary,
+      mutedColor: c.muted,
+      primaryColor: c.primary,
     );
 
     final statusMessage = deleted
@@ -3514,15 +3514,15 @@ class _ChatWindowState extends State<ChatWindow> {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (showEditedLabel) ...[
-              const Text(
+              Text(
                 'Edited',
-                style: TextStyle(fontSize: 10, color: kMuted, fontStyle: FontStyle.italic),
+                style: TextStyle(fontSize: 10, color: c.muted, fontStyle: FontStyle.italic),
               ),
               const SizedBox(width: 4),
             ],
             Text(
               DateFormat('hh:mm a').format(timestamp),
-              style: const TextStyle(fontSize: 10, color: kMuted),
+              style: TextStyle(fontSize: 10, color: c.muted),
             ),
             if (includeSeen && isSentByMe) ...[
               const SizedBox(width: 3),
@@ -3544,13 +3544,13 @@ class _ChatWindowState extends State<ChatWindow> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                   decoration: BoxDecoration(
-                    color: isSentByMe ? kPrimary : Colors.white,
+                    color: isSentByMe ? c.sentBubble : c.receivedBubble,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     displayedMessage,
                     style: TextStyle(
-                      color: isSentByMe ? Colors.white : kText,
+                      color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
                       fontSize: 13,
                       fontStyle: FontStyle.italic,
                     ),
@@ -3588,13 +3588,13 @@ class _ChatWindowState extends State<ChatWindow> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                 decoration: BoxDecoration(
-                  color: isSentByMe ? kPrimary : Colors.white,
+                  color: isSentByMe ? c.sentBubble : c.receivedBubble,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? Colors.white : kText,
+                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -3721,13 +3721,13 @@ class _ChatWindowState extends State<ChatWindow> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                 decoration: BoxDecoration(
-                  color: isSentByMe ? kPrimary : Colors.white,
+                  color: isSentByMe ? c.sentBubble : c.receivedBubble,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? Colors.white : kText,
+                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -3741,7 +3741,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                   decoration: BoxDecoration(
-                    color: isSentByMe ? kPrimary : Colors.white,
+                    color: isSentByMe ? c.sentBubble : c.receivedBubble,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
                       BoxShadow(color: Colors.black.withOpacity(0.07), blurRadius: 4, offset: const Offset(0, 1)),
@@ -3849,13 +3849,13 @@ class _ChatWindowState extends State<ChatWindow> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
                 decoration: BoxDecoration(
-                  color: isSentByMe ? kPrimary : Colors.white,
+                  color: isSentByMe ? c.sentBubble : c.receivedBubble,
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? Colors.white : kText,
+                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
                     fontSize: 13,
                     fontStyle: FontStyle.italic,
                   ),
@@ -4254,13 +4254,13 @@ class _ChatWindowState extends State<ChatWindow> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
               margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
               decoration: BoxDecoration(
-                color: isSentByMe ? kPrimary : Colors.white,
+                color: isSentByMe ? c.sentBubble : c.receivedBubble,
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
                 displayedMessage,
                 style: TextStyle(
-                  color: isSentByMe ? Colors.white : kText,
+                  color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
                   fontSize: 13,
                   fontStyle: FontStyle.italic,
                 ),
@@ -4652,7 +4652,7 @@ class _ChatWindowState extends State<ChatWindow> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
             margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
             decoration: BoxDecoration(
-              color: isSentByMe ? kPrimary : Colors.white,
+              color: isSentByMe ? c.sentBubble : c.receivedBubble,
               borderRadius: isSentByMe
                   ? const BorderRadius.only(
                       topLeft: Radius.circular(18),
@@ -4677,7 +4677,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 Text(
                   displayedMessage,
                   style: TextStyle(
-                    color: isSentByMe ? Colors.white : kText,
+                    color: isSentByMe ? c.sentBubbleText : c.receivedBubbleText,
                     fontSize: 13,
                     fontStyle: statusMessage != null ? FontStyle.italic : FontStyle.normal,
                   ),
