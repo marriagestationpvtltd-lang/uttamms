@@ -671,7 +671,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
         seenIds.add(uid);
 
         // Search filter
-        bool matchesSearch = user["name"]
+        bool matchesSearch = (user["name"]?.toString() ?? '')
             .toLowerCase()
             .contains(_searchQuery.toLowerCase());
 
@@ -740,7 +740,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
         });
         break;
       case 'name':
-        _filteredUsers.sort((a, b) => a["name"].compareTo(b["name"]));
+        _filteredUsers.sort((a, b) =>
+            (a["name"]?.toString() ?? '').compareTo(b["name"]?.toString() ?? ''));
         break;
       case 'matches':
         _filteredUsers.sort((a, b) {
@@ -1159,7 +1160,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
                           }
 
                           var user = _filteredUsers[index];
-                          bool isSelected = _selectedChat == user;
+                          bool isSelected = _selectedChat?['id']?.toString() ==
+                              user['id']?.toString();
 
                           return _buildUserRow(
                             user["name"] ?? "",
