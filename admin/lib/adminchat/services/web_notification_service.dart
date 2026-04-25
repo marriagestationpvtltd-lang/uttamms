@@ -205,4 +205,37 @@ class WebNotificationService {
       ]);
     } catch (_) {}
   }
+
+  // ------------------------------------------------------------------
+  // Call ringtone  (looping HTML5 Audio during incoming call)
+  // ------------------------------------------------------------------
+
+  static const String _kCallRingtoneUrl = '/assets/audio/ring_classic.wav';
+  static html.AudioElement? _callRingtoneEl;
+
+  /// Starts looping the incoming call ringtone.
+  /// Uses `assets/audio/ring_classic.wav` bundled with the admin app.
+  /// Safe to call multiple times — a running ringtone is stopped first.
+  static void playCallRingtone() {
+    stopCallRingtone();
+    try {
+      final el = html.AudioElement(_kCallRingtoneUrl)
+        ..loop = true
+        ..volume = 0.85;
+      _callRingtoneEl = el;
+      el.play().catchError((_) {});
+    } catch (_) {}
+  }
+
+  /// Stops the looping call ringtone started by [playCallRingtone].
+  static void stopCallRingtone() {
+    try {
+      final el = _callRingtoneEl;
+      _callRingtoneEl = null;
+      if (el != null) {
+        el.pause();
+        el.src = '';
+      }
+    } catch (_) {}
+  }
 }
