@@ -306,6 +306,17 @@ function maskSensitiveData(text) {
   });
 }
 
+/**
+ * Safely parses a JSON string field from a DB row.
+ * Returns null if the value is null / undefined or cannot be parsed.
+ * @param {any} value
+ * @returns {any}
+ */
+function parseJsonField(value) {
+  if (!value) return null;
+  try { return JSON.parse(value); } catch (_) { return null; }
+}
+
 async function logActivity({ userId, userName = '', targetId = null, targetName = null, activityType, description = '' }) {
   if (!userId || !VALID_ACTIVITY_TYPES.has(activityType)) return;
   try {
@@ -614,7 +625,7 @@ app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
       isEdited:             r.isEdited === 1,
       isUnsent:             r.isUnsent === 1,
       liked:                r.liked === 1,
-      repliedTo:            (() => { try { return r.repliedTo ? JSON.parse(r.repliedTo) : null; } catch (_) { return null; } })(),
+      repliedTo:            parseJsonField(r.repliedTo),
       timestamp:            r.timestamp ? r.timestamp.toISOString() : null,
     }));
 
