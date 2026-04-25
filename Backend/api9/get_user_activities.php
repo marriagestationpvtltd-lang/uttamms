@@ -73,6 +73,18 @@ $userId       = isset($_GET['user_id']) && $_GET['user_id'] !== ''
                     ? (int) $_GET['user_id'] : null;
 $activityType = isset($_GET['activity_type']) && $_GET['activity_type'] !== ''
                     ? trim($_GET['activity_type']) : null;
+// Support comma-separated list of activity types (e.g. "call_made,call_received")
+$activityTypes = null;
+if ($activityType !== null) {
+    $activityTypes = array_values(array_filter(array_map('trim', explode(',', $activityType))));
+    if (count($activityTypes) === 0) {
+        $activityTypes = null;
+        $activityType  = null;
+    } elseif (count($activityTypes) === 1) {
+        $activityType = $activityTypes[0];
+        $activityTypes = null;
+    }
+}
 $dateFrom     = isset($_GET['date_from']) && $_GET['date_from'] !== ''
                     ? trim($_GET['date_from']) : null;
 $dateTo       = isset($_GET['date_to']) && $_GET['date_to'] !== ''
@@ -93,6 +105,12 @@ if ($userId !== null) {
 if ($activityType !== null) {
     $where[]  = 'ua.activity_type = ?';
     $params[] = $activityType;
+} elseif ($activityTypes !== null) {
+    $placeholders = implode(',', array_fill(0, count($activityTypes), '?'));
+    $where[]      = "ua.activity_type IN ($placeholders)";
+    foreach ($activityTypes as $t) {
+        $params[] = $t;
+    }
 }
 
 if ($dateFrom !== null) {
