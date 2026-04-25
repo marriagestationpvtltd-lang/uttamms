@@ -11,7 +11,14 @@ import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class CommunityDetailsPage extends StatefulWidget {
-  const CommunityDetailsPage({super.key});
+  const CommunityDetailsPage({
+    super.key,
+    this.isEditMode = false,
+    this.initialData,
+  });
+
+  final bool isEditMode;
+  final Map<String, dynamic>? initialData;
 
   @override
   State<CommunityDetailsPage> createState() => _CommunityDetailsPageState();
@@ -114,6 +121,44 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
         _selectedCommunity != null &&
         _selectedSubcommunity != null &&
         _selectedCastLanguage != null;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isEditMode && widget.initialData != null) {
+      _populateFromInitialData(widget.initialData!);
+    }
+  }
+
+  String? _matchOption(List<String> options, String value) {
+    try {
+      return options.firstWhere(
+        (o) => o.toLowerCase() == value.toLowerCase(),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _populateFromInitialData(Map<String, dynamic> data) {
+    final religionName = data['religionName']?.toString();
+    final communityName = data['communityName']?.toString();
+    final subCommunityName = data['subCommunityName']?.toString();
+    final motherTongue = data['motherTongue']?.toString();
+
+    if (religionName != null && religionName.isNotEmpty) {
+      _selectedReligion = _matchOption(_religionOptions, religionName);
+    }
+    if (communityName != null && communityName.isNotEmpty) {
+      _selectedCommunity = _matchOption(_communityOptions, communityName);
+    }
+    if (subCommunityName != null && subCommunityName.isNotEmpty) {
+      _selectedSubcommunity = _matchOption(_subcommunityOptions, subCommunityName);
+    }
+    if (motherTongue != null && motherTongue.isNotEmpty) {
+      _selectedCastLanguage = _matchOption(_castLanguageOptions, motherTongue);
+    }
   }
 
   @override
@@ -344,16 +389,22 @@ class _CommunityDetailsPageState extends State<CommunityDetailsPage> {
     });
 
     if (result['status'] == 'success') {
-      bool updated = await UpdateService.updatePageNumber(
-        userId: userId.toString(),
-        pageNo: 2,
-      );
+      if (!widget.isEditMode) {
+        await UpdateService.updatePageNumber(
+          userId: userId.toString(),
+          pageNo: 2,
+        );
+      }
 
       if (mounted) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => LivingStatusPage()),
-        );
+        if (widget.isEditMode) {
+          Navigator.pop(context);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => LivingStatusPage()),
+          );
+        }
       }
     } else {
       _showError(result['message'] ?? "Failed to save details");

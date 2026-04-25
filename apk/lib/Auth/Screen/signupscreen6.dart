@@ -14,7 +14,14 @@ import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class EducationCareerPage extends StatefulWidget {
-  const EducationCareerPage({super.key});
+  const EducationCareerPage({
+    super.key,
+    this.isEditMode = false,
+    this.initialData,
+  });
+
+  final bool isEditMode;
+  final Map<String, dynamic>? initialData;
 
   @override
   State<EducationCareerPage> createState() => _EducationCareerPageState();
@@ -185,6 +192,48 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
   @override
   void initState() {
     super.initState();
+    if (widget.isEditMode && widget.initialData != null) {
+      _populateFromInitialData(widget.initialData!);
+    }
+  }
+
+  String? _getValidValue(dynamic value, List<String> options) {
+    if (value == null) return null;
+    final str = value.toString();
+    if (str.isEmpty) return null;
+    try {
+      return options.firstWhere(
+        (o) => o.toLowerCase() == str.toLowerCase(),
+      );
+    } catch (_) {
+      return str;
+    }
+  }
+
+  void _populateFromInitialData(Map<String, dynamic> data) {
+    _selectedEducationMedium = _getValidValue(data['educationmedium'], _educationMediumOptions);
+    _selectedEducationType = _getValidValue(data['educationtype'], _educationTypeOptions);
+    _selectedFaculty = _getValidValue(data['faculty'], _facultyOptions);
+    _selectedEducationDegree = _getValidValue(data['degree'], _educationDegreeOptions);
+
+    final areYouWorking = data['areyouworking']?.toString().toLowerCase() ?? '';
+    _isWorking = areYouWorking == 'yes' || areYouWorking == '1' || areYouWorking == 'true';
+    _occupationType = data['occupationtype']?.toString();
+
+    _companyNameController.text = data['companyname']?.toString() ?? '';
+    _designationController.text = '';
+    _selectedDesignation = _getValidValue(data['designation'], _designationOptions);
+    if (_selectedDesignation == null && (data['designation']?.toString() ?? '').isNotEmpty) {
+      _designationController.text = data['designation'].toString();
+    }
+    _selectedWorkingWith = _getValidValue(data['workingwith'], _workingWithOptions);
+    _selectedAnnualIncome = _getValidValue(data['annualincome'], _annualIncomeOptions);
+
+    if (_occupationType == 'Business') {
+      _businessNameController.text = data['businessname']?.toString() ?? '';
+      _selectedBusinessWorkingWith = _getValidValue(data['workingwith'], _workingWithOptions);
+      _selectedBusinessAnnualIncome = _getValidValue(data['annualincome'], _annualIncomeOptions);
+    }
   }
 
   @override
@@ -854,23 +903,30 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
         }
 
         if (data['status'] == 'success') {
-          // Update page number
-          bool updated = await UpdateService.updatePageNumber(
-            userId: userId.toString(),
-            pageNo: 5,
-          );
+          // Update page number only in signup flow
+          if (!widget.isEditMode) {
+            bool updated = await UpdateService.updatePageNumber(
+              userId: userId.toString(),
+              pageNo: 5,
+            );
 
-          if (updated) {
-            _showSuccess("Education & career details saved successfully!");
-            // Navigate after a short delay
-            Future.delayed(const Duration(seconds: 1), () {
-              Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => AstrologicDetailsPage())
-              );
-            });
+            if (updated) {
+              _showSuccess("Education & career details saved successfully!");
+              // Navigate after a short delay
+              Future.delayed(const Duration(seconds: 1), () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => AstrologicDetailsPage())
+                );
+              });
+            } else {
+              _showError("Failed to update progress");
+            }
           } else {
-            _showError("Failed to update progress");
+            _showSuccess("Education & career details saved successfully!");
+            Future.delayed(const Duration(seconds: 1), () {
+              if (mounted) Navigator.pop(context);
+            });
           }
         } else {
           _showError(data['message'] ?? "Failed to save data");

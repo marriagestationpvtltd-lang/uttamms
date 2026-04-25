@@ -14,7 +14,14 @@ import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class FamilyDetailsPage extends StatefulWidget {
-  const FamilyDetailsPage({super.key});
+  const FamilyDetailsPage({
+    super.key,
+    this.isEditMode = false,
+    this.initialData,
+  });
+
+  final bool isEditMode;
+  final Map<String, dynamic>? initialData;
 
   @override
   State<FamilyDetailsPage> createState() => _FamilyDetailsPageState();
@@ -125,6 +132,42 @@ class _FamilyDetailsPageState extends State<FamilyDetailsPage> {
   @override
   void initState() {
     super.initState();
+    if (widget.isEditMode && widget.initialData != null) {
+      _populateFromInitialData(widget.initialData!);
+    }
+  }
+
+  String? _getValidValue(dynamic value, List<String> options) {
+    if (value == null) return null;
+    final str = value.toString();
+    if (str.isEmpty) return null;
+    try {
+      return options.firstWhere(
+        (o) => o.toLowerCase() == str.toLowerCase(),
+      );
+    } catch (_) {
+      return str;
+    }
+  }
+
+  void _populateFromInitialData(Map<String, dynamic> data) {
+    _selectedFamilyType = _getValidValue(data['familytype'], _familyTypeOptions);
+    _selectedFamilyBackground = _getValidValue(data['familybackground'], _familyBackgroundOptions);
+    _fatherStatus = data['fatherstatus']?.toString();
+    _motherStatus = data['motherstatus']?.toString();
+    _selectedFamilyOrigin = _getValidValue(data['familyorigin'], _familyOriginOptions);
+
+    if (data['fathername'] != null) {
+      _fatherNameController.text = data['fathername'].toString();
+    }
+    _fatherEducation = _getValidValue(data['fathereducation'], _educationOptions);
+    _fatherOccupation = _getValidValue(data['fatheroccupation'], _occupationOptions);
+
+    if (data['mothercaste'] != null) {
+      _motherCastController.text = data['mothercaste'].toString();
+    }
+    _motherEducation = _getValidValue(data['mothereducation'], _educationOptions);
+    _motherOccupation = _getValidValue(data['motheroccupation'], _occupationOptions);
   }
 
   @override
@@ -1145,21 +1188,28 @@ class _FamilyDetailsPageState extends State<FamilyDetailsPage> {
         }
 
         if (data['status'] == 'success') {
-          bool updated = await UpdateService.updatePageNumber(
-            userId: userId.toString(),
-            pageNo: 4,
-          );
+          _showSuccess("Family details saved successfully!");
 
-          if (updated) {
-            _showSuccess("Family details saved successfully!");
+          if (widget.isEditMode) {
             Future.delayed(const Duration(seconds: 1), () {
-              if (mounted) {
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => EducationCareerPage()));
-              }
+              if (mounted) Navigator.pop(context);
             });
           } else {
-            _showError("Failed to update progress");
+            bool updated = await UpdateService.updatePageNumber(
+              userId: userId.toString(),
+              pageNo: 4,
+            );
+
+            if (updated) {
+              Future.delayed(const Duration(seconds: 1), () {
+                if (mounted) {
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => EducationCareerPage()));
+                }
+              });
+            } else {
+              _showError("Failed to update progress");
+            }
           }
         } else {
           _showError(data['message'] ?? "Failed to save family details");

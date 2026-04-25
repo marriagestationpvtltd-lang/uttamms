@@ -14,7 +14,16 @@ import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
 class PersonalDetailsPage extends StatefulWidget {
-  const PersonalDetailsPage({super.key});
+  const PersonalDetailsPage({
+    super.key,
+    this.isEditMode = false,
+    this.initialData,
+    this.isVerified = false,
+  });
+
+  final bool isEditMode;
+  final Map<String, dynamic>? initialData;
+  final bool isVerified;
 
   @override
   State<PersonalDetailsPage> createState() => _PersonalDetailsPageState();
@@ -82,6 +91,94 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
       return "$kg kg";
     });
 
+    if (widget.isEditMode && widget.initialData != null) {
+      _populateFromInitialData(widget.initialData!);
+    }
+  }
+
+  void _populateFromInitialData(Map<String, dynamic> data) {
+    // Marital Status
+    final maritalId = data['maritalStatusId']?.toString();
+    if (maritalId != null && int.tryParse(maritalId) != null) {
+      final index = int.parse(maritalId) - 1;
+      if (index >= 0 && index < _maritalStatusOptions.length) {
+        _selectedMaritalStatus = _maritalStatusOptions[index];
+      }
+    }
+    _selectedMaritalStatus ??= data['maritalStatusName']?.toString();
+
+    // Height
+    final heightName = data['height_name']?.toString();
+    if (heightName != null && heightName.isNotEmpty) {
+      if (_heightOptions.contains(heightName)) {
+        _selectedHeight = heightName;
+      } else {
+        try {
+          _selectedHeight = _heightOptions.firstWhere(
+            (h) => h.startsWith(heightName),
+          );
+        } catch (_) {
+          _selectedHeight = heightName;
+        }
+      }
+    }
+
+    // Weight
+    final weightName = data['weight_name']?.toString();
+    if (weightName != null && weightName.isNotEmpty) {
+      if (_weightOptions.contains(weightName)) {
+        _selectedWeight = weightName;
+      } else {
+        try {
+          _selectedWeight = _weightOptions.firstWhere(
+            (w) => w.startsWith(weightName),
+          );
+        } catch (_) {
+          _selectedWeight = weightName;
+        }
+      }
+    }
+
+    // Specs
+    if (data['haveSpecs'] != null) {
+      final value = data['haveSpecs'].toString().toLowerCase();
+      _hasSpecs = value == 'true' || value == '1' || value == 'yes';
+    }
+
+    // Disability
+    if (data['anyDisability'] != null) {
+      final value = data['anyDisability'].toString().toLowerCase();
+      _hasDisability = value == 'true' || value == '1' || value == 'yes';
+    }
+    final disabilityText = data['Disability'] ?? data['disability'];
+    if (disabilityText != null && disabilityText.toString().isNotEmpty) {
+      _disabilityController.text = disabilityText.toString();
+    }
+
+    // Blood Group
+    if (data['bloodGroup'] != null && data['bloodGroup'].toString().isNotEmpty) {
+      _selectedBloodGroup = data['bloodGroup'].toString();
+    }
+
+    // Complexion
+    if (data['complexion'] != null && data['complexion'].toString().isNotEmpty) {
+      _selectedComplexion = data['complexion'].toString();
+    }
+
+    // Body Type
+    if (data['bodyType'] != null && data['bodyType'].toString().isNotEmpty) {
+      _selectedBodyType = data['bodyType'].toString();
+    }
+
+    // Child Status
+    if (data['childStatus'] != null && data['childStatus'].toString().isNotEmpty) {
+      _childStatus = data['childStatus'].toString();
+    }
+
+    // Child Live With
+    if (data['childLiveWith'] != null && data['childLiveWith'].toString().isNotEmpty) {
+      _childLiveWith = data['childLiveWith'].toString();
+    }
   }
 
   @override
@@ -172,20 +269,26 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
       setState(() => _isSubmitting = false);
 
       if (result['status'] == 'success') {
-        await UpdateService.updatePageNumber(
-          userId: userId.toString(),
-          pageNo: 1,
-        );
+        if (!widget.isEditMode) {
+          await UpdateService.updatePageNumber(
+            userId: userId.toString(),
+            pageNo: 1,
+          );
+        }
 
         // Persist the selected marital status so the document step can read it
         await prefs.setString('selected_marital_status', _selectedMaritalStatus!);
 
         _showSnackBar('Personal details saved successfully!');
 
-        Navigator.push(
-          context,
-          MaterialPageRoute(builder: (context) => const CommunityDetailsPage()),
-        );
+        if (widget.isEditMode) {
+          if (mounted) Navigator.pop(context);
+        } else {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const CommunityDetailsPage()),
+          );
+        }
       } else {
         _showSnackBar(result['message'] ?? "Something went wrong", isError: true);
       }
@@ -243,7 +346,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
                   hasError: _fieldErrors['maritalStatus'] != null,
                   errorText: _fieldErrors['maritalStatus'],
                   isRequired: true,
-                  onChanged: (value) {
+                  onChanged: (widget.isEditMode && widget.isVerified) ? null : (value) {
                     setState(() {
                       _selectedMaritalStatus = value;
                       if (_hasValidationErrors) {
@@ -257,6 +360,22 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
                     });
                   },
                 ),
+                if (widget.isEditMode && widget.isVerified) ...[
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.lock, size: 14, color: Color(0xFF2E7D32)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Verified – Cannot be changed',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 // Children Status (only for Divorced/Widowed/Waiting Divorce)
                 if (_selectedMaritalStatus == 'Divorced' || _selectedMaritalStatus == 'Widowed' || _selectedMaritalStatus == 'Waiting Divorce') ...[
