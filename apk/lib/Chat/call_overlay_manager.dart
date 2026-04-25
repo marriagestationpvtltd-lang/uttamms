@@ -629,6 +629,9 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
 
     _isNavigatingToCall = true;
     CallManager().isCallScreenShowing = true;
+
+    // Group calls and audio calls both use IncomingCallScreen.
+    // The recipient joins the shared Agora channel on acceptance.
     final route = MaterialPageRoute(
       settings: const RouteSettings(name: activeCallRouteName),
       fullscreenDialog: true,
