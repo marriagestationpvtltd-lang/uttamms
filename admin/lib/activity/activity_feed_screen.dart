@@ -37,6 +37,7 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   int _page = 1;
   int _totalPages = 1;
   Timer? _refreshTimer;
+  Timer? _socketRefreshDebounce;
   StreamSubscription<Map<String, dynamic>>? _activitySub;
   StreamSubscription<Map<String, dynamic>>? _adminActivitySub;
 
@@ -69,9 +70,17 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
       (_) { if (mounted) _fetchActivities(reset: true, silent: true); },
     );
     _scrollController.addListener(_onScroll);
-    // Subscribe to real-time activity events from the socket server
+    // Subscribe to real-time activity events from the socket server.
+    // Debounce rapid bursts (e.g. call_made + call_received arriving within
+    // milliseconds) into a single refresh, and give the 750 ms batch worker
+    // enough time to persist any pending messages before we reset the list.
     _activitySub = _socketService.onUserActivity.listen((_) {
-      if (mounted) _fetchActivities(reset: true, silent: true);
+      if (!mounted) return;
+      _socketRefreshDebounce?.cancel();
+      _socketRefreshDebounce = Timer(
+        const Duration(milliseconds: 1500),
+        () { if (mounted) _fetchActivities(reset: true, silent: true); },
+      );
     });
     // Subscribe to real-time admin_activity events (full message content or
     // general activity data forwarded by the new_activity socket handler)
@@ -135,6 +144,7 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _socketRefreshDebounce?.cancel();
     _activitySub?.cancel();
     _adminActivitySub?.cancel();
     _scrollController.dispose();
@@ -205,61 +215,66 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   // ─── Icon & colour per activity type ────────────────────────────────────────
   static IconData _iconFor(String type) {
     switch (type) {
-      case 'like_sent':         return Icons.favorite_rounded;
-      case 'like_removed':      return Icons.heart_broken_rounded;
-      case 'message_sent':      return Icons.chat_bubble_rounded;
-      case 'request_sent':      return Icons.send_rounded;
-      case 'request_accepted':  return Icons.check_circle_rounded;
-      case 'request_rejected':  return Icons.cancel_rounded;
-      case 'call_made':         return Icons.call_made_rounded;
-      case 'call_received':     return Icons.call_received_rounded;
-      case 'profile_viewed':    return Icons.person_search_rounded;
-      case 'login':             return Icons.login_rounded;
-      case 'logout':            return Icons.logout_rounded;
-      case 'photo_uploaded':    return Icons.photo_camera_rounded;
-      case 'package_bought':    return Icons.card_membership_rounded;
-      default:                  return Icons.circle_outlined;
+      case 'like_sent':          return Icons.favorite_rounded;
+      case 'like_removed':       return Icons.heart_broken_rounded;
+      case 'message_sent':       return Icons.chat_bubble_rounded;
+      case 'request_sent':       return Icons.send_rounded;
+      case 'request_accepted':   return Icons.check_circle_rounded;
+      case 'request_rejected':   return Icons.cancel_rounded;
+      case 'call_made':          return Icons.call_made_rounded;
+      case 'call_received':      return Icons.call_received_rounded;
+      case 'video_call_made':    return Icons.videocam_rounded;
+      case 'video_call_received': return Icons.video_call_rounded;
+      case 'profile_viewed':     return Icons.person_search_rounded;
+      case 'login':              return Icons.login_rounded;
+      case 'logout':             return Icons.logout_rounded;
+      case 'photo_uploaded':     return Icons.photo_camera_rounded;
+      case 'package_bought':     return Icons.card_membership_rounded;
+      default:                   return Icons.circle_outlined;
     }
   }
 
   static Color _colorFor(String type) {
     switch (type) {
-      case 'like_sent':         return _kRose;
-      case 'like_removed':      return _kSlate400;
-      case 'message_sent':      return _kSky;
-      case 'request_sent':      return _kAmber;
-      case 'request_accepted':  return _kEmerald;
-      case 'request_rejected':  return _kRose;
-      case 'call_made':         return _kEmerald;
-      case 'call_received':     return _kSky;
-      case 'profile_viewed':    return _kViolet;
-      case 'login':             return _kViolet;
-      case 'logout':            return _kSlate400;
-      case 'photo_uploaded':    return _kPink;
-      case 'package_bought':    return _kPink;
-      default:                  return _kPrimary;
+      case 'like_sent':          return _kRose;
+      case 'like_removed':       return _kSlate400;
+      case 'message_sent':       return _kSky;
+      case 'request_sent':       return _kAmber;
+      case 'request_accepted':   return _kEmerald;
+      case 'request_rejected':   return _kRose;
+      case 'call_made':          return _kEmerald;
+      case 'call_received':      return _kSky;
+      case 'video_call_made':    return _kViolet;
+      case 'video_call_received': return _kPrimary;
+      case 'profile_viewed':     return _kViolet;
+      case 'login':              return _kViolet;
+      case 'logout':             return _kSlate400;
+      case 'photo_uploaded':     return _kPink;
+      case 'package_bought':     return _kPink;
+      default:                   return _kPrimary;
     }
   }
 
   static String _labelFor(String type) {
     switch (type) {
-      case 'like_sent':         return 'Like';
-      case 'like_removed':      return 'Unlike';
-      case 'message_sent':      return 'Message';
-      case 'request_sent':      return 'Request';
-      case 'request_accepted':  return 'Accepted';
-      case 'request_rejected':  return 'Rejected';
-      case 'call_made':         return 'Call Out';
-      case 'call_received':     return 'Call In';
-      case 'profile_viewed':    return 'Viewed';
-      case 'login':             return 'Login';
-      case 'logout':            return 'Logout';
-      case 'photo_uploaded':    return 'Photo';
-      case 'package_bought':    return 'Package';
-      default:                  return type;
+      case 'like_sent':          return 'Like';
+      case 'like_removed':       return 'Unlike';
+      case 'message_sent':       return 'Message';
+      case 'request_sent':       return 'Request';
+      case 'request_accepted':   return 'Accepted';
+      case 'request_rejected':   return 'Rejected';
+      case 'call_made':          return 'Audio Out';
+      case 'call_received':      return 'Audio In';
+      case 'video_call_made':    return 'Video Out';
+      case 'video_call_received': return 'Video In';
+      case 'profile_viewed':     return 'Viewed';
+      case 'login':              return 'Login';
+      case 'logout':             return 'Logout';
+      case 'photo_uploaded':     return 'Photo';
+      case 'package_bought':     return 'Package';
+      default:                   return type;
     }
   }
-
   // ─── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
@@ -473,9 +488,21 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   }
 
   Widget _buildActivityTile(UserActivity activity, ColorScheme cs, bool isDark) {
-    final color  = _colorFor(activity.activityType);
-    final icon   = _iconFor(activity.activityType);
-    final label  = _labelFor(activity.activityType);
+    // Derive the display type: distinguish video calls from audio calls by
+    // checking the description that the server stores (e.g. "… video call …").
+    final baseType = activity.activityType;
+    final isVideoCall = (baseType == 'call_made' || baseType == 'call_received') &&
+        activity.description.toLowerCase().contains('video call');
+    final String displayType;
+    if (isVideoCall) {
+      displayType = baseType == 'call_made' ? 'video_call_made' : 'video_call_received';
+    } else {
+      displayType = baseType;
+    }
+
+    final color  = _colorFor(displayType);
+    final icon   = _iconFor(displayType);
+    final label  = _labelFor(displayType);
     final timeStr = DateFormat('MMM d, HH:mm').format(activity.createdAt.toLocal());
 
     return Container(
