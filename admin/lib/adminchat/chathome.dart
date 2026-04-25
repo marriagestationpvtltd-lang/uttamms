@@ -2225,7 +2225,11 @@ class _ChatWindowState extends State<ChatWindow> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         allUsers = ((data['data'] as List<dynamic>?) ?? [])
-            .where((u) => u['id']?.toString() != currentParticipantId)
+            .where((u) =>
+                u['id']?.toString() != currentParticipantId &&
+                (u['isOnline'] == 1 ||
+                    u['isOnline'] == '1' ||
+                    u['isOnline'] == true))
             .map((u) => Map<String, dynamic>.from(u as Map))
             .toList();
       } else {
@@ -8457,13 +8461,26 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                   const Icon(Icons.group_add, color: Colors.white, size: 26),
                   const SizedBox(width: 12),
                   const Expanded(
-                    child: Text(
-                      'Add to Call',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Add to Call',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          'Online users only',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   IconButton(
@@ -8518,8 +8535,8 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                           const SizedBox(height: 12),
                           Text(
                             _query.isEmpty
-                                ? 'No users available'
-                                : 'No users match "$_query"',
+                                ? 'No online users available'
+                                : 'No online users match "$_query"',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 color: Colors.grey.shade500, fontSize: 14),
