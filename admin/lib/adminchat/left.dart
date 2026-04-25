@@ -286,11 +286,16 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
       // Update conversationMap so this user sorts to the top under 'recent'.
       final preview = _messagePreviewFromSocket(data);
+      // Prefer the server-provided timestamp to avoid clock-skew issues; fall
+      // back to the current time only when the server omits it.
+      final DateTime msgTime =
+          AdminSocketService.parseTimestamp(data['timestamp']) ??
+          AdminSocketService.parseTimestamp(data['createdAt']) ??
+          DateTime.now();
       conversationMap[userId] = {
-        ...?conversationMap[userId],
         'lastMessage': data['message']?.toString() ?? '',
         'lastMessagePreview': preview,
-        'lastTimestamp': DateTime.now(),
+        'lastTimestamp': msgTime,
         'lastMessageType': data['messageType']?.toString() ?? 'text',
       };
 
