@@ -2,6 +2,7 @@ import 'package:adminmrz/adminchat/right.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'chat_theme.dart';
 import 'chathome.dart';
 import 'chatprovider.dart';
 import 'left.dart';
@@ -37,10 +38,11 @@ class _ChatScreenState extends State<ChatScreen> {
   Widget build(BuildContext context) {
     final isMobile =
         MediaQuery.of(context).size.width < _kChatMobileBreakpoint;
+    final c = ChatColors.of(context);
 
     if (isMobile) {
       return Scaffold(
-        backgroundColor: const Color(0xFFF0F2F5),
+        backgroundColor: c.bg,
         body: _mobileChatOpen
             ? ChatWindow(
                 name: 'Chat',
@@ -54,17 +56,17 @@ class _ChatScreenState extends State<ChatScreen> {
 
     // ── Desktop layout ─────────────────────────────────────────────────────
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
+      backgroundColor: c.bg,
       body: Row(
         children: [
           ChatSidebar(),
-          Container(width: 1, color: const Color(0xFFE2E8F0)),
+          Container(width: 1, color: c.border),
           Expanded(
               child: ChatWindow(
                   name: 'select user to chat',
                   isOnline: true,
                   receiverIdd: 0)),
-          Container(width: 1, color: const Color(0xFFE2E8F0)),
+          Container(width: 1, color: c.border),
           ProfileSidebar(
             selectedTab: selectedTab,
             onTabChange: (index) {
