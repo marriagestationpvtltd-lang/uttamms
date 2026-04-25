@@ -38,6 +38,7 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
   int _totalPages = 1;
   Timer? _refreshTimer;
   StreamSubscription<Map<String, dynamic>>? _activitySub;
+  StreamSubscription<Map<String, dynamic>>? _adminActivitySub;
 
   // Filter state
   String? _selectedType;    // null = All
@@ -69,12 +70,36 @@ class _ActivityFeedScreenState extends State<ActivityFeedScreen> {
     _activitySub = _socketService.onUserActivity.listen((_) {
       if (mounted) _fetchActivities(reset: true, silent: true);
     });
+    // Subscribe to real-time admin_activity events (full message content)
+    _adminActivitySub = _socketService.onAdminActivity.listen((data) {
+      if (!mounted) return;
+      final senderId   = data['sender_id']?.toString() ?? '';
+      final receiverId = data['receiver_id']?.toString() ?? '';
+      final senderName   = data['sender_name']?.toString()   ?? 'User $senderId';
+      final receiverName = data['receiver_name']?.toString() ?? 'User $receiverId';
+      final message    = data['message']?.toString() ?? '';
+      final timestamp  = data['timestamp']?.toString();
+      final createdAt  = timestamp != null ? DateTime.tryParse(timestamp) ?? DateTime.now() : DateTime.now();
+
+      final activity = UserActivity(
+        id:           createdAt.millisecondsSinceEpoch,
+        userId:       int.tryParse(senderId) ?? 0,
+        userName:     senderName,
+        targetId:     int.tryParse(receiverId),
+        targetName:   receiverName,
+        activityType: 'message_sent',
+        description:  '$senderName → $receiverName: $message',
+        createdAt:    createdAt,
+      );
+      setState(() => _activities.insert(0, activity));
+    });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
     _activitySub?.cancel();
+    _adminActivitySub?.cancel();
     _scrollController.dispose();
     _searchCtrl.dispose();
     super.dispose();
