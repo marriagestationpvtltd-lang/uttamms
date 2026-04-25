@@ -1904,6 +1904,7 @@ class _ChatWindowState extends State<ChatWindow> {
     });
 
     _webSpeechRecognition!['onerror'] = js.allowInterop((dynamic event) {
+      if (!mounted) return;
       final error =
           js.JsObject.fromBrowserObject(event)['error'] as String? ?? '';
       if (error == 'aborted') return; // user-initiated stop, onend handles state
@@ -2166,6 +2167,7 @@ class _ChatWindowState extends State<ChatWindow> {
         receiverImage: chatProvider.profilePicture,
       );
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to send match profile")),
       );
@@ -5866,6 +5868,7 @@ class _ChatWindowState extends State<ChatWindow> {
       } else {
       }
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Error picking image: $e")),
       );
@@ -5904,6 +5907,7 @@ class _ChatWindowState extends State<ChatWindow> {
         imageBytes: imageBytes,
       );
 
+      if (!mounted) return;
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
       _socketService.sendMessage(
         chatRoomId: AdminSocketService.chatRoomId(receiverId),
@@ -6056,13 +6060,14 @@ class _ChatWindowState extends State<ChatWindow> {
       );
     } catch (e) {
       // Restore message text so user doesn't lose their content
-      if (_messageController.text.isEmpty) {
+      if (mounted && _messageController.text.isEmpty) {
         _messageController.text = messageText;
         _messageController.selection = TextSelection.fromPosition(
           TextPosition(offset: messageText.length),
         );
         _textBeforeVoice = messageText;
       }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Failed to send message")),
       );
