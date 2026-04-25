@@ -472,7 +472,9 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        call.status[0].toUpperCase() + call.status.substring(1),
+                        call.status.isNotEmpty
+                        ? call.status[0].toUpperCase() + call.status.substring(1)
+                        : 'Unknown',
                         style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: color),
                       ),
                     ),
