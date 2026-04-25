@@ -514,17 +514,23 @@ class _DashboardPageState extends State<DashboardPage> {
             _onItemTapped(index);
             _scaffoldKey.currentState?.closeDrawer();
           },
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(9),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             decoration: BoxDecoration(
-              color: isActive ? _kAccent.withOpacity(0.14) : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
+              gradient: isActive
+                  ? LinearGradient(
+                      colors: [_kAccent.withOpacity(0.22), Colors.transparent],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(9),
               border: Border(
                 left: BorderSide(
                   color: isActive ? _kAccent : Colors.transparent,
-                  width: 3,
+                  width: 4,
                 ),
               ),
             ),
@@ -699,7 +705,7 @@ class _DashboardPageState extends State<DashboardPage> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => _onItemTapped(index),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(9),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             padding: EdgeInsets.symmetric(
@@ -707,12 +713,18 @@ class _DashboardPageState extends State<DashboardPage> {
               vertical: 10,
             ),
             decoration: BoxDecoration(
-              color: isActive ? _kAccent.withOpacity(0.14) : Colors.transparent,
-              borderRadius: BorderRadius.circular(8),
+              gradient: isActive
+                  ? LinearGradient(
+                      colors: [_kAccent.withOpacity(0.22), Colors.transparent],
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                    )
+                  : null,
+              borderRadius: BorderRadius.circular(9),
               border: Border(
                 left: BorderSide(
                   color: isActive ? _kAccent : Colors.transparent,
-                  width: 3,
+                  width: 4,
                 ),
               ),
             ),
@@ -883,29 +895,49 @@ class _DashboardPageState extends State<DashboardPage> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final topBarBg = cs.surface;
     final topBarBorder = cs.outlineVariant;
-    final iconBg = isDark ? const Color(0xFF263248) : const Color(0xFFF8FAFC);
-    final mutedColor = cs.onSurface.withOpacity(0.45);
+    final iconBg = isDark ? const Color(0xFF1E2D45) : const Color(0xFFF1F5F9);
+    final mutedColor = cs.onSurface.withOpacity(0.40);
 
     return Container(
       height: 64,
       padding: const EdgeInsets.symmetric(horizontal: 24),
       decoration: BoxDecoration(
         color: topBarBg,
-        border: Border(bottom: BorderSide(color: topBarBorder)),
+        border: Border(bottom: BorderSide(color: topBarBorder, width: 1)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.20 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Row(
         children: [
           // Breadcrumb
-          Icon(Icons.home_outlined, size: 14, color: mutedColor),
-          const SizedBox(width: 6),
-          Text('/', style: TextStyle(fontSize: 12, color: mutedColor)),
-          const SizedBox(width: 6),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: topBarBorder),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.home_outlined, size: 13, color: mutedColor),
+                const SizedBox(width: 5),
+                Text('/', style: TextStyle(fontSize: 11, color: mutedColor)),
+                const SizedBox(width: 5),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface.withOpacity(0.80),
+                  ),
+                ),
+              ],
             ),
           ),
           const Spacer(),
@@ -918,19 +950,19 @@ class _DashboardPageState extends State<DashboardPage> {
           ),
           // Dark / Light mode toggle
           Container(
-            width: 36,
-            height: 36,
-            margin: const EdgeInsets.only(right: 8),
+            width: 38,
+            height: 38,
+            margin: const EdgeInsets.only(right: 4),
             decoration: BoxDecoration(
               color: iconBg,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
               border: Border.all(color: topBarBorder),
             ),
             child: IconButton(
               onPressed: () => context.read<ThemeProvider>().toggleTheme(),
               icon: Icon(
                 isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
-                size: 18,
+                size: 17,
                 color: mutedColor,
               ),
               padding: EdgeInsets.zero,
