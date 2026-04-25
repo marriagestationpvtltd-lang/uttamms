@@ -187,10 +187,12 @@ try {
 $totalPages = $total > 0 ? (int) ceil($total / $limit) : 1;
 
 echo json_encode([
-    'success'     => true,
-    'activities'  => $activities,
-    'total'       => $total,
-    'page'        => $page,
-    'limit'       => $limit,
-    'total_pages' => $totalPages,
+    'status' => 'success',
+    'data'   => [
+        'activities'  => $activities,
+        'total'       => $total,
+        'page'        => $page,
+        'limit'       => $limit,
+        'total_pages' => $totalPages,
+    ],
 ]);
