@@ -1,3 +1,4 @@
+import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/auth/service.dart';
 import 'package:adminmrz/requests/request_model.dart';
 import 'package:adminmrz/requests/request_provider.dart';
@@ -22,17 +23,21 @@ class RequestsPage extends StatefulWidget {
 
 class _RequestsPageState extends State<RequestsPage> {
   final TextEditingController _searchController = TextEditingController();
+  final AdminSocketService _socketService = AdminSocketService();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<RequestProvider>().fetchRequests(reset: true);
+      final provider = context.read<RequestProvider>();
+      provider.fetchRequests(reset: true);
+      provider.subscribeToSocketUpdates(_socketService);
     });
   }
 
   @override
   void dispose() {
+    context.read<RequestProvider>().unsubscribeFromSocketUpdates();
     _searchController.dispose();
     super.dispose();
   }

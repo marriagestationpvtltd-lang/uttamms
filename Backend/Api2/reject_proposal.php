@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/../socket_notify_helper.php';
 
 // --------------------------------------------------------------------------
 // Input
@@ -89,6 +90,26 @@ try {
     } catch (PDOException $e) {
         error_log('reject_proposal notification error: ' . $e->getMessage());
     }
+
+    // Push real-time notification to the other party and admin panel.
+    $nameStmt = $pdo->prepare(
+        "SELECT id, CONCAT_WS(' ', firstName, lastName) AS full_name FROM users WHERE id IN (?, ?) LIMIT 2"
+    );
+    $nameStmt->execute([$proposal['sender_id'], $proposal['receiver_id']]);
+    $names = [];
+    foreach ($nameStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $names[(int)$row['id']] = $row['full_name'];
+    }
+    notifyRequestEvent([
+        'event'        => 'request_rejected',
+        'proposalId'   => $proposalId,
+        'senderId'     => (int)$proposal['sender_id'],
+        'receiverId'   => (int)$proposal['receiver_id'],
+        'senderName'   => $names[(int)$proposal['sender_id']]   ?? '',
+        'receiverName' => $names[(int)$proposal['receiver_id']] ?? '',
+        'requestType'  => 'Profile',
+        'status'       => 'rejected',
+    ]);
 
     echo json_encode(['success' => true, 'message' => 'Proposal rejected successfully']);
 

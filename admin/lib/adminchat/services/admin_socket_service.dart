@@ -57,6 +57,9 @@ class AdminSocketService {
   final _connectionCtrl = StreamController<bool>.broadcast();
   final _userActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _adminActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  /// Emitted when any proposal/request is sent, accepted, or rejected so the
+  /// admin request list refreshes in real-time without manual polling.
+  final _requestUpdateCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -90,6 +93,9 @@ class AdminSocketService {
   /// Emitted by the server immediately when a user sends a text message.
   /// Payload: { sender_id, receiver_id, sender_name, receiver_name, message, timestamp }
   Stream<Map<String, dynamic>> get onAdminActivity => _adminActivityCtrl.stream;
+  /// Emitted when any proposal/request is created or its status changes.
+  /// Payload: { event, proposalId, senderId, receiverId, requestType, status, timestamp }
+  Stream<Map<String, dynamic>> get onRequestUpdate => _requestUpdateCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -231,6 +237,10 @@ class AdminSocketService {
       if (data is Map) _adminActivityCtrl.add(Map<String, dynamic>.from(data));
     });
 
+    _socket!.on('request_update', (data) {
+      if (data is Map) _requestUpdateCtrl.add(Map<String, dynamic>.from(data));
+    });
+
     _socket!.connect();
   }
 
@@ -267,6 +277,7 @@ class AdminSocketService {
     _connectionCtrl.close();
     _userActivityCtrl.close();
     _adminActivityCtrl.close();
+    _requestUpdateCtrl.close();
   }
 
   Future<bool> ensureConnected() async {

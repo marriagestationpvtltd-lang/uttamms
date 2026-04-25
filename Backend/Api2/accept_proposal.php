@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/../socket_notify_helper.php';
 
 // --------------------------------------------------------------------------
 // Input
@@ -82,6 +83,26 @@ try {
         // Notifications table may not exist – non-fatal
         error_log('accept_proposal notification error: ' . $e->getMessage());
     }
+
+    // Push real-time notification to sender's app and admin panel.
+    $nameStmt = $pdo->prepare(
+        "SELECT id, CONCAT_WS(' ', firstName, lastName) AS full_name FROM users WHERE id IN (?, ?) LIMIT 2"
+    );
+    $nameStmt->execute([$proposal['sender_id'], $userId]);
+    $names = [];
+    foreach ($nameStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $names[(int)$row['id']] = $row['full_name'];
+    }
+    notifyRequestEvent([
+        'event'        => 'request_accepted',
+        'proposalId'   => $proposalId,
+        'senderId'     => (int)$proposal['sender_id'],
+        'receiverId'   => $userId,
+        'senderName'   => $names[(int)$proposal['sender_id']] ?? '',
+        'receiverName' => $names[$userId]                     ?? '',
+        'requestType'  => 'Profile',
+        'status'       => 'accepted',
+    ]);
 
     echo json_encode(['success' => true, 'message' => 'Proposal accepted successfully']);
 
