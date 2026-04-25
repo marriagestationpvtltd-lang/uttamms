@@ -3478,6 +3478,7 @@ class _MatrimonyProfilePageState extends State<MatrimonyProfilePage> {
       PersonalDetailsPage(
         isEditMode: true,
         initialData: _asMap(profileData?['personalDetail']),
+        isVerified: context.read<UserState>().isVerified,
       ),
       onReturn: _refreshPersonalSection,
     );

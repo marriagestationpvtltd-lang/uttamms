@@ -18,10 +18,12 @@ class PersonalDetailsPage extends StatefulWidget {
     super.key,
     this.isEditMode = false,
     this.initialData,
+    this.isVerified = false,
   });
 
   final bool isEditMode;
   final Map<String, dynamic>? initialData;
+  final bool isVerified;
 
   @override
   State<PersonalDetailsPage> createState() => _PersonalDetailsPageState();
@@ -344,7 +346,7 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
                   hasError: _fieldErrors['maritalStatus'] != null,
                   errorText: _fieldErrors['maritalStatus'],
                   isRequired: true,
-                  onChanged: (value) {
+                  onChanged: (widget.isEditMode && widget.isVerified) ? null : (value) {
                     setState(() {
                       _selectedMaritalStatus = value;
                       if (_hasValidationErrors) {
@@ -358,6 +360,22 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
                     });
                   },
                 ),
+                if (widget.isEditMode && widget.isVerified) ...[
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.lock, size: 14, color: Color(0xFF2E7D32)),
+                        SizedBox(width: 4),
+                        Text(
+                          'Verified – Cannot be changed',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 // Children Status (only for Divorced/Widowed/Waiting Divorce)
                 if (_selectedMaritalStatus == 'Divorced' || _selectedMaritalStatus == 'Widowed' || _selectedMaritalStatus == 'Waiting Divorce') ...[
