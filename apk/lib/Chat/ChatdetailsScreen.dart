@@ -743,18 +743,26 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     }
   }
 
+  void _applyReceiverStatus(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final bool online = data['isOnline'] == true;
+    final DateTime? lastSeen = SocketService.parseTimestamp(data['lastSeen']);
+    setState(() {
+      _isOtherUserOnline = online;
+      _otherUserLastSeen  = lastSeen;
+    });
+  }
+
   void _startReceiverStatusListener() {
     _otherUserStatusSub?.cancel();
     _otherUserStatusSub = _socketService.onUserStatusChange.listen((data) {
-      if (!mounted) return;
       if (data['userId']?.toString() != widget.receiverId) return;
-      final bool online = data['isOnline'] == true;
-      final DateTime? lastSeen = SocketService.parseTimestamp(data['lastSeen']);
-      setState(() {
-        _isOtherUserOnline = online;
-        _otherUserLastSeen  = lastSeen;
-      });
+      _applyReceiverStatus(data);
     });
+
+    // Fetch the current status immediately so the correct online/offline state
+    // is shown when the chat screen first opens (before any status-change event).
+    _socketService.getUserStatus(widget.receiverId).then(_applyReceiverStatus);
   }
 
   /// Format lastSeen timestamp into a human-readable "last active" string.
