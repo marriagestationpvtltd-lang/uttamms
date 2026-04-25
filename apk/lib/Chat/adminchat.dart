@@ -2289,7 +2289,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
     switch (call.status) {
       case CallStatus.completed:
-      case CallStatus.ended:
         iconColor = outgoing ? Colors.blue : Colors.green;
         directionIcon = outgoing
             ? (isVideo ? Icons.videocam : Icons.call_made)
@@ -2310,7 +2309,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         }
         break;
       case CallStatus.declined:
-      case CallStatus.rejected:
         if (outgoing) {
           iconColor = Colors.red[600]!;
           directionIcon = isVideo ? Icons.videocam_off : Icons.call_end;
@@ -2335,7 +2333,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     }
 
     String durationStr = '';
-    if ((call.status == CallStatus.completed || call.status == CallStatus.ended) && call.duration > 0) {
+    if (call.status == CallStatus.completed && call.duration > 0) {
       final m = call.duration ~/ 60;
       final s = call.duration % 60;
       durationStr = '${m}m ${s}s';

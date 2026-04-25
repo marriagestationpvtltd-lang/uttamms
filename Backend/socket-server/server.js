@@ -18,11 +18,6 @@ const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
 
-// Internal secret used by PHP backends to authenticate server-to-server calls
-// such as POST /api/notify-request.  Must match the value set in .env.
-// When not set (empty string) the endpoint is disabled for safety.
-const SOCKET_INTERNAL_SECRET = process.env.SOCKET_INTERNAL_SECRET || '';
-
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
   const dir = path.join(UPLOAD_DIR, sub);
@@ -61,73 +56,6 @@ pool.getConnection()
     await conn.query("SET time_zone = '+00:00'");
     console.log('✅ MySQL session timezone set to UTC');
 
-    // ── Create core chat tables if they do not exist yet (idempotent) ─────────
-    // These tables must exist before any ALTER TABLE / column-addition below.
-    // On a fresh deployment the DB may only contain the legacy tables; the
-    // socket server is responsible for bootstrapping the chat schema.
-
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`chat_rooms\` (
-        \`id\`                     VARCHAR(150) NOT NULL,
-        \`participants\`           JSON         NOT NULL,
-        \`participant_names\`      JSON         NOT NULL,
-        \`participant_images\`     JSON         NOT NULL,
-        \`last_message\`           TEXT,
-        \`last_message_type\`      VARCHAR(50)  DEFAULT 'text',
-        \`last_message_time\`      DATETIME     DEFAULT CURRENT_TIMESTAMP,
-        \`last_message_sender_id\` VARCHAR(50)  DEFAULT '',
-        \`created_at\`             DATETIME     DEFAULT CURRENT_TIMESTAMP,
-        \`updated_at\`             DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (\`id\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-    console.log('✅ chat_rooms table ready');
-
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`chat_unread_counts\` (
-        \`chat_room_id\` VARCHAR(150) NOT NULL,
-        \`user_id\`      VARCHAR(50)  NOT NULL,
-        \`unread_count\` INT          NOT NULL DEFAULT 0,
-        PRIMARY KEY (\`chat_room_id\`, \`user_id\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-    console.log('✅ chat_unread_counts table ready');
-
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`chat_messages\` (
-        \`id\`                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        \`message_id\`              VARCHAR(100) NOT NULL UNIQUE,
-        \`chat_room_id\`            VARCHAR(150) NOT NULL,
-        \`sender_id\`               VARCHAR(50)  NOT NULL,
-        \`receiver_id\`             VARCHAR(50)  NOT NULL,
-        \`message\`                 TEXT,
-        \`message_type\`            VARCHAR(50)  NOT NULL DEFAULT 'text',
-        \`is_read\`                 TINYINT(1)   NOT NULL DEFAULT 0,
-        \`is_delivered\`            TINYINT(1)   NOT NULL DEFAULT 0,
-        \`is_deleted_for_sender\`   TINYINT(1)   NOT NULL DEFAULT 0,
-        \`is_deleted_for_receiver\` TINYINT(1)   NOT NULL DEFAULT 0,
-        \`is_edited\`               TINYINT(1)   NOT NULL DEFAULT 0,
-        \`edited_at\`               DATETIME,
-        \`replied_to\`              JSON,
-        \`created_at\`              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX \`idx_chat_room_time\` (\`chat_room_id\`, \`created_at\`),
-        INDEX \`idx_sender\`         (\`sender_id\`),
-        INDEX \`idx_receiver\`       (\`receiver_id\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-    console.log('✅ chat_messages table ready');
-
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`user_online_status\` (
-        \`user_id\`             VARCHAR(50)  NOT NULL PRIMARY KEY,
-        \`is_online\`           TINYINT(1)   NOT NULL DEFAULT 0,
-        \`last_seen\`           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        \`active_chat_room_id\` VARCHAR(150) DEFAULT NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-    console.log('✅ user_online_status table ready');
-    // ── End core chat table creation ──────────────────────────────────────────
-
     // Add `liked` column to chat_messages if not present (idempotent).
     const [[col]] = await conn.query(
       `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
@@ -161,44 +89,32 @@ pool.getConnection()
       CREATE TABLE IF NOT EXISTS \`call_history\` (
         \`id\`              BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
         \`call_id\`         VARCHAR(100) NOT NULL UNIQUE,
-        \`room_id\`         VARCHAR(100) DEFAULT NULL,
         \`caller_id\`       VARCHAR(50)  NOT NULL,
         \`caller_name\`     VARCHAR(200) DEFAULT '',
         \`caller_image\`    VARCHAR(500) DEFAULT '',
-        \`recipient_id\`    VARCHAR(50)  NOT NULL DEFAULT '',
+        \`recipient_id\`    VARCHAR(50)  NOT NULL,
         \`recipient_name\`  VARCHAR(200) DEFAULT '',
         \`recipient_image\` VARCHAR(500) DEFAULT '',
-        \`call_type\`       ENUM('audio','video','group') NOT NULL DEFAULT 'audio',
-        \`participants\`    TEXT         DEFAULT NULL,
+        \`call_type\`       ENUM('audio','video') NOT NULL DEFAULT 'audio',
         \`start_time\`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
         \`end_time\`        DATETIME     DEFAULT NULL,
         \`duration\`        INT          NOT NULL DEFAULT 0,
-        \`status\`          ENUM('completed','missed','declined','cancelled','ended','rejected') NOT NULL DEFAULT 'missed',
+        \`status\`          ENUM('completed','missed','declined','cancelled') NOT NULL DEFAULT 'missed',
         \`initiated_by\`    VARCHAR(50)  NOT NULL,
-        \`ended_by\`        VARCHAR(50)  DEFAULT NULL,
         \`recording_uid\`   VARCHAR(200) DEFAULT NULL,
         \`recording_sid\`   VARCHAR(200) DEFAULT NULL,
         \`recording_resource_id\` VARCHAR(500) DEFAULT NULL,
         \`recording_url\`   VARCHAR(1000) DEFAULT NULL,
         INDEX \`idx_caller\`     (\`caller_id\`),
         INDEX \`idx_recipient\`  (\`recipient_id\`),
-        INDEX \`idx_start_time\` (\`start_time\`),
-        INDEX \`idx_room_id\`    (\`room_id\`)
+        INDEX \`idx_start_time\` (\`start_time\`)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log('✅ call_history table ready');
 
-    // Add / migrate call_history columns for existing deployments (idempotent).
-    const callHistoryCols = [
-      { name: 'room_id',         def: 'VARCHAR(100) DEFAULT NULL' },
-      { name: 'participants',    def: 'TEXT DEFAULT NULL' },
-      { name: 'ended_by',        def: 'VARCHAR(50) DEFAULT NULL' },
-      { name: 'recording_uid',   def: 'VARCHAR(200) DEFAULT NULL' },
-      { name: 'recording_sid',   def: 'VARCHAR(200) DEFAULT NULL' },
-      { name: 'recording_resource_id', def: 'VARCHAR(500) DEFAULT NULL' },
-      { name: 'recording_url',   def: 'VARCHAR(1000) DEFAULT NULL' },
-    ];
-    for (const { name: col, def } of callHistoryCols) {
+    // Add recording columns to call_history if not present (idempotent upgrade).
+    const recordingCols = ['recording_uid', 'recording_sid', 'recording_resource_id', 'recording_url'];
+    for (const col of recordingCols) {
       const [[exists]] = await conn.query(
         `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
           WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'call_history' AND COLUMN_NAME = ?
@@ -206,35 +122,14 @@ pool.getConnection()
         [dbName, col],
       );
       if (!exists) {
+        const def = col === 'recording_url'
+          ? 'VARCHAR(1000) DEFAULT NULL'
+          : col === 'recording_resource_id'
+            ? 'VARCHAR(500) DEFAULT NULL'
+            : 'VARCHAR(200) DEFAULT NULL';
         await conn.query(`ALTER TABLE call_history ADD COLUMN \`${col}\` ${def}`);
         console.log(`✅ Added ${col} column to call_history`);
       }
-    }
-
-    // Extend call_type ENUM to include 'group' (idempotent – safe to re-run).
-    await conn.query(
-      `ALTER TABLE call_history MODIFY COLUMN \`call_type\`
-         ENUM('audio','video','group') NOT NULL DEFAULT 'audio'`
-    ).catch(e => console.warn('call_type ENUM extend (idempotent):', e.message));
-
-    // Extend status ENUM to include 'ended' and 'rejected' (idempotent).
-    await conn.query(
-      `ALTER TABLE call_history MODIFY COLUMN \`status\`
-         ENUM('completed','missed','declined','cancelled','ended','rejected') NOT NULL DEFAULT 'missed'`
-    ).catch(e => console.warn('status ENUM extend (idempotent):', e.message));
-
-    // Add room_id index if not present (idempotent).
-    const [[idxRoomId]] = await conn.query(
-      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'call_history' AND INDEX_NAME = 'idx_room_id'
-        LIMIT 1`,
-      [dbName],
-    );
-    if (!idxRoomId) {
-      await conn.query(
-        `ALTER TABLE call_history ADD INDEX idx_room_id (room_id)`
-      ).catch(e => console.warn('idx_room_id already exists:', e.message));
-      console.log('✅ Added idx_room_id index to call_history');
     }
 
     // Create user_activities table if not present (idempotent).
@@ -406,82 +301,6 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date() }));
 
 // ──────────────────────────────────────────────────────────────────────────────
-// POST /api/notify-request  — PHP backend → Socket.IO bridge for request events
-//
-// Called by PHP endpoints (send_request, accept/reject_proposal, etc.) after a
-// successful DB write so every connected admin panel and the affected users get
-// an instant Socket.IO push without waiting for a poll cycle.
-//
-// Security: the caller must pass the shared secret in the X-Internal-Secret
-// header.  When SOCKET_INTERNAL_SECRET is not configured the endpoint responds
-// 501 so accidental misconfiguration never silently leaves it wide open.
-//
-// Body (JSON):
-//   event        string  — 'request_sent' | 'request_accepted' | 'request_rejected'
-//   proposalId   number  — proposals.id
-//   senderId     number  — user who sent the original request
-//   receiverId   number  — user who received the request
-//   senderName   string
-//   receiverName string
-//   requestType  string  — e.g. 'Chat', 'Photo', 'Profile'
-//   status       string  — new status: 'pending' | 'accepted' | 'rejected'
-// ──────────────────────────────────────────────────────────────────────────────
-app.post('/api/notify-request', (req, res) => {
-  if (!SOCKET_INTERNAL_SECRET) {
-    return res.status(501).json({ error: 'notify-request endpoint not configured on this server' });
-  }
-
-  const suppliedSecret = (req.headers['x-internal-secret'] || '').trim();
-  if (!suppliedSecret || suppliedSecret !== SOCKET_INTERNAL_SECRET) {
-    return res.status(403).json({ error: 'Forbidden' });
-  }
-
-  const {
-    event        = '',
-    proposalId   = null,
-    senderId     = null,
-    receiverId   = null,
-    senderName   = '',
-    receiverName = '',
-    requestType  = '',
-    status       = '',
-  } = req.body || {};
-
-  const VALID_EVENTS = new Set(['request_sent', 'request_accepted', 'request_rejected']);
-  if (!VALID_EVENTS.has(event) || !senderId || !receiverId) {
-    return res.status(400).json({ error: 'Invalid payload' });
-  }
-
-  const payload = {
-    event,
-    proposalId: proposalId ? parseInt(proposalId, 10) : null,
-    senderId:   senderId.toString(),
-    receiverId: receiverId.toString(),
-    senderName,
-    receiverName,
-    requestType,
-    status,
-    timestamp:  new Date().toISOString(),
-  };
-
-  // 1. Refresh admin request list in real-time
-  io.to('admin_room').emit('request_update', payload);
-  io.to('admin_activity').emit('request_update', payload);
-
-  // 2. Notify the user whose request state changed so their app can refresh
-  //    • request_sent   → receiver gets notified (they have a new incoming request)
-  //    • request_accepted / rejected → sender gets notified (status of their request changed)
-  if (event === 'request_sent') {
-    io.to(`user:${receiverId.toString()}`).emit('request_notification', payload);
-  } else {
-    io.to(`user:${senderId.toString()}`).emit('request_notification', payload);
-  }
-
-  console.log(`🔔 notify-request: event=${event} sender=${senderId} receiver=${receiverId}`);
-  return res.json({ success: true });
-});
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Activity logging helper
 // ──────────────────────────────────────────────────────────────────────────────
 const VALID_ACTIVITY_TYPES = new Set([
@@ -537,85 +356,45 @@ async function logActivity({ userId, userName = '', targetId = null, targetName 
 // Call History REST API
 // ──────────────────────────────────────────────────────────────────────────────
 
-// POST /api/calls — Log a new call.
-// If roomId is provided and a record already exists for that roomId, the caller
-// is appended to the participants array instead of creating a duplicate record.
+// POST /api/calls — Log a new call
 app.post('/api/calls', async (req, res) => {
   try {
     const {
       callId, callerId, callerName = '', callerImage = '',
-      recipientId = '', recipientName = '', recipientImage = '',
+      recipientId, recipientName = '', recipientImage = '',
       callType = 'audio', initiatedBy,
-      roomId,       // channel/room identifier for deduplication
-      participants, // initial array of participant user-IDs (strings)
     } = req.body;
 
-    if (!callId || !callerId || !initiatedBy) {
-      return res.status(400).json({ error: 'callId, callerId, initiatedBy are required' });
-    }
-
-    const safeCallType = ['audio', 'video', 'group'].includes(callType) ? callType : 'audio';
-
-    // Build initial participants JSON array (always stored as an array).
-    const initParticipants = Array.isArray(participants)
-      ? participants.map(p => p.toString())
-      : (recipientId ? [callerId.toString(), recipientId.toString()] : [callerId.toString()]);
-    const participantsJson = JSON.stringify(initParticipants);
-
-    let finalCallId = callId;
-
-    // If roomId is provided, check for an existing record to avoid duplicates.
-    if (roomId) {
-      const [[existing]] = await pool.query(
-        'SELECT call_id, participants FROM call_history WHERE room_id = ? LIMIT 1',
-        [roomId.toString()],
-      );
-
-      if (existing) {
-        finalCallId = existing.call_id;
-        // Append the new caller to participants if not already present.
-        try {
-          const existingParticipants = JSON.parse(existing.participants || '[]');
-          if (!existingParticipants.includes(callerId.toString())) {
-            existingParticipants.push(callerId.toString());
-            await pool.query(
-              'UPDATE call_history SET participants = ? WHERE room_id = ?',
-              [JSON.stringify(existingParticipants), roomId.toString()],
-            );
-          }
-        } catch (_) { /* ignore JSON parse errors */ }
-        return res.json({ success: true, callId: finalCallId });
-      }
+    if (!callId || !callerId || !recipientId || !initiatedBy) {
+      return res.status(400).json({ error: 'callId, callerId, recipientId, initiatedBy are required' });
     }
 
     await pool.query(
       `INSERT INTO call_history
-         (call_id, room_id, caller_id, caller_name, caller_image,
+         (call_id, caller_id, caller_name, caller_image,
           recipient_id, recipient_name, recipient_image,
-          call_type, participants, start_time, status, initiated_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)`,
-      [finalCallId, roomId || null, callerId, callerName, callerImage,
+          call_type, start_time, status, initiated_by)
+       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)`,
+      [callId, callerId, callerName, callerImage,
        recipientId, recipientName, recipientImage,
-       safeCallType, participantsJson, initiatedBy],
+       callType === 'video' ? 'video' : 'audio', initiatedBy],
     );
 
     // Log call_made for caller, call_received for recipient
     await logActivity({
       userId: callerId, userName: callerName,
-      targetId: recipientId || null, targetName: recipientName || null,
+      targetId: recipientId, targetName: recipientName,
       activityType: 'call_made',
       description: `${callerName || 'User '+callerId} le ${recipientName || 'User '+recipientId} lai ${callType} call garyo`,
     });
-    if (recipientId) {
-      await logActivity({
-        userId: recipientId, userName: recipientName,
-        targetId: callerId, targetName: callerName,
-        activityType: 'call_received',
-        description: `${recipientName || 'User '+recipientId} le ${callerName || 'User '+callerId} bata ${callType} call payo`,
-      });
-    }
+    await logActivity({
+      userId: recipientId, userName: recipientName,
+      targetId: callerId, targetName: callerName,
+      activityType: 'call_received',
+      description: `${recipientName || 'User '+recipientId} le ${callerName || 'User '+callerId} bata ${callType} call payo`,
+    });
 
-    res.json({ success: true, callId: finalCallId });
+    res.json({ success: true, callId });
   } catch (err) {
     console.error('POST /api/calls error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
@@ -626,19 +405,18 @@ app.post('/api/calls', async (req, res) => {
 app.put('/api/calls/:callId', async (req, res) => {
   try {
     const { callId } = req.params;
-    const { status, endedBy } = req.body;
+    const { status } = req.body;
 
-    const allowed = ['completed', 'missed', 'declined', 'cancelled', 'ended', 'rejected'];
+    const allowed = ['completed', 'missed', 'declined', 'cancelled'];
     const safeStatus = allowed.includes(status) ? status : 'missed';
 
     await pool.query(
       `UPDATE call_history
           SET end_time = UTC_TIMESTAMP(),
               duration = GREATEST(0, TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP())),
-              status   = ?,
-              ended_by = COALESCE(?, ended_by)
+              status   = ?
         WHERE call_id = ? AND end_time IS NULL`,
-      [safeStatus, endedBy || null, callId],
+      [safeStatus, callId],
     );
     res.json({ success: true });
   } catch (err) {
@@ -665,7 +443,6 @@ app.get('/api/calls', async (req, res) => {
 
     const calls = rows.map(r => ({
       callId:         r.call_id,
-      roomId:         r.room_id   || null,
       callerId:       r.caller_id,
       callerName:     r.caller_name,
       callerImage:    r.caller_image,
@@ -673,13 +450,11 @@ app.get('/api/calls', async (req, res) => {
       recipientName:  r.recipient_name,
       recipientImage: r.recipient_image,
       callType:       r.call_type,
-      participants:   (() => { try { return JSON.parse(r.participants || '[]'); } catch(_) { return []; } })(),
       startTime:      r.start_time ? r.start_time.toISOString() : null,
       endTime:        r.end_time   ? r.end_time.toISOString()   : null,
       duration:       r.duration,
       status:         r.status,
       initiatedBy:    r.initiated_by,
-      endedBy:        r.ended_by || null,
       recordingUrl:   r.recording_url || null,
     }));
 
@@ -710,11 +485,11 @@ app.get('/api/admin/calls', async (req, res) => {
       const like = `%${search}%`;
       params.push(like, like, search, search);
     }
-    if (['audio', 'video', 'group'].includes(callType)) {
+    if (callType === 'audio' || callType === 'video') {
       where.push('call_type = ?');
       params.push(callType);
     }
-    const allowedStatuses = ['completed', 'missed', 'declined', 'cancelled', 'ended', 'rejected'];
+    const allowedStatuses = ['completed', 'missed', 'declined', 'cancelled'];
     if (allowedStatuses.includes(status)) {
       where.push('status = ?');
       params.push(status);
@@ -737,7 +512,6 @@ app.get('/api/admin/calls', async (req, res) => {
 
     const calls = rows.map(r => ({
       callId:         r.call_id,
-      roomId:         r.room_id   || null,
       callerId:       r.caller_id,
       callerName:     r.caller_name,
       callerImage:    r.caller_image,
@@ -745,13 +519,11 @@ app.get('/api/admin/calls', async (req, res) => {
       recipientName:  r.recipient_name,
       recipientImage: r.recipient_image,
       callType:       r.call_type,
-      participants:   (() => { try { return JSON.parse(r.participants || '[]'); } catch(_) { return []; } })(),
       startTime:      r.start_time ? r.start_time.toISOString() : null,
       endTime:        r.end_time   ? r.end_time.toISOString()   : null,
       duration:       r.duration,
       status:         r.status,
       initiatedBy:    r.initiated_by,
-      endedBy:        r.ended_by || null,
       recordingUrl:   r.recording_url || null,
     }));
 
@@ -1003,11 +775,6 @@ const PENDING_CALL_TTL_MS = 60000; // 60 seconds — matches FCM notification li
 // Used to detect busy state and reject new incoming calls automatically.
 const activeCallUsers = new Map();
 
-// Tracks extra (conference) participants added to ongoing calls.
-// channelName (string) → Set<userId (string)>
-// Used to ensure all added participants receive call_ended when the call stops.
-const conferenceParticipants = new Map();
-
 function _cleanExpiredPendingCalls() {
   const now = Date.now();
   for (const [channelName, call] of activePendingCalls) {
@@ -1155,126 +922,17 @@ async function getChatRooms(userId) {
       ORDER BY cr.last_message_time DESC`,
     [userId, userId],
   );
-
-  if (!rooms.length) return [];
-
-  // Collect all unique OTHER-participant IDs across all rooms.
-  // Only accept IDs that are purely numeric strings to guard against
-  // unexpected values that could affect query construction.
-  const allParticipantIds = new Set();
-  for (const r of rooms) {
-    try {
-      const pids = JSON.parse(r.participants);
-      for (const pid of pids) {
-        const pidStr = pid.toString();
-        if (pidStr !== userId.toString() && /^\d+$/.test(pidStr)) {
-          allParticipantIds.add(pidStr);
-        }
-      }
-    } catch (e) { console.error('getChatRooms participants parse error:', e.message); }
-  }
-
-  // Maps to store enrichment data per participant
-  const onlineMap   = new Map(); // userId → { isOnline, lastSeen }
-  const privacyMap  = new Map(); // userId → privacy string
-  const photoReqMap = new Map(); // userId → photo-request status
-
-  if (allParticipantIds.size > 0) {
-    // ids is guaranteed to contain only numeric strings (validated above),
-    // so the IN-clause placeholder construction below is safe.
-    const ids = Array.from(allParticipantIds);
-    const ph  = ids.map(() => '?').join(',');
-
-    // Online status
-    try {
-      const [statusRows] = await pool.query(
-        `SELECT user_id, is_online, last_seen FROM user_online_status WHERE user_id IN (${ph})`,
-        ids,
-      );
-      for (const row of statusRows) {
-        onlineMap.set(row.user_id.toString(), {
-          isOnline: row.is_online === 1,
-          lastSeen: row.last_seen ? row.last_seen.toISOString() : null,
-        });
-      }
-    } catch (e) { console.error('getChatRooms online status error:', e.message); }
-
-    // Privacy setting from users table
-    try {
-      const [userRows] = await pool.query(
-        `SELECT id, privacy FROM users WHERE id IN (${ph}) AND isDelete = 0`,
-        ids,
-      );
-      for (const row of userRows) {
-        privacyMap.set(row.id.toString(), row.privacy || '');
-      }
-    } catch (e) { console.error('getChatRooms privacy error:', e.message); }
-
-    // Photo-request status from proposals table (most recent per other-participant)
-    try {
-      const [photoRows] = await pool.query(
-        `SELECT sender_id, receiver_id, status
-           FROM proposals
-          WHERE request_type = 'Photo'
-            AND ((sender_id = ? AND receiver_id IN (${ph}))
-              OR (receiver_id = ? AND sender_id IN (${ph})))
-          ORDER BY id DESC`,
-        [userId, ...ids, userId, ...ids],
-      );
-      const seen = new Set();
-      for (const row of photoRows) {
-        const sStr  = row.sender_id.toString();
-        const rStr  = row.receiver_id.toString();
-        const other = sStr === userId.toString() ? rStr : sStr;
-        if (!seen.has(other)) {
-          photoReqMap.set(other, row.status || 'not_sent');
-          seen.add(other);
-        }
-      }
-    } catch (e) { console.error('getChatRooms photo request error:', e.message); }
-  }
-
-  return rooms.map(r => {
-    let participants    = [];
-    let participantNames  = {};
-    let participantImages = {};
-    try { participants     = JSON.parse(r.participants);     }
-    catch (e) { console.error(`getChatRooms parse participants [${r.id}]:`, e.message); }
-    try { participantNames  = JSON.parse(r.participant_names);  }
-    catch (e) { console.error(`getChatRooms parse participant_names [${r.id}]:`, e.message); }
-    try { participantImages = JSON.parse(r.participant_images); }
-    catch (e) { console.error(`getChatRooms parse participant_images [${r.id}]:`, e.message); }
-
-    const participantOnlineStatuses = {};
-    const participantLastSeen       = {};
-    const participantPrivacy        = {};
-    const participantPhotoRequests  = {};
-
-    for (const pid of participants) {
-      const pidStr = pid.toString();
-      const status = onlineMap.get(pidStr);
-      participantOnlineStatuses[pidStr] = status ? status.isOnline : false;
-      participantLastSeen[pidStr]       = status ? status.lastSeen : null;
-      participantPrivacy[pidStr]        = privacyMap.get(pidStr) || '';
-      participantPhotoRequests[pidStr]  = photoReqMap.get(pidStr) || 'not_sent';
-    }
-
-    return {
-      chatRoomId:                r.id,
-      participants,
-      participantNames,
-      participantImages,
-      participantPrivacy,
-      participantPhotoRequests,
-      participantOnlineStatuses,
-      participantLastSeen,
-      lastMessage:               r.last_message,
-      lastMessageType:           r.last_message_type,
-      lastMessageTime:           r.last_message_time ? r.last_message_time.toISOString() : null,
-      lastMessageSenderId:       r.last_message_sender_id,
-      unreadCount:               r.unread_count,
-    };
-  });
+  return rooms.map(r => ({
+    chatRoomId:          r.id,
+    participants:        JSON.parse(r.participants),
+    participantNames:    JSON.parse(r.participant_names),
+    participantImages:   JSON.parse(r.participant_images),
+    lastMessage:         r.last_message,
+    lastMessageType:     r.last_message_type,
+    lastMessageTime:     r.last_message_time,
+    lastMessageSenderId: r.last_message_sender_id,
+    unreadCount:         r.unread_count,
+  }));
 }
 
 async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
@@ -1869,44 +1527,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── get_online_users ──────────────────────────────────────────────────────
-  // Fetch list of online users for initiating group/conference calls
-  socket.on('get_online_users', async ({ userId }, callback) => {
-    if (typeof callback !== 'function') return;
-    try {
-      const currentUserId = (userId || '').toString();
-      if (!currentUserId) return callback({ success: false, users: [] });
-
-      // Get all online users except the current user and deleted accounts
-      // NOTE: users table uses firstName/lastName/profile_picture, not name/image
-      const [rows] = await pool.query(
-        `SELECT u.id,
-                CONCAT(COALESCE(u.firstName, ''), ' ', COALESCE(u.lastName, '')) AS name,
-                COALESCE(u.profile_picture, '') AS image
-         FROM users u
-         INNER JOIN user_online_status uos ON u.id = uos.user_id
-         WHERE uos.is_online = 1
-           AND u.isDelete = 0
-           AND u.id != ?
-         ORDER BY u.firstName ASC
-         LIMIT 100`,
-        [currentUserId],
-      );
-
-      callback({
-        success: true,
-        users: rows.map(row => ({
-          userId: row.id,
-          userName: (row.name || '').trim(),
-          userImage: row.image || '',
-        })),
-      });
-    } catch (err) {
-      console.error('get_online_users error:', err.message);
-      callback({ success: false, users: [], error: err.message });
-    }
-  });
-
   // ── call_invite ───────────────────────────────────────────────────────────
   // Caller emits this to invite a recipient. Delivered to recipient's personal
   // room if they are online; caller should also send a FCM push as fallback.
@@ -2062,83 +1682,21 @@ io.on('connection', (socket) => {
 
   // ── call_end ─────────────────────────────────────────────────────────────
   // Either party emits this to notify the other the call has ended.
-  socket.on('call_end', async (data) => {
-    const { callerId, recipientId, callId, roomId, status, endedBy, ...rest } = data || {};
+  socket.on('call_end', (data) => {
+    const { callerId, recipientId, ...rest } = data || {};
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
     // Remove both parties from the active-call tracking set
     if (callerId)    activeCallUsers.delete(callerId.toString());
     if (recipientId) activeCallUsers.delete(recipientId.toString());
     if (callerId) {
       io.to(`user:${callerId.toString()}`).emit('call_ended', {
-        ...rest, callerId, recipientId, callId, roomId,
+        ...rest, callerId, recipientId,
       });
     }
     if (recipientId) {
       io.to(`user:${recipientId.toString()}`).emit('call_ended', {
-        ...rest, callerId, recipientId, callId, roomId,
+        ...rest, callerId, recipientId,
       });
-    }
-    // Notify any conference participants that were added to this call.
-    if (rest.channelName && conferenceParticipants.has(rest.channelName)) {
-      for (const participantId of conferenceParticipants.get(rest.channelName)) {
-        const pidStr = participantId.toString();
-        // Skip the original caller/recipient who were already notified above.
-        if (pidStr === callerId?.toString() || pidStr === recipientId?.toString()) continue;
-        activeCallUsers.delete(pidStr);
-        io.to(`user:${pidStr}`).emit('call_ended', {
-          ...rest, callerId, recipientId, callId, roomId,
-        });
-      }
-      conferenceParticipants.delete(rest.channelName);
-    }
-
-    // Persist the call-end in the database so the record is updated even if
-    // the client's subsequent REST PUT call is delayed or dropped.
-    // callId   = explicit UUID from logCall  (preferred)
-    // channelName is also stored as room_id, so use it as fallback room lookup.
-    const effectiveRoomId = roomId
-      ? roomId.toString()
-      : (rest.channelName ? rest.channelName : null);
-
-    if (callId || effectiveRoomId) {
-      try {
-        const allowed = ['completed', 'missed', 'declined', 'cancelled', 'ended', 'rejected'];
-        const safeStatus = allowed.includes(status) ? status : 'ended';
-        const safeEndedBy = endedBy
-          ? endedBy.toString()
-          : (callerId ? callerId.toString() : null);
-
-        let updated = false;
-
-        // Try to update by call_id first (most precise).
-        if (callId) {
-          const [result] = await pool.query(
-            `UPDATE call_history
-                SET end_time = UTC_TIMESTAMP(),
-                    duration = GREATEST(0, TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP())),
-                    status   = ?,
-                    ended_by = COALESCE(?, ended_by)
-              WHERE call_id = ? AND end_time IS NULL`,
-            [safeStatus, safeEndedBy, callId.toString()],
-          );
-          updated = result.affectedRows > 0;
-        }
-
-        // Fall back to room_id (channelName stored as room_id at call start).
-        if (!updated && effectiveRoomId) {
-          await pool.query(
-            `UPDATE call_history
-                SET end_time = UTC_TIMESTAMP(),
-                    duration = GREATEST(0, TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP())),
-                    status   = ?,
-                    ended_by = COALESCE(?, ended_by)
-              WHERE room_id = ? AND end_time IS NULL`,
-            [safeStatus, safeEndedBy, effectiveRoomId],
-          );
-        }
-      } catch (err) {
-        console.error('call_end DB update error:', err.message);
-      }
     }
   });
 
@@ -2175,15 +1733,6 @@ io.on('connection', (socket) => {
   socket.on('add_participant_to_call', (data) => {
     const { newParticipantId, channelName, callType, adminId, adminName, existingParticipantId, ...rest } = data || {};
     if (!newParticipantId || !channelName) return;
-
-    // Track only the newly added participant so they receive call_ended when
-    // the call stops. The original callerId/recipientId are already notified
-    // via the call_end handler's direct emit, so they are intentionally
-    // excluded here to avoid duplicate events.
-    if (!conferenceParticipants.has(channelName)) {
-      conferenceParticipants.set(channelName, new Set());
-    }
-    conferenceParticipants.get(channelName).add(newParticipantId.toString());
 
     // Notify the new participant they're being added to a call
     io.to(`user:${newParticipantId.toString()}`).emit('added_to_call', {
@@ -2276,11 +1825,6 @@ io.on('connection', (socket) => {
     userActiveChatRoom.delete(authenticatedUserId);
     // If this user was in an active call, remove them from busy tracking.
     activeCallUsers.delete(authenticatedUserId);
-    // Remove disconnected user from any conference participant sets.
-    for (const [channelName, participants] of conferenceParticipants) {
-      participants.delete(authenticatedUserId);
-      if (participants.size === 0) conferenceParticipants.delete(channelName);
-    }
 
     await upsertOnlineStatus(authenticatedUserId, false);
 
@@ -2290,28 +1834,6 @@ io.on('connection', (socket) => {
       isOnline: false,
       lastSeen: new Date().toISOString(),
     });
-
-    // Auto-fix dangling call records where end_time is still NULL.
-    // This handles the case where the call_end socket event was never emitted
-    // (e.g. app crashed, network loss, or aggressive battery kill).
-    // Only fix records that started at least 30 seconds ago to avoid
-    // race-condition false-positives for very fresh calls.
-    try {
-      await pool.query(
-        `UPDATE call_history
-            SET end_time = UTC_TIMESTAMP(),
-                duration = GREATEST(0, TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP())),
-                status   = IF(status = 'missed', 'missed',
-                           IF(TIMESTAMPDIFF(SECOND, start_time, UTC_TIMESTAMP()) > 0, 'ended', 'missed')),
-                ended_by = COALESCE(ended_by, ?)
-          WHERE (caller_id = ? OR recipient_id = ?)
-            AND end_time IS NULL
-            AND start_time <= DATE_SUB(UTC_TIMESTAMP(), INTERVAL 30 SECOND)`,
-        [authenticatedUserId, authenticatedUserId, authenticatedUserId],
-      );
-    } catch (err) {
-      console.error('disconnect auto-fix dangling calls error:', err.message);
-    }
   });
 });
 

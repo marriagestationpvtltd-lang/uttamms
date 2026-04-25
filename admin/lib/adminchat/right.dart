@@ -531,7 +531,7 @@ class _ProfileSidebarState extends State<ProfileSidebar> {
   Widget _buildHeader(ChatProvider chat) {
     final c = ChatColors.of(context);
     return Container(
-      height: 60,
+      height: 56,
       padding: const EdgeInsets.symmetric(horizontal: 14),
       decoration: BoxDecoration(
         color: c.cardBg,

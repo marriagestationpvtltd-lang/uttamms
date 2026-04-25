@@ -1,11 +1,9 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:ms2026/ReUsable/loading_widgets.dart';
 import 'package:ms2026/purposal/purposalservice.dart';
 import 'package:ms2026/purposal/requestcard.dart';
-import 'package:ms2026/service/socket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'Purposalmodel.dart';
 
@@ -44,29 +42,15 @@ class _ProposalsPageState extends State<ProposalsPage> {
   bool _refreshingSent = false;
   bool _refreshingAccepted = false;
 
-  // Real-time socket subscription
-  StreamSubscription<Map<String, dynamic>>? _socketSub;
-
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: selectedTab);
     _loadInitialData();
-    _subscribeToSocket();
-  }
-
-  void _subscribeToSocket() {
-    _socketSub = SocketService().onRequestNotification.listen((_) {
-      // Refresh all already-loaded tabs so the UI is always current.
-      for (final tab in List<int>.from(_loadedTabs)) {
-        _loadDataForTab(tab);
-      }
-    });
   }
 
   @override
   void dispose() {
-    _socketSub?.cancel();
     _pageController.dispose();
     super.dispose();
   }

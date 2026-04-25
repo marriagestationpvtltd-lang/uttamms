@@ -1,10 +1,9 @@
-enum CallType { audio, video, group }
+enum CallType { audio, video }
 
-enum CallStatus { completed, missed, declined, cancelled, ended, rejected }
+enum CallStatus { completed, missed, declined, cancelled }
 
 class CallHistory {
   final String callId;
-  final String? roomId;
   final String callerId;
   final String callerName;
   final String callerImage;
@@ -12,17 +11,14 @@ class CallHistory {
   final String recipientName;
   final String recipientImage;
   final CallType callType;
-  final List<String> participants;
   final DateTime startTime;
   final DateTime? endTime;
   final int duration; // in seconds
   final CallStatus status;
   final String initiatedBy;
-  final String? endedBy;
 
   CallHistory({
     required this.callId,
-    this.roomId,
     required this.callerId,
     required this.callerName,
     required this.callerImage,
@@ -30,20 +26,17 @@ class CallHistory {
     required this.recipientName,
     required this.recipientImage,
     required this.callType,
-    List<String>? participants,
     required this.startTime,
     this.endTime,
     required this.duration,
     required this.status,
     required this.initiatedBy,
-    this.endedBy,
-  }) : participants = participants ?? [];
+  });
 
   // Convert to map (JSON-serialisable, no Firestore types)
   Map<String, dynamic> toMap() {
     return {
       'callId': callId,
-      'roomId': roomId,
       'callerId': callerId,
       'callerName': callerName,
       'callerImage': callerImage,
@@ -51,13 +44,11 @@ class CallHistory {
       'recipientName': recipientName,
       'recipientImage': recipientImage,
       'callType': callType.toString().split('.').last,
-      'participants': participants,
       'startTime': startTime.toIso8601String(),
       'endTime': endTime?.toIso8601String(),
       'duration': duration,
       'status': status.toString().split('.').last,
       'initiatedBy': initiatedBy,
-      'endedBy': endedBy,
     };
   }
 
@@ -70,37 +61,28 @@ class CallHistory {
       return dt != null ? dt.toLocal() : DateTime.now();
     }
 
-    List<String> _parseParticipants(dynamic v) {
-      if (v == null) return [];
-      if (v is List) return v.map((e) => e.toString()).toList();
-      return [];
-    }
-
     return CallHistory(
-      callId: id ?? map['callId']?.toString() ?? '',
-      roomId: map['roomId']?.toString(),
-      callerId: map['callerId']?.toString() ?? '',
-      callerName: map['callerName']?.toString() ?? '',
-      callerImage: map['callerImage']?.toString() ?? '',
-      recipientId: map['recipientId']?.toString() ?? '',
-      recipientName: map['recipientName']?.toString() ?? '',
-      recipientImage: map['recipientImage']?.toString() ?? '',
+      callId: id ?? map['callId'] ?? '',
+      callerId: map['callerId'] ?? '',
+      callerName: map['callerName'] ?? '',
+      callerImage: map['callerImage'] ?? '',
+      recipientId: map['recipientId'] ?? '',
+      recipientName: map['recipientName'] ?? '',
+      recipientImage: map['recipientImage'] ?? '',
       callType: CallType.values.firstWhere(
-        (e) => e.toString().split('.').last == map['callType']?.toString(),
+        (e) => e.toString().split('.').last == map['callType'],
         orElse: () => CallType.audio,
       ),
-      participants: _parseParticipants(map['participants']),
       startTime: _parseDate(map['startTime']),
       endTime: map['endTime'] != null ? DateTime.tryParse(map['endTime'].toString())?.toLocal() : null,
       duration: (map['duration'] ?? 0) is int
-          ? (map['duration'] ?? 0) as int
-          : int.tryParse(map['duration']?.toString() ?? '0') ?? 0,
+          ? (map['duration'] ?? 0)
+          : int.tryParse(map['duration'].toString()) ?? 0,
       status: CallStatus.values.firstWhere(
-        (e) => e.toString().split('.').last == map['status']?.toString(),
+        (e) => e.toString().split('.').last == map['status'],
         orElse: () => CallStatus.missed,
       ),
-      initiatedBy: map['initiatedBy']?.toString() ?? '',
-      endedBy: map['endedBy']?.toString(),
+      initiatedBy: map['initiatedBy'] ?? '',
     );
   }
 
@@ -140,7 +122,7 @@ class CallHistory {
   String getStatusText(String userId) {
     if (status == CallStatus.missed) {
       return isIncoming(userId) ? 'Missed' : 'No Answer';
-    } else if (status == CallStatus.declined || status == CallStatus.rejected) {
+    } else if (status == CallStatus.declined) {
       return isIncoming(userId) ? 'Declined' : 'Rejected';
     } else if (status == CallStatus.cancelled) {
       return 'Cancelled';
@@ -151,13 +133,6 @@ class CallHistory {
 
   // Get call type icon
   String getCallTypeIcon() {
-    switch (callType) {
-      case CallType.video:
-        return '📹';
-      case CallType.group:
-        return '👥';
-      case CallType.audio:
-        return '📞';
-    }
+    return callType == CallType.video ? '📹' : '📞';
   }
 }

@@ -60,7 +60,7 @@ class FeatureFlags {
   // ==================== Beta Features ====================
 
   /// Group video calls
-  static const bool enableGroupCalls = true;
+  static const bool enableGroupCalls = false;
 
   /// Screen sharing in video calls
   static const bool enableScreenSharing = false;

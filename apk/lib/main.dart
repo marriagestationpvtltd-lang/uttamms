@@ -752,9 +752,8 @@ void _navigateToUserProfileFromNotification(Map<String, dynamic> data) {
 
 void _navigateToCallPage(Map<String, dynamic> data) {
   final isVideoCall = data['isVideoCall'] == 'true' || data['type'] == 'video_call';
-  final isGroupCall = data['callType'] == 'group' || data['type'] == 'group_call';
 
-  debugPrint('🚀 Navigating to ${isGroupCall ? 'Group' : isVideoCall ? 'Video' : 'Voice'} Call Page');
+  debugPrint('🚀 Navigating to ${isVideoCall ? 'Video' : 'Voice'} Call Page');
 
   // Ensure we're on the main thread
   WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -776,20 +775,7 @@ void _navigateToCallPage(Map<String, dynamic> data) {
       }
 
       if (!isAlreadyOnCallPage) {
-        if (isGroupCall) {
-          // Group call: recipient joins the channel as a participant.
-          // The existing IncomingCallScreen handles the accept/reject UI and
-          // joins the Agora channel on acceptance (audio mixing is automatic).
-          currentState.push(
-            MaterialPageRoute(
-              settings: const RouteSettings(name: activeCallRouteName),
-              fullscreenDialog: true,
-              builder: (context) => IncomingCallScreen(
-                callData: data,
-              ),
-            ),
-          );
-        } else if (isVideoCall) {
+        if (isVideoCall) {
           currentState.push(
             MaterialPageRoute(
               settings: const RouteSettings(name: activeCallRouteName),

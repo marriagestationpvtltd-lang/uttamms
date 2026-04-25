@@ -1,6 +1,4 @@
-import 'dart:async';
 import 'package:adminmrz/auth/service.dart';
-import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 import 'package:adminmrz/requests/request_model.dart';
 import 'package:adminmrz/requests/request_service.dart';
@@ -19,9 +17,6 @@ class RequestProvider with ChangeNotifier {
   String _statusFilter = 'all';
   String _searchQuery = '';
 
-  // Real-time socket subscription
-  StreamSubscription<Map<String, dynamic>>? _socketSub;
-
   List<RequestItem> get requests => _requests;
   RequestStats? get stats => _stats;
   RequestPagination? get pagination => _pagination;
@@ -30,28 +25,6 @@ class RequestProvider with ChangeNotifier {
   int get currentPage => _currentPage;
   String get statusFilter => _statusFilter;
   String get searchQuery => _searchQuery;
-
-  /// Subscribe to the admin socket so that any request_sent, request_accepted
-  /// or request_rejected event triggers an immediate list refresh without the
-  /// user having to pull-to-refresh.
-  void subscribeToSocketUpdates(AdminSocketService socketService) {
-    _socketSub?.cancel();
-    _socketSub = socketService.onRequestUpdate.listen((_) {
-      fetchRequests(reset: true);
-    });
-  }
-
-  /// Cancel the socket subscription (call from dispose()).
-  void unsubscribeFromSocketUpdates() {
-    _socketSub?.cancel();
-    _socketSub = null;
-  }
-
-  @override
-  void dispose() {
-    _socketSub?.cancel();
-    super.dispose();
-  }
 
   Future<void> fetchRequests({bool reset = false}) async {
     if (reset) {

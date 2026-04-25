@@ -526,8 +526,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           recipientImage: widget.otherUserImage,
           callType: CallType.audio,
           initiatedBy: widget.currentUserId,
-          roomId: _channel,
-          participants: [widget.currentUserId, widget.otherUserId],
         );
         _callStartTime = DateTime.now();
       }
@@ -722,7 +720,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         callId: _callHistoryId!,
         status: callStatus,
         duration: _duration.inSeconds,
-        endedBy: widget.currentUserId,
       );
       unawaited(CallHistoryService.logCallMessageInChat(
         callerId: widget.currentUserId,

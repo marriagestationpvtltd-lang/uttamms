@@ -66,8 +66,7 @@ $photoStmt->close();
 // Prepare SQL statement for full profile including partner preferences
 $sql = "
 SELECT 
-    u.id, u.firstName, u.lastName, u.email, u.contactNo,
-    u.profile_picture, u.usertype, u.isVerified,
+    u.firstName, u.lastName, u.profile_picture, u.usertype, u.isVerified,
     u.privacy,  -- added privacy
 
     -- Permanent address
@@ -146,7 +145,7 @@ $data = [
     "personalDetail" => [
         "photo_request" => $photo_request, // ✅ INCLUDED
 
-        "firstName" => $row['firstName'] ?? $default,
+        "firstName" => $row['id'] ?? $default,
         "lastName" => $row['lastName'] ?? $default,
         "profile_picture" => $profile_picture,
         "usertype" => $row['usertype'] ?? $default,
@@ -231,15 +230,6 @@ $data = [
         "complexion" => $row['partnerComplexion'] ?? $default,
         "bodytype" => $row['partnerBodyType'] ?? $default,
         "otherexpectation" => $row['partnerOtherExpectation'] ?? $default
-    ],
-    "contactDetail" => [
-        "email" => $row['email'] ?? '',
-        // contactNo is the single contact number stored in the users table.
-        // It is used for both the phone and whatsapp fields since there is
-        // no separate whatsapp column in the database schema.
-        "phone" => $row['contactNo'] ?? '',
-        "whatsapp" => $row['contactNo'] ?? '',
-        "country_code" => ''
     ]
 ];
 

@@ -648,7 +648,7 @@ CREATE TABLE IF NOT EXISTS user_activities (
     description    VARCHAR(500) DEFAULT NULL,
 
     -- The other user involved (e.g. whose profile was viewed, who was called)
-    target_id      INT UNSIGNED DEFAULT NULL,
+    target_user_id INT UNSIGNED DEFAULT NULL,
     target_name    VARCHAR(200) DEFAULT NULL,
     user_name      VARCHAR(200) DEFAULT NULL,
 
@@ -659,10 +659,10 @@ CREATE TABLE IF NOT EXISTS user_activities (
     created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_ua_user_id    (user_id),
-    INDEX idx_ua_type       (activity_type),
-    INDEX idx_ua_created_at (created_at),
-    INDEX idx_ua_target     (target_id)
+    INDEX idx_ua_user_id       (user_id),
+    INDEX idx_ua_type          (activity_type),
+    INDEX idx_ua_created_at    (created_at),
+    INDEX idx_ua_target_user   (target_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
@@ -891,25 +891,20 @@ CREATE TABLE IF NOT EXISTS user_online_status (
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS call_history (
-    id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-    call_id                 VARCHAR(100)  NOT NULL UNIQUE,
-    caller_id               VARCHAR(50)   NOT NULL,
-    caller_name             VARCHAR(200)  DEFAULT '',
-    caller_image            VARCHAR(500)  DEFAULT '',
-    recipient_id            VARCHAR(50)   NOT NULL,
-    recipient_name          VARCHAR(200)  DEFAULT '',
-    recipient_image         VARCHAR(500)  DEFAULT '',
-    call_type               ENUM('audio','video') NOT NULL DEFAULT 'audio',
-    start_time              DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    end_time                DATETIME      DEFAULT NULL,
-    duration                INT           NOT NULL DEFAULT 0,
-    status                  ENUM('completed','missed','declined','cancelled') NOT NULL DEFAULT 'missed',
-    initiated_by            VARCHAR(50)   NOT NULL,
-    -- Agora Cloud Recording fields (populated by socket server when recording is used)
-    recording_uid           VARCHAR(200)  DEFAULT NULL,
-    recording_sid           VARCHAR(200)  DEFAULT NULL,
-    recording_resource_id   VARCHAR(500)  DEFAULT NULL,
-    recording_url           VARCHAR(1000) DEFAULT NULL,
+    id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    call_id        VARCHAR(100) NOT NULL UNIQUE,
+    caller_id      VARCHAR(50)  NOT NULL,
+    caller_name    VARCHAR(200) DEFAULT '',
+    caller_image   VARCHAR(500) DEFAULT '',
+    recipient_id   VARCHAR(50)  NOT NULL,
+    recipient_name VARCHAR(200) DEFAULT '',
+    recipient_image VARCHAR(500) DEFAULT '',
+    call_type      ENUM('audio','video') NOT NULL DEFAULT 'audio',
+    start_time     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    end_time       DATETIME DEFAULT NULL,
+    duration       INT      NOT NULL DEFAULT 0,
+    status         ENUM('completed','missed','declined','cancelled') NOT NULL DEFAULT 'missed',
+    initiated_by   VARCHAR(50) NOT NULL,
     INDEX idx_ch_caller    (caller_id),
     INDEX idx_ch_recipient (recipient_id),
     INDEX idx_ch_start     (start_time)

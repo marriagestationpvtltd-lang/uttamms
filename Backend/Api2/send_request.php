@@ -3,7 +3,6 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/db_config.php';
 require_once __DIR__ . '/activity_helper.php';
-require_once __DIR__ . '/../socket_notify_helper.php';
 
 // Marital status IDs (must match the maritalstatus table)
 define('MARITAL_STATUS_WIDOWED',         2);
@@ -210,28 +209,6 @@ try {
     }
 
     logActivity($sender_id, 'request_sent', "$request_type request sent", $receiver_id);
-
-    // Resolve display names for the real-time notification (single query).
-    $nameStmt = $pdo->prepare(
-        "SELECT id, CONCAT_WS(' ', firstName, lastName) AS full_name FROM users WHERE id IN (?, ?) LIMIT 2"
-    );
-    $nameStmt->execute([$sender_id, $receiver_id]);
-    $names = [];
-    foreach ($nameStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $names[(int)$row['id']] = $row['full_name'];
-    }
-
-    // Push real-time event so admin panel and receiver update instantly.
-    notifyRequestEvent([
-        'event'        => 'request_sent',
-        'proposalId'   => $proposal_id,
-        'senderId'     => $sender_id,
-        'receiverId'   => $receiver_id,
-        'senderName'   => $names[$sender_id]   ?? '',
-        'receiverName' => $names[$receiver_id] ?? '',
-        'requestType'  => $request_type,
-        'status'       => 'pending',
-    ]);
 
     echo json_encode([
         "success" => true,
