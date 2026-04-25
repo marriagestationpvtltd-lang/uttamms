@@ -2335,7 +2335,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     }
 
     String durationStr = '';
-    if (call.status == CallStatus.completed && call.duration > 0) {
+    if ((call.status == CallStatus.completed || call.status == CallStatus.ended) && call.duration > 0) {
       final m = call.duration ~/ 60;
       final s = call.duration % 60;
       durationStr = '${m}m ${s}s';
