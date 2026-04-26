@@ -466,14 +466,18 @@ class _ChatSidebarState extends State<ChatSidebar> {
       final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
       if (idx == -1) return;
 
-      _users[idx] = {
-        ...(_users[idx] as Map<String, dynamic>),
-        'is_paid': isPaid,
-        'usertype': usertype,
-      };
+      setState(() {
+        _users[idx] = {
+          ...(_users[idx] as Map<String, dynamic>),
+          'is_paid': isPaid,
+          'usertype': usertype,
+        };
+      });
+
       // Keep ChatProvider in sync if this is the currently selected user.
-      if (context.read<ChatProvider>().id?.toString() == userId) {
-        context.read<ChatProvider>().updatePaidStatus(isPaid);
+      final chatProvider = context.read<ChatProvider>();
+      if (chatProvider.id?.toString() == userId) {
+        chatProvider.updatePaidStatus(isPaid);
       }
       _applyFilters();
     });
