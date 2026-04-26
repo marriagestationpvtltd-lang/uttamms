@@ -63,10 +63,6 @@ class AdminSocketService {
   // Emitted by the server when a user's payment/subscription status changes.
   // Payload: { userId, usertype, is_paid, timestamp }
   final _paymentUpdatedCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  // Emitted by the server after mark_read to reset the unread count for a room
-  // without requiring a full chat_rooms_update reload.
-  // Payload: { chatRoomId, userId, unreadCount }
-  final _unreadResetCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -108,10 +104,6 @@ class AdminSocketService {
   /// Emitted by the server when a user's payment/subscription status changes.
   /// Payload: { userId, usertype, is_paid, timestamp }
   Stream<Map<String, dynamic>> get onPaymentUpdated => _paymentUpdatedCtrl.stream;
-  /// Emitted by the server after mark_read — resets the unread count for a
-  /// specific chat room without requiring a full chat_rooms_update reload.
-  /// Payload: { chatRoomId, userId, unreadCount }
-  Stream<Map<String, dynamic>> get onUnreadReset => _unreadResetCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -264,12 +256,6 @@ class AdminSocketService {
       if (data is Map) _paymentUpdatedCtrl.add(Map<String, dynamic>.from(data));
     });
 
-    // Lightweight unread reset emitted after mark_read — lets the sidebar
-    // update the badge without a full chat_rooms_update reload.
-    _socket!.on('unread_reset', (data) {
-      if (data is Map) _unreadResetCtrl.add(Map<String, dynamic>.from(data));
-    });
-
     _socket!.connect();
   }
 
@@ -308,7 +294,6 @@ class AdminSocketService {
     _adminActivityCtrl.close();
     _sendMessageMonitorCtrl.close();
     _paymentUpdatedCtrl.close();
-    _unreadResetCtrl.close();
   }
 
   Future<bool> ensureConnected() async {
@@ -453,16 +438,6 @@ class AdminSocketService {
     int limit = 30,
   }) {
     final completer = Completer<Map<String, dynamic>>();
-    // Fail fast when socket is not available so callers receive an immediate
-    // error instead of hanging until kAdminSocketTimeout fires.
-    if (_socket == null || !_socket!.connected) {
-      Future.microtask(() {
-        if (!completer.isCompleted) {
-          completer.completeError(Exception('Socket not connected'));
-        }
-      });
-      return completer.future;
-    }
     final timer = Timer(kAdminSocketTimeout, () {
       if (!completer.isCompleted) {
         completer.completeError(
@@ -471,7 +446,7 @@ class AdminSocketService {
       }
     });
 
-    _socket!.emitWithAck(
+    _socket?.emitWithAck(
       'get_messages',
       {'chatRoomId': chatRoomId, 'page': page, 'limit': limit},
       ack: (data) {
@@ -485,44 +460,7 @@ class AdminSocketService {
     return completer.future;
   }
 
-  /// Cursor-based load-more for [chatRoomId].
-  /// Fetches up to [limit] messages older than [beforeTimestamp].
-  /// Returns the same structure as [getMessages], plus a [nextCursor] field.
-  Future<Map<String, dynamic>> getMessagesWithCursor(
-    String chatRoomId, {
-    required String beforeTimestamp,
-    int limit = 20,
-  }) {
-    final completer = Completer<Map<String, dynamic>>();
-    final timer = Timer(kAdminSocketTimeout, () {
-      if (!completer.isCompleted) {
-        completer.completeError(
-          TimeoutException('getMessagesWithCursor timed out', kAdminSocketTimeout),
-        );
-      }
-    });
-
-    _socket?.emitWithAck(
-      'get_messages',
-      {
-        'chatRoomId':       chatRoomId,
-        'beforeTimestamp':  beforeTimestamp,
-        'limit':            limit,
-      },
-      ack: (data) {
-        timer.cancel();
-        if (!completer.isCompleted) {
-          completer.complete(Map<String, dynamic>.from(data as Map? ?? {}));
-        }
-      },
-    );
-
-    return completer.future;
-  }
-
   Future<List<dynamic>> getChatRooms() async {
-    // Return empty list immediately when socket is not connected.
-    if (_socket == null || !_socket!.connected) return const [];
     final completer = Completer<List<dynamic>>();
     final timer = Timer(kAdminSocketTimeout, () {
       if (!completer.isCompleted) {
@@ -532,7 +470,7 @@ class AdminSocketService {
       }
     });
 
-    _socket!.emitWithAck(
+    _socket?.emitWithAck(
       'get_chat_rooms',
       {'userId': kAdminUserId},
       ack: (data) {

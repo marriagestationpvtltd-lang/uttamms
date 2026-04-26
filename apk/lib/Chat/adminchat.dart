@@ -123,7 +123,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   StreamSubscription<Map<String, dynamic>>? _msgLikedSubscription;
   StreamSubscription<Map<String, dynamic>>? _msgReactionSubscription;
   StreamSubscription<Map<String, dynamic>>? _msgReadSubscription;
-  StreamSubscription<Map<String, dynamic>>? _msgUnsentSubscription;
   bool _streamLoading = true;
   bool _streamHasError = false;
 
@@ -382,7 +381,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     _msgLikedSubscription?.cancel();
     _msgReactionSubscription?.cancel();
     _msgReadSubscription?.cancel();
-    _msgUnsentSubscription?.cancel();
     _adminStatusSubscription?.cancel();
     _incomingCallSubscription?.cancel();
     _typingStartSubscription?.cancel();
@@ -538,23 +536,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           return m;
         }).toList();
       });
-    });
-
-    _msgUnsentSubscription?.cancel();
-    _msgUnsentSubscription = _socketService.onMessageUnsent.listen((data) {
-      if (!mounted) return;
-      if (data['chatRoomId'] != _chatRoomId) return;
-      final msgId = data['messageId']?.toString();
-      final idx = _cachedMessages.indexWhere((m) => m['messageId']?.toString() == msgId);
-      if (idx >= 0) {
-        setState(() {
-          _cachedMessages[idx] = {
-            ..._cachedMessages[idx],
-            'isUnsent': true,
-          };
-        });
-        ChatMessageCache.instance.saveMessages(_chatRoomId, _cachedMessages);
-      }
     });
   }
 
@@ -1459,43 +1440,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
     final String effectiveType = data['messageType']?.toString() ?? data['type']?.toString() ?? 'text';
     final String effectiveMessage = data['message'] ?? '';
-
-    // Show a WhatsApp-style placeholder for unsent (or deleted-for-everyone) messages
-    final bool isUnsent = data['isUnsent'] == true;
-    final bool isDeletedForEveryone = data['deletedForEveryone'] == true;
-    if (isUnsent || isDeletedForEveryone) {
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
-        child: Row(
-          mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.grey.shade300, width: 1),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.block, size: 14, color: Colors.grey.shade500),
-                  const SizedBox(width: 6),
-                  Text(
-                    isUnsent ? 'This message was unsent.' : 'This message was deleted.',
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 14,
-                      fontStyle: FontStyle.italic,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
 
     return StatefulBuilder(
       builder: (context, setItemState) {

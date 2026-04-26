@@ -35,7 +35,6 @@ class SocketService {
   final _messageEditedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageDeletedCtrl =
       StreamController<Map<String, dynamic>>.broadcast();
-  final _messageUnsentCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageLikedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageReactionCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _typingStartCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -75,7 +74,6 @@ class SocketService {
   Stream<Map<String, dynamic>> get onMessageEdited => _messageEditedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageDeleted =>
       _messageDeletedCtrl.stream;
-  Stream<Map<String, dynamic>> get onMessageUnsent => _messageUnsentCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageLiked => _messageLikedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageReaction => _messageReactionCtrl.stream;
   Stream<Map<String, dynamic>> get onTypingStart => _typingStartCtrl.stream;
@@ -179,10 +177,6 @@ class SocketService {
 
     _socket!.on('message_deleted', (data) {
       _messageDeletedCtrl.add(_toMap(data));
-    });
-
-    _socket!.on('message_unsent', (data) {
-      _messageUnsentCtrl.add(_toMap(data));
     });
 
     _socket!.on('message_liked', (data) {
@@ -626,17 +620,7 @@ class SocketService {
   Future<Map<String, dynamic>> getMessages(String chatRoomId,
       {int page = 1, int limit = 20}) {
     final completer = Completer<Map<String, dynamic>>();
-    // Fail fast when the socket is not available so callers see an immediate
-    // error instead of hanging for the full kRequestTimeout (15 s).
-    if (_socket == null || !_socket!.connected) {
-      Future.microtask(() {
-        if (!completer.isCompleted) {
-          completer.completeError(Exception('Socket not connected'));
-        }
-      });
-      return completer.future;
-    }
-    _socket!.emitWithAck(
+    _socket?.emitWithAck(
       'get_messages',
       {'chatRoomId': chatRoomId, 'page': page, 'limit': limit},
       ack: (response) {
@@ -680,10 +664,8 @@ class SocketService {
 
   /// Fetch the user's chat room list (request-response via Socket.IO ack).
   Future<List<dynamic>> getChatRooms(String userId) async {
-    // Return empty list immediately when socket is not connected.
-    if (_socket == null || !_socket!.connected) return [];
     final completer = Completer<List<dynamic>>();
-    _socket!.emitWithAck(
+    _socket?.emitWithAck(
       'get_chat_rooms',
       {'userId': userId},
       ack: (response) {
@@ -803,7 +785,6 @@ class SocketService {
     _newMessageCtrl.close();
     _messageEditedCtrl.close();
     _messageDeletedCtrl.close();
-    _messageUnsentCtrl.close();
     _messageLikedCtrl.close();
     _messageReactionCtrl.close();
     _typingStartCtrl.close();
