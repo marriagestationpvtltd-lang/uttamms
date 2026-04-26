@@ -697,7 +697,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           _photoRequestStatus = profileResponse.data.personalDetail.photoRequest;
           _chatRequestStatus = profileResponse.data.personalDetail.chatRequest.isNotEmpty
               ? profileResponse.data.personalDetail.chatRequest
-              : 'not_sent';
+              : 'accepted'; // empty = no explicit restriction → allow chatting
           _privacyStatus = profileResponse.data.personalDetail.privacy;
         });
       }

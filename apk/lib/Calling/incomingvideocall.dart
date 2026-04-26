@@ -796,10 +796,12 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
     _socketEndedSubscription?.cancel();
 
     if (_callActive) {
-      // Notify caller via Socket.IO (fast) + FCM (fallback)
+      // Notify the original caller via Socket.IO (fast) + FCM (fallback).
+      // Use _currentUserId as callerId so the server routes call_ended to the
+      // caller's personal room (user:${recipientId}) and not back to this socket.
       SocketService().emitCallEnd(
-        callerId: _callerId,
-        recipientId: _currentUserId,
+        callerId: _currentUserId,
+        recipientId: _callerId,
         channelName: _channel,
         callType: 'video',
         duration: _duration.inSeconds,
