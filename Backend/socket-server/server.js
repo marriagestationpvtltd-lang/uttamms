@@ -1748,6 +1748,9 @@ io.on('connection', (socket) => {
   // room if they are online; caller should also send a FCM push as fallback.
   socket.on('call_invite', async (data) => {
     if (!CALLS_ENABLED) return;
+    // Remove any expired pending calls before checking the busy/ringing state so
+    // that a timed-out previous call attempt does not produce a false 'call_busy'.
+    _cleanExpiredPendingCalls();
     const { recipientId, callerId, ...rest } = data || {};
     if (!recipientId) return;
 

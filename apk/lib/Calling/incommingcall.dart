@@ -694,10 +694,12 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     _socketSwitchToVideoSub?.cancel();
 
     if (_callActive) {
-      // Notify caller via Socket.IO (fast path) + FCM (fallback)
+      // Notify the original caller via Socket.IO (fast path) + FCM (fallback).
+      // Use _currentUserId as callerId so the server routes call_ended to the
+      // caller's personal room (user:${recipientId}) and not back to this socket.
       SocketService().emitCallEnd(
-        callerId: _callerId,
-        recipientId: _currentUserId,
+        callerId: _currentUserId,
+        recipientId: _callerId,
         channelName: _channel,
         callType: 'audio',
         duration: _duration.inSeconds,
