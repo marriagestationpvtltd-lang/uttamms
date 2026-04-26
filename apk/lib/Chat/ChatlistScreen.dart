@@ -563,7 +563,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         setState(() {
           _adminLastMessage = preview;
           _adminLastMessageTime = latestTime;
-          if (senderId == _adminUserId) _adminUnreadCount += 1;
+          if (senderId != userId) _adminUnreadCount += 1;
         });
       }
     });
