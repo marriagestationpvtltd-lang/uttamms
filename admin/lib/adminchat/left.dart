@@ -58,7 +58,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
   // instantly for ALL conversations, not just the one currently joined.
   StreamSubscription<Map<String, dynamic>>? _monitorMsgSub;
   StreamSubscription<Map<String, dynamic>>? _statusSub;
-  StreamSubscription<Map<String, dynamic>>? _paymentSub;
   StreamSubscription<bool>? _connectionSub;
 
   // Tracks the last known message timestamp per conversation so we can
@@ -113,7 +112,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
     _newMessageSub?.cancel();
     _monitorMsgSub?.cancel();
     _statusSub?.cancel();
-    _paymentSub?.cancel();
     _connectionSub?.cancel();
     _scrollController.dispose();
     _searchDebounce?.cancel();
@@ -452,34 +450,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
       if (connected && mounted) {
         _refreshChatRooms();
       }
-    });
-
-    // Update a user's payment status in-place when the server notifies us.
-    _paymentSub?.cancel();
-    _paymentSub = _socketService.onPaymentUpdated.listen((data) {
-      if (!mounted) return;
-      final userId   = data['userId']?.toString()  ?? '';
-      if (userId.isEmpty) return;
-      final usertype = data['usertype']?.toString() ?? '';
-      final isPaid   = data['is_paid'] == true;
-
-      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
-      if (idx == -1) return;
-
-      setState(() {
-        _users[idx] = {
-          ...(_users[idx] as Map<String, dynamic>),
-          'is_paid': isPaid,
-          'usertype': usertype,
-        };
-      });
-
-      // Keep ChatProvider in sync if this is the currently selected user.
-      final chatProvider = context.read<ChatProvider>();
-      if (chatProvider.id?.toString() == userId) {
-        chatProvider.updatePaidStatus(isPaid);
-      }
-      _applyFilters();
     });
   }
 
@@ -1538,33 +1508,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                           color: Color(0xFF10B981),
                         ),
                       ],
-                      const SizedBox(width: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                        decoration: BoxDecoration(
-                          color: isPaid
-                              ? const Color(0xFFD81B60).withOpacity(0.12)
-                              : Colors.grey.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(
-                            color: isPaid
-                                ? const Color(0xFFD81B60).withOpacity(0.5)
-                                : Colors.grey.withOpacity(0.4),
-                            width: 0.5,
-                          ),
-                        ),
-                        child: Text(
-                          isPaid ? 'PAID' : 'FREE',
-                          style: TextStyle(
-                            fontSize: 8,
-                            fontWeight: FontWeight.w700,
-                            color: isPaid
-                                ? const Color(0xFFD81B60)
-                                : Colors.grey[600],
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                   const SizedBox(height: 2),

@@ -60,9 +60,6 @@ class AdminSocketService {
   // Receives the server-side send_message event emitted to admin_room so the
   // message monitor screen can display every message in real-time.
   final _sendMessageMonitorCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  // Emitted by the server when a user's payment/subscription status changes.
-  // Payload: { userId, usertype, is_paid, timestamp }
-  final _paymentUpdatedCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -101,9 +98,6 @@ class AdminSocketService {
   /// Payload: { messageId, chatRoomId, senderId, receiverId, senderName,
   ///            receiverName, message, messageType, timestamp }
   Stream<Map<String, dynamic>> get onMessageMonitor => _sendMessageMonitorCtrl.stream;
-  /// Emitted by the server when a user's payment/subscription status changes.
-  /// Payload: { userId, usertype, is_paid, timestamp }
-  Stream<Map<String, dynamic>> get onPaymentUpdated => _paymentUpdatedCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -251,11 +245,6 @@ class AdminSocketService {
       if (data is Map) _sendMessageMonitorCtrl.add(Map<String, dynamic>.from(data));
     });
 
-    // Server emits 'payment_updated' to admin_room when a user's payment status changes.
-    _socket!.on('payment_updated', (data) {
-      if (data is Map) _paymentUpdatedCtrl.add(Map<String, dynamic>.from(data));
-    });
-
     _socket!.connect();
   }
 
@@ -293,7 +282,6 @@ class AdminSocketService {
     _userActivityCtrl.close();
     _adminActivityCtrl.close();
     _sendMessageMonitorCtrl.close();
-    _paymentUpdatedCtrl.close();
   }
 
   Future<bool> ensureConnected() async {
