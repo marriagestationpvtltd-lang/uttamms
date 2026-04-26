@@ -1603,19 +1603,41 @@ class _ChatSidebarState extends State<ChatSidebar> {
         );
       },
       child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: isSelected
               ? c.selectedRow
               : hasUnread
                   ? c.primaryLight
                   : c.sidebar,
-          border: isSelected
-              ? Border(left: BorderSide(color: c.primary, width: 3))
-              : hasUnread
-                  ? Border(left: BorderSide(color: c.primary, width: 3))
-                  : isPinned
-                      ? Border(left: BorderSide(color: const Color(0xFFF59E0B), width: 3))
-                      : null,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? c.primary.withOpacity(0.45)
+                : hasUnread
+                    ? c.primary.withOpacity(0.25)
+                    : isPinned
+                        ? const Color(0xFFF59E0B).withOpacity(0.35)
+                        : Colors.transparent,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+          boxShadow: isSelected || hasUnread
+              ? [
+                  BoxShadow(
+                    color: isSelected
+                        ? c.primary.withOpacity(0.10)
+                        : c.primary.withOpacity(0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
         ),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         child: Row(
@@ -1693,12 +1715,12 @@ class _ChatSidebarState extends State<ChatSidebar> {
                               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                               decoration: BoxDecoration(
                                 color: isPaid
-                                    ? const Color(0xFFD81B60).withOpacity(0.12)
+                                    ? const Color(0xFF7B61FF).withOpacity(0.12)
                                     : Colors.grey.withOpacity(0.12),
                                 borderRadius: BorderRadius.circular(4),
                                 border: Border.all(
                                   color: isPaid
-                                      ? const Color(0xFFD81B60).withOpacity(0.5)
+                                      ? const Color(0xFF7B61FF).withOpacity(0.5)
                                       : Colors.grey.withOpacity(0.4),
                                   width: 0.5,
                                 ),
@@ -1709,7 +1731,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                                   fontSize: 8,
                                   fontWeight: FontWeight.w700,
                                   color: isPaid
-                                      ? const Color(0xFFD81B60)
+                                      ? const Color(0xFF7B61FF)
                                       : Colors.grey[600],
                                   letterSpacing: 0.3,
                                 ),

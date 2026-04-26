@@ -3476,7 +3476,7 @@ class _ChatWindowState extends State<ChatWindow> {
       bool canMutate = false,
       Map<String, dynamic>? replyPayload,
       Map<String, dynamic>? reportData]) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
     const kText = Color(0xFF1E293B);
     const kMuted = Color(0xFF64748B);
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -3795,7 +3795,7 @@ class _ChatWindowState extends State<ChatWindow> {
     }
 
     if (type == 'profile_card' && profileData != null) {
-      const kCardPrimary = Color(0xFFD81B60);
+      const kCardPrimary = Color(0xFF7B61FF);
       const kCardSurface = Color(0xFFFCFCFE);
       const kCardBorder = Color(0xFFEDE7F6);
       const kInfoLabel = Color(0xFF78909C);
@@ -3856,7 +3856,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: kCardBorder, width: 1),
                   boxShadow: [
-                    BoxShadow(color: const Color(0xFFD81B60).withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 4)),
+                    BoxShadow(color: const Color(0xFF7B61FF).withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 4)),
                     BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2)),
                   ],
                 ),
@@ -3872,7 +3872,7 @@ class _ChatWindowState extends State<ChatWindow> {
                         height: 72,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [Color(0xFFD81B60), Color(0xFFAD1457), Color(0xFF880E4F)],
+                            colors: [Color(0xFF7B61FF), Color(0xFF5B41CF), Color(0xFF4A32B8)],
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                           ),
@@ -3980,12 +3980,12 @@ class _ChatWindowState extends State<ChatWindow> {
                                             fit: BoxFit.cover,
                                             errorWidget: (_, __, ___) => Container(
                                               color: const Color(0xFFF8BBD9),
-                                              child: const Icon(Icons.person_rounded, size: 28, color: Color(0xFFD81B60)),
+                                              child: const Icon(Icons.person_rounded, size: 28, color: Color(0xFF7B61FF)),
                                             ),
                                           )
                                         : Container(
                                             color: const Color(0xFFF8BBD9),
-                                            child: const Icon(Icons.person_rounded, size: 28, color: Color(0xFFD81B60)),
+                                            child: const Icon(Icons.person_rounded, size: 28, color: Color(0xFF7B61FF)),
                                           ),
                                   ),
                                 ),
@@ -4119,10 +4119,10 @@ class _ChatWindowState extends State<ChatWindow> {
                                   height: 32,
                                   decoration: BoxDecoration(
                                     gradient: const LinearGradient(
-                                      colors: [Color(0xFFD81B60), Color(0xFFAD1457)],
+                                      colors: [Color(0xFF7B61FF), Color(0xFF5B41CF)],
                                     ),
                                     borderRadius: BorderRadius.circular(8),
-                                    boxShadow: [BoxShadow(color: const Color(0xFFD81B60).withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2))],
+                                    boxShadow: [BoxShadow(color: const Color(0xFF7B61FF).withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2))],
                                   ),
                                   child: const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -4868,7 +4868,7 @@ class _ChatWindowState extends State<ChatWindow> {
   /// WhatsApp-style gallery grid for image_gallery message type.
   Widget _buildAdminGalleryGrid(List<String> urls) {
     if (urls.isEmpty) return const SizedBox.shrink();
-    const Color adminPrimary = Color(0xFFD81B60);
+    const Color adminPrimary = Color(0xFF7B61FF);
     final double gridWidth = MediaQuery.of(context).size.width * 0.24;
     const double gap = 2;
 
@@ -5024,7 +5024,7 @@ class _ChatWindowState extends State<ChatWindow> {
   /// WhatsApp-style read receipt tick for admin-sent messages.
   /// Reaction badge displayed below a message bubble.
   Widget _buildAdminReactionBadge(Map<String, dynamic> reactions, bool isSentByMe) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
     final Map<String, int> emojiCounts = {};
     for (final emoji in reactions.values) {
       final e = emoji.toString();
@@ -5099,7 +5099,7 @@ class _ChatWindowState extends State<ChatWindow> {
   Widget _buildCallBubble(
       String callType, String status, int durationSeconds, bool isSentByMe, DateTime timestamp,
       {Widget? replyPreview}) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
     const kMuted = Color(0xFF64748B);
     final bool isBusy = status == 'busy';
     final bool isMissed = isBusy || status == 'missed';
@@ -5418,7 +5418,7 @@ class _ChatWindowState extends State<ChatWindow> {
   }
 
   Widget _buildActionBanner(ChatColors colors) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
     final bool isEditing = _editingMessageId != null;
     final bool replyingToEdited = _replyingTo?['edited'] == true &&
         _replyingTo?['deleted'] != true &&
@@ -5584,7 +5584,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   padding: EdgeInsets.all(9),
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: Color(0xFFD81B60),
+                    color: Color(0xFF7B61FF),
                   ),
                 ),
               )
@@ -5605,7 +5605,7 @@ class _ChatWindowState extends State<ChatWindow> {
   }
 
   Widget _buildMessageInput(ChatProvider chatProvider) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
     // Dark-mode tints for the language-selector chip
     const kLangNepaliDarkBg     = Color(0xFF4A1A1A);
     const kLangEnglishDarkBg    = Color(0xFF1A2A40);
@@ -6194,7 +6194,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
                                 color: isSelected
-                                    ? const Color(0xFFD81B60).withOpacity(0.15)
+                                    ? const Color(0xFF7B61FF).withOpacity(0.15)
                                     : Colors.transparent,
                                 shape: BoxShape.circle,
                               ),
@@ -6238,7 +6238,7 @@ class _ChatWindowState extends State<ChatWindow> {
                         _adminOverlayMenuItem(
                           Icons.reply_rounded,
                           "Reply",
-                          const Color(0xFFD81B60),
+                          const Color(0xFF7B61FF),
                           () {
                             if (mounted) setState(() => _showMsgActionOverlay = false);
                             _startReply(
@@ -6380,7 +6380,7 @@ class _ChatWindowState extends State<ChatWindow> {
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color: isSelected
-                            ? const Color(0xFFD81B60).withOpacity(0.15)
+                            ? const Color(0xFF7B61FF).withOpacity(0.15)
                             : Colors.transparent,
                         shape: BoxShape.circle,
                       ),
@@ -6395,7 +6395,7 @@ class _ChatWindowState extends State<ChatWindow> {
             ),
             const Divider(height: 1),
             ListTile(
-              leading: const Icon(Icons.reply_rounded, size: 20, color: Color(0xFFD81B60)),
+              leading: const Icon(Icons.reply_rounded, size: 20, color: Color(0xFF7B61FF)),
               title: const Text("Reply", style: TextStyle(fontSize: 14)),
               onTap: () {
                 Navigator.pop(ctx);
@@ -6954,7 +6954,7 @@ class _MessageActionMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
 
     return PopupMenuButton<_MsgAction>(
       padding: EdgeInsets.zero,
@@ -8275,7 +8275,7 @@ class _ForwardUserPickerDialogState extends State<_ForwardUserPickerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    const kPrimary = Color(0xFFD81B60);
+    const kPrimary = Color(0xFF7B61FF);
     final filtered = _search.isEmpty
         ? widget.users
         : widget.users
