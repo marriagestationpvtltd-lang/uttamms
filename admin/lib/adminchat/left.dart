@@ -55,6 +55,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
   StreamSubscription<List<dynamic>>? _chatRoomsSub;
   StreamSubscription<Map<String, dynamic>>? _newMessageSub;
   StreamSubscription<Map<String, dynamic>>? _statusSub;
+  StreamSubscription<bool>? _connectionSub;
 
   // Tracks the last known message timestamp per conversation so we can
   // detect truly NEW incoming messages (from users, not the admin).
@@ -107,6 +108,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
     _chatRoomsSub?.cancel();
     _newMessageSub?.cancel();
     _statusSub?.cancel();
+    _connectionSub?.cancel();
     _scrollController.dispose();
     _searchDebounce?.cancel();
     _lastSeenRefreshTimer?.cancel();
@@ -318,6 +320,21 @@ class _ChatSidebarState extends State<ChatSidebar> {
         _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
       }
 
+      // If the user who just messaged is not yet in the list, fetch them so
+      // they appear immediately at the top rather than waiting for the next
+      // full page load. Otherwise move them to the front of _users so the
+      // 'recent' sort is instant even before chat_rooms_update arrives.
+      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
+      if (idx == -1) {
+        _fetchSingleUser(userId);
+        // _fetchSingleUser calls _applyFilters() once the user is loaded.
+        return;
+      }
+      if (idx > 0) {
+        final user = _users.removeAt(idx);
+        _users.insert(0, user);
+      }
+
       _applyFilters();
     });
 
@@ -337,6 +354,15 @@ class _ChatSidebarState extends State<ChatSidebar> {
             ? 'Online'
             : _formatLastSeen(lastSeen),
       );
+    });
+
+    // Re-fetch chat rooms whenever the socket reconnects so the list is never
+    // stale after a network interruption.
+    _connectionSub?.cancel();
+    _connectionSub = _socketService.onConnectionChange.listen((connected) {
+      if (connected && mounted) {
+        _refreshChatRooms();
+      }
     });
   }
 
@@ -360,13 +386,21 @@ class _ChatSidebarState extends State<ChatSidebar> {
   Future<void> _saveCachedUsers() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final toSave = _users.map((u) {
-        final m = Map<String, dynamic>.from(u as Map);
-        // Reset ephemeral fields; they will be updated by socket events.
-        m['is_online'] = false;
-        m['last_seen_text'] = '';
-        return m;
-      }).toList();
+      // Deduplicate by ID before persisting to keep the cache clean.
+      final Set<String> seenIds = {};
+      final toSave = _users
+          .where((u) {
+            final id = u['id']?.toString() ?? '';
+            return id.isNotEmpty && seenIds.add(id);
+          })
+          .map((u) {
+            final m = Map<String, dynamic>.from(u as Map);
+            // Reset ephemeral fields; they will be updated by socket events.
+            m['is_online'] = false;
+            m['last_seen_text'] = '';
+            return m;
+          })
+          .toList();
       await prefs.setString(_kUsersCacheKey, jsonEncode(toSave));
     } catch (_) {}
   }
@@ -379,8 +413,17 @@ class _ChatSidebarState extends State<ChatSidebar> {
       if (cached == null || !mounted) return;
       final List<dynamic> parsed = jsonDecode(cached);
       if (parsed.isEmpty) return;
+      // Deduplicate by ID to guard against a dirty cache.
+      final Set<String> seenIds = {};
+      final dedupedUsers = parsed
+          .map((u) => Map<String, dynamic>.from(u as Map))
+          .where((u) {
+            final id = u['id']?.toString() ?? '';
+            return id.isNotEmpty && seenIds.add(id);
+          })
+          .toList();
       setState(() {
-        _users = parsed.map((u) => Map<String, dynamic>.from(u as Map)).toList();
+        _users = dedupedUsers;
         _filteredUsers = List.from(_users);
         _isInitialLoading = false;
       });
