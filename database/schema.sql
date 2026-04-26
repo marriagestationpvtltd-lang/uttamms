@@ -1261,4 +1261,10 @@ CREATE TABLE IF NOT EXISTS ac_profile_shares (
 -- End of schema
 -- =============================================================================
 
+-- Idempotent migration: add is_unsent to chat_messages if not already present.
+-- The socket server also adds this column at startup, but including it here
+-- ensures fresh installs work without requiring the socket server to run first.
+ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS
+    is_unsent TINYINT(1) NOT NULL DEFAULT 0;
+
 SET FOREIGN_KEY_CHECKS = 1;
