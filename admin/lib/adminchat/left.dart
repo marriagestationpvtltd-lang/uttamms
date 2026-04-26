@@ -41,7 +41,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
   bool _showWithMatches = false;
   bool _showOnlyUnread = false;
   bool _showOnlyVerified = false;
-  String _sortBy = 'recent'; // 'recent', 'name', 'matches', 'online'
+  String _sortBy = 'smart'; // 'smart', 'recent', 'name', 'matches', 'online'
 
   // Unread message counts: userId -> count of unseen messages from that user
   Map<String, int> _unreadCounts = {};
@@ -54,7 +54,12 @@ class _ChatSidebarState extends State<ChatSidebar> {
   final AdminSocketService _socketService = AdminSocketService();
   StreamSubscription<List<dynamic>>? _chatRoomsSub;
   StreamSubscription<Map<String, dynamic>>? _newMessageSub;
+  // Listens to send_message events on admin_room so the sidebar updates
+  // instantly for ALL conversations, not just the one currently joined.
+  StreamSubscription<Map<String, dynamic>>? _monitorMsgSub;
   StreamSubscription<Map<String, dynamic>>? _statusSub;
+  StreamSubscription<Map<String, dynamic>>? _paymentSub;
+  StreamSubscription<bool>? _connectionSub;
 
   // Tracks the last known message timestamp per conversation so we can
   // detect truly NEW incoming messages (from users, not the admin).
@@ -78,6 +83,10 @@ class _ChatSidebarState extends State<ChatSidebar> {
   final Set<String> _fetchingUserIds = {};
   // SharedPreferences key for the cached user list
   static const String _kUsersCacheKey = 'chat_sidebar_users_v1';
+  // SharedPreferences key for pinned users
+  static const String _kPinnedUsersKey = 'chat_sidebar_pinned_v1';
+  // Set of pinned user IDs (persisted across sessions)
+  Set<String> _pinnedUserIds = {};
   ChatProvider? _chatProvider;
 
   @override
@@ -86,6 +95,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
     _scrollController.addListener(_onScroll);
     // Load cached users immediately so the sidebar appears without waiting for HTTP
     _loadCachedUsers().then((_) => fetchUsers(reset: true));
+    _loadPinnedUsers();
     // Refresh "X min ago" labels client-side every minute (no HTTP needed)
     _lastSeenRefreshTimer = Timer.periodic(
       const Duration(minutes: 1),
@@ -106,7 +116,10 @@ class _ChatSidebarState extends State<ChatSidebar> {
   void dispose() {
     _chatRoomsSub?.cancel();
     _newMessageSub?.cancel();
+    _monitorMsgSub?.cancel();
     _statusSub?.cancel();
+    _paymentSub?.cancel();
+    _connectionSub?.cancel();
     _scrollController.dispose();
     _searchDebounce?.cancel();
     _lastSeenRefreshTimer?.cancel();
@@ -199,6 +212,32 @@ class _ChatSidebarState extends State<ChatSidebar> {
           if (serverTotal != null) _totalUsers = serverTotal;
         }
 
+        // Seed conversationMap with timestamps from the API so that
+        // _sortUsers('recent') works correctly before socket events arrive.
+        // 'lastMessage' stores the raw message content; 'lastMessagePreview'
+        // is the formatted display string.  Without message type info from the
+        // API both are set to the raw text — socket events will later supply
+        // properly type-formatted previews (e.g. "📷 Photo").
+        for (final u in newUsers) {
+          final uid = u['id']?.toString() ?? '';
+          if (uid.isEmpty) continue;
+          final rawTime = u['last_message_time'];
+          if (rawTime == null) continue;
+          final lastTime = AdminSocketService.parseTimestamp(rawTime);
+          if (lastTime == null) continue;
+          // Only update if we don't already have a fresher entry from a socket event.
+          final existingTs = conversationMap[uid]?['lastTimestamp'] as DateTime?;
+          if (existingTs == null || lastTime.isAfter(existingTs)) {
+            final rawMsg = u['chat_message']?.toString() ?? '';
+            conversationMap[uid] = {
+              'lastMessage':        rawMsg,
+              'lastMessagePreview': rawMsg,
+              'lastTimestamp':      lastTime,
+              'lastMessageType':    'text',
+            };
+          }
+        }
+
         // Determine if more pages exist
         if (serverTotal != null) {
           _hasMore = _users.length < serverTotal;
@@ -278,7 +317,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
       final senderIdStr = data['senderId']?.toString() ?? '';
       final receiverIdStr = data['receiverId']?.toString() ?? '';
 
-      // Determine which user's conversation row should be updated/sorted.
       final String userId;
       final bool isIncoming;
       if (senderIdStr == senderId.toString()) {
@@ -291,34 +329,63 @@ class _ChatSidebarState extends State<ChatSidebar> {
         if (senderIdStr.isEmpty) return;
         userId = senderIdStr;
         isIncoming = true;
-        // Play notification sound / show browser notification.
         _handleIncomingMessage(
           senderIdStr: senderIdStr,
           message: _messagePreviewFromSocket(data),
         );
       }
 
-      // Update conversationMap so this user sorts to the top under 'recent'.
-      final preview = _messagePreviewFromSocket(data);
-      // Prefer the server-provided timestamp to avoid clock-skew issues; fall
-      // back to the current time only when the server omits it.
       final DateTime msgTime =
           AdminSocketService.parseTimestamp(data['timestamp']) ??
           AdminSocketService.parseTimestamp(data['createdAt']) ??
           DateTime.now();
-      conversationMap[userId] = {
-        'lastMessage': data['message']?.toString() ?? '',
-        'lastMessagePreview': preview,
-        'lastTimestamp': msgTime,
-        'lastMessageType': data['messageType']?.toString() ?? 'text',
-      };
 
-      // Increment local unread badge for incoming messages from non-active users.
-      if (isIncoming && _selectedChat?['id']?.toString() != userId) {
-        _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
+      _updateChatAndMoveToTop(
+        userId: userId,
+        preview: _messagePreviewFromSocket(data),
+        rawMessage: data['message']?.toString() ?? '',
+        messageType: data['messageType']?.toString() ?? 'text',
+        msgTime: msgTime,
+        isIncoming: isIncoming,
+        onlyIfNewer: false,
+      );
+    });
+
+    // Subscribe to send_message events broadcast to admin_room.
+    // These fire immediately (before the DB batch worker) for ALL messages,
+    // giving the sidebar an instant sort/preview update even when the admin
+    // has not joined a particular chat room.
+    _monitorMsgSub?.cancel();
+    _monitorMsgSub = _socketService.onMessageMonitor.listen((data) {
+      if (!mounted) return;
+      final senderIdStr   = data['senderId']?.toString()   ?? '';
+      final receiverIdStr = data['receiverId']?.toString() ?? '';
+
+      final String userId;
+      if (senderIdStr == senderId.toString()) {
+        if (receiverIdStr.isEmpty || receiverIdStr == senderId.toString()) return;
+        userId = receiverIdStr;
+      } else {
+        if (senderIdStr.isEmpty) return;
+        userId = senderIdStr;
       }
 
-      _applyFilters();
+      final DateTime msgTime =
+          AdminSocketService.parseTimestamp(data['timestamp']) ??
+          AdminSocketService.parseTimestamp(data['createdAt']) ??
+          DateTime.now();
+
+      // Use onlyIfNewer: true so this event never overwrites a fresher entry
+      // that already arrived via onNewMessage.
+      _updateChatAndMoveToTop(
+        userId: userId,
+        preview: _messagePreviewFromSocket(data),
+        rawMessage: data['message']?.toString() ?? '',
+        messageType: data['messageType']?.toString() ?? 'text',
+        msgTime: msgTime,
+        isIncoming: false,
+        onlyIfNewer: true,
+      );
     });
 
     _statusSub?.cancel();
@@ -338,6 +405,43 @@ class _ChatSidebarState extends State<ChatSidebar> {
             : _formatLastSeen(lastSeen),
       );
     });
+
+    // Re-fetch chat rooms whenever the socket reconnects so the list is never
+    // stale after a network interruption.
+    _connectionSub?.cancel();
+    _connectionSub = _socketService.onConnectionChange.listen((connected) {
+      if (connected && mounted) {
+        _refreshChatRooms();
+      }
+    });
+
+    // Update a user's payment status in-place when the server notifies us.
+    _paymentSub?.cancel();
+    _paymentSub = _socketService.onPaymentUpdated.listen((data) {
+      if (!mounted) return;
+      final userId   = data['userId']?.toString()  ?? '';
+      if (userId.isEmpty) return;
+      final usertype = data['usertype']?.toString() ?? '';
+      final isPaid   = data['is_paid'] == true;
+
+      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
+      if (idx == -1) return;
+
+      setState(() {
+        _users[idx] = {
+          ...(_users[idx] as Map<String, dynamic>),
+          'is_paid': isPaid,
+          'usertype': usertype,
+        };
+      });
+
+      // Keep ChatProvider in sync if this is the currently selected user.
+      final chatProvider = context.read<ChatProvider>();
+      if (chatProvider.id?.toString() == userId) {
+        chatProvider.updatePaidStatus(isPaid);
+      }
+      _applyFilters();
+    });
   }
 
   Future<void> _refreshChatRooms() async {
@@ -353,6 +457,67 @@ class _ChatSidebarState extends State<ChatSidebar> {
     }
   }
 
+  // ── Core real-time update ────────────────────────────────────────────────────
+
+  /// Single entry point for updating a conversation and floating it to the top
+  /// of the list without reloading the full chat list.
+  ///
+  /// [userId]      — the non-admin user involved in the conversation.
+  /// [preview]     — formatted last-message preview string.
+  /// [rawMessage]  — raw message text stored alongside the preview.
+  /// [messageType] — socket message type string (e.g. 'text', 'image').
+  /// [msgTime]     — server-provided timestamp; falls back to [DateTime.now].
+  /// [isIncoming]  — true when the user sent the message (unread count increments
+  ///                 unless that user's conversation is currently open).
+  /// [onlyIfNewer] — when true the [conversationMap] entry is only replaced if
+  ///                 [msgTime] is strictly newer than the existing timestamp.
+  ///                 Pass true for monitor-channel events so they never overwrite
+  ///                 a fresher entry that already arrived via onNewMessage.
+  void _updateChatAndMoveToTop({
+    required String userId,
+    required String preview,
+    required String rawMessage,
+    required String messageType,
+    DateTime? msgTime,
+    bool isIncoming = false,
+    bool onlyIfNewer = false,
+  }) {
+    if (!mounted) return;
+
+    final DateTime time = msgTime ?? DateTime.now();
+
+    // ── 1. Update conversation metadata ──────────────────────────────────────
+    final existing = conversationMap[userId]?['lastTimestamp'] as DateTime?;
+    if (!onlyIfNewer || existing == null || time.isAfter(existing)) {
+      conversationMap[userId] = {
+        'lastMessage':        rawMessage,
+        'lastMessagePreview': preview,
+        'lastTimestamp':      time,
+        'lastMessageType':    messageType,
+      };
+    }
+
+    // ── 2. Increment unread badge for messages from non-open conversations ────
+    if (isIncoming && _selectedChat?['id']?.toString() != userId) {
+      _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
+    }
+
+    // ── 3. Move user to front of _users so sort is instant ───────────────────
+    final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
+    if (idx == -1) {
+      // User not yet in list — fetch their profile so they appear at the top.
+      _fetchSingleUser(userId);
+      return;
+    }
+    if (idx > 0) {
+      final user = _users.removeAt(idx);
+      _users.insert(0, user);
+    }
+
+    // ── 4. Re-apply filters + sort without a full list reload ─────────────────
+    _applyFilters();
+  }
+
   // ── SharedPreferences cache ─────────────────────────────────────────────────
 
   /// Persist the current user list (static fields only) so the sidebar
@@ -360,13 +525,21 @@ class _ChatSidebarState extends State<ChatSidebar> {
   Future<void> _saveCachedUsers() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final toSave = _users.map((u) {
-        final m = Map<String, dynamic>.from(u as Map);
-        // Reset ephemeral fields; they will be updated by socket events.
-        m['is_online'] = false;
-        m['last_seen_text'] = '';
-        return m;
-      }).toList();
+      // Deduplicate by ID before persisting to keep the cache clean.
+      final Set<String> seenIds = {};
+      final toSave = _users
+          .where((u) {
+            final id = u['id']?.toString() ?? '';
+            return id.isNotEmpty && seenIds.add(id);
+          })
+          .map((u) {
+            final m = Map<String, dynamic>.from(u as Map);
+            // Reset ephemeral fields; they will be updated by socket events.
+            m['is_online'] = false;
+            m['last_seen_text'] = '';
+            return m;
+          })
+          .toList();
       await prefs.setString(_kUsersCacheKey, jsonEncode(toSave));
     } catch (_) {}
   }
@@ -379,12 +552,74 @@ class _ChatSidebarState extends State<ChatSidebar> {
       if (cached == null || !mounted) return;
       final List<dynamic> parsed = jsonDecode(cached);
       if (parsed.isEmpty) return;
+      // Deduplicate by ID to guard against a dirty cache.
+      final Set<String> seenIds = {};
+      final dedupedUsers = parsed
+          .map((u) => Map<String, dynamic>.from(u as Map))
+          .where((u) {
+            final id = u['id']?.toString() ?? '';
+            return id.isNotEmpty && seenIds.add(id);
+          })
+          .toList();
       setState(() {
-        _users = parsed.map((u) => Map<String, dynamic>.from(u as Map)).toList();
+        _users = dedupedUsers;
         _filteredUsers = List.from(_users);
         _isInitialLoading = false;
       });
     } catch (_) {}
+  }
+
+  // ── Pinned users persistence ────────────────────────────────────────────────
+
+  Future<void> _loadPinnedUsers() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final pinned = prefs.getStringList(_kPinnedUsersKey);
+      if (pinned != null && mounted) {
+        setState(() => _pinnedUserIds = Set<String>.from(pinned));
+        _sortUsers();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _savePinnedUsers() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(_kPinnedUsersKey, _pinnedUserIds.toList());
+    } catch (_) {}
+  }
+
+  void _togglePin(String userId) {
+    setState(() {
+      if (_pinnedUserIds.contains(userId)) {
+        _pinnedUserIds.remove(userId);
+      } else {
+        _pinnedUserIds.add(userId);
+      }
+      _sortUsers();
+    });
+    _savePinnedUsers();
+  }
+
+  // ── Message time formatting ─────────────────────────────────────────────────
+
+  String _formatMessageTime(DateTime? dt) {
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dtDay = DateTime(dt.year, dt.month, dt.day);
+    if (dtDay == today) {
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return '$h:$m';
+    }
+    final yesterday = today.subtract(const Duration(days: 1));
+    if (dtDay == yesterday) return 'Yesterday';
+    if (today.difference(dtDay).inDays < 7) {
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      return days[dt.weekday - 1];
+    }
+    return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${(dt.year % 100).toString().padLeft(2, '0')}';
   }
 
   // ── Client-side last-seen text refresh ─────────────────────────────────────
@@ -463,6 +698,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
     setState(() {
       _selectedChat = _users[matchIndex];
+      // Immediately clear the unread badge when a chat is selected externally
+      // (e.g. via a push notification or the Members → Chat shortcut) so the
+      // list item stops appearing bold before the server's mark_read response
+      // arrives.
+      _unreadCounts[targetId] = 0;
     });
     _updateSelectedChat();
     _saveLastSelectedUserId(targetId);
@@ -521,6 +761,17 @@ class _ChatSidebarState extends State<ChatSidebar> {
       if (uid.isNotEmpty && addedIds.add(uid)) {
         sortedUsers.add(user);
       }
+    }
+
+    // If a chat is currently open the admin has already seen those messages,
+    // so ensure the server data never re-adds an unread badge for it.
+    // Use _chatProvider?.id as a fallback for the case where _selectedChat
+    // has not yet been assigned (race window during initial load when
+    // chatProvider.id is already set, e.g. via an external navigation).
+    final String? openUserId = _selectedChat?['id']?.toString() ??
+        _chatProvider?.id?.toString();
+    if (openUserId != null && openUserId.isNotEmpty) {
+      unreadCounts[openUserId] = 0;
     }
 
     setState(() {
@@ -774,26 +1025,61 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
   void _sortUsers() {
     switch (_sortBy) {
+      case 'smart':
+        _filteredUsers.sort((a, b) {
+          final aId = a['id'].toString();
+          final bId = b['id'].toString();
+          // 1. Pinned first
+          final aPin = _pinnedUserIds.contains(aId);
+          final bPin = _pinnedUserIds.contains(bId);
+          if (aPin != bPin) return aPin ? -1 : 1;
+          // 2. Unread first
+          final aUnread = (_unreadCounts[aId] ?? 0) > 0;
+          final bUnread = (_unreadCounts[bId] ?? 0) > 0;
+          if (aUnread != bUnread) return aUnread ? -1 : 1;
+          // 3. Online first
+          final aOnline = a['is_online'] == true;
+          final bOnline = b['is_online'] == true;
+          if (aOnline != bOnline) return aOnline ? -1 : 1;
+          // 4. Paid first
+          final aPaid = a['is_paid'] == true;
+          final bPaid = b['is_paid'] == true;
+          if (aPaid != bPaid) return aPaid ? -1 : 1;
+          // 5. Most recent message first (newest first)
+          final aTime = conversationMap[aId]?['lastTimestamp'] as DateTime? ?? DateTime(1970);
+          final bTime = conversationMap[bId]?['lastTimestamp'] as DateTime? ?? DateTime(1970);
+          return bTime.compareTo(aTime);
+        });
+        break;
       case 'recent':
         _filteredUsers.sort((a, b) {
-          String aId = a['id'].toString();
-          String bId = b['id'].toString();
-
-          final DateTime aTime =
-              conversationMap[aId]?['lastTimestamp'] as DateTime? ??
-                  DateTime(1970);
-          final DateTime bTime =
-              conversationMap[bId]?['lastTimestamp'] as DateTime? ??
-                  DateTime(1970);
-
+          final aId = a['id'].toString();
+          final bId = b['id'].toString();
+          final aPin = _pinnedUserIds.contains(aId);
+          final bPin = _pinnedUserIds.contains(bId);
+          if (aPin != bPin) return aPin ? -1 : 1;
+          final aTime = conversationMap[aId]?['lastTimestamp'] as DateTime? ?? DateTime(1970);
+          final bTime = conversationMap[bId]?['lastTimestamp'] as DateTime? ?? DateTime(1970);
           return bTime.compareTo(aTime);
         });
         break;
       case 'name':
-        _filteredUsers.sort((a, b) => a["name"].compareTo(b["name"]));
+        _filteredUsers.sort((a, b) {
+          final aId = a['id'].toString();
+          final bId = b['id'].toString();
+          final aPin = _pinnedUserIds.contains(aId);
+          final bPin = _pinnedUserIds.contains(bId);
+          if (aPin != bPin) return aPin ? -1 : 1;
+          return a["name"].compareTo(b["name"]);
+        });
         break;
       case 'matches':
         _filteredUsers.sort((a, b) {
+          final aId = a['id'].toString();
+          final bId = b['id'].toString();
+          final aPin = _pinnedUserIds.contains(aId);
+          final bPin = _pinnedUserIds.contains(bId);
+          if (aPin != bPin) return aPin ? -1 : 1;
           int aMatches = int.tryParse(a["matches"].toString()) ?? 0;
           int bMatches = int.tryParse(b["matches"].toString()) ?? 0;
           return bMatches.compareTo(aMatches);
@@ -801,6 +1087,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
         break;
       case 'online':
         _filteredUsers.sort((a, b) {
+          final aId = a['id'].toString();
+          final bId = b['id'].toString();
+          final aPin = _pinnedUserIds.contains(aId);
+          final bPin = _pinnedUserIds.contains(bId);
+          if (aPin != bPin) return aPin ? -1 : 1;
           bool aOnline = a["is_online"] ?? false;
           bool bOnline = b["is_online"] ?? false;
           if (aOnline && !bOnline) return -1;
@@ -819,7 +1110,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
       _showWithMatches = false;
       _showOnlyUnread = false;
       _showOnlyVerified = false;
-      _sortBy = 'recent';
+      _sortBy = 'smart';
       _searchQuery = "";
     });
     fetchUsers(reset: true);
@@ -1076,6 +1367,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                           style: TextStyle(fontSize: 10, color: c.text),
                           dropdownColor: c.sidebar,
                           items: const [
+                            DropdownMenuItem(value: 'smart', child: Text('Smart')),
                             DropdownMenuItem(value: 'recent', child: Text('Recent')),
                             DropdownMenuItem(value: 'name', child: Text('Name')),
                             DropdownMenuItem(value: 'matches', child: Text('Matches')),
@@ -1228,12 +1520,19 @@ class _ChatSidebarState extends State<ChatSidebar> {
                           }
 
                           var user = _filteredUsers[index];
-                          bool isSelected = _selectedChat == user;
+                          final userId = user["id"].toString();
+                          // Use ID comparison — object-reference equality breaks after
+                          // _applyFilters() rebuilds _filteredUsers from _users.
+                          bool isSelected =
+                              _selectedChat?['id']?.toString() == userId;
+                          final isPinned = _pinnedUserIds.contains(userId);
 
-                          return _buildUserRow(
+                          return RepaintBoundary(
+                            key: ValueKey('chat_row_$userId'),
+                            child: _buildUserRow(
                             user["name"] ?? "",
-                            user["id"].toString(),
-                            conversationMap[user["id"].toString()]
+                            userId,
+                            conversationMap[userId]
                                     ?['lastMessagePreview'] ??
                                 _formatConversationPreview(
                                   rawMessage: user["chat_message"]?.toString() ?? "",
@@ -1244,19 +1543,26 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             user["is_online"] ?? false,
                             user["profile_picture"] ?? "",
                             isSelected,
-                            _unreadCounts[user["id"].toString()] ?? 0,
+                            _unreadCounts[userId] ?? 0,
                             _isUserVerified(user["is_verified"]),
                             user["gender"]?.toString() ?? "",
+                            isPinned,
+                            conversationMap[userId]?['lastTimestamp'] as DateTime?,
                             () {
                               setState(() {
                                 _selectedChat = user;
+                                // Clear the unread badge immediately so the indicator
+                                // disappears as soon as the admin taps the conversation,
+                                // before the server's mark_read response arrives.
+                                _unreadCounts[userId] = 0;
                                 _updateSelectedChat();
                               });
                               // Persist the selected user so the chat reopens to the same conversation.
-                              _saveLastSelectedUserId(user["id"].toString());
+                              _saveLastSelectedUserId(userId);
                               // Notify parent so mobile view can switch to chat panel.
                               widget.onUserTap?.call();
                             },
+                          ),
                           );
                         },
                       ),
@@ -1279,11 +1585,14 @@ class _ChatSidebarState extends State<ChatSidebar> {
     int unreadCount,
     bool isVerified,
     String gender,
+    bool isPinned,
+    DateTime? lastMessageTime,
     VoidCallback onTap,
   ) {
     final c = ChatColors.of(context);
 
     final bool hasUnread = unreadCount > 0;
+    final String timeLabel = _formatMessageTime(lastMessageTime);
 
     // Gender-based avatar background colour (shown when there is no photo).
     final Color avatarFallbackColor = gender.toLowerCase() == 'female'
@@ -1292,18 +1601,59 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
     return GestureDetector(
       onTap: onTap,
+      onLongPress: () {
+        // Capture the state before toggling so the message is unambiguous.
+        final wasPinned = _pinnedUserIds.contains(userId);
+        _togglePin(userId);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              wasPinned ? '$name unpinned' : '$name pinned to top',
+              style: const TextStyle(fontSize: 13),
+            ),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            width: 220,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          ),
+        );
+      },
       child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
         decoration: BoxDecoration(
           color: isSelected
               ? c.selectedRow
               : hasUnread
                   ? c.primaryLight
                   : c.sidebar,
-          border: isSelected
-              ? Border(left: BorderSide(color: c.primary, width: 3))
-              : hasUnread
-                  ? Border(left: BorderSide(color: c.primary, width: 3))
-                  : null,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? c.primary.withOpacity(0.45)
+                : hasUnread
+                    ? c.primary.withOpacity(0.25)
+                    : isPinned
+                        ? const Color(0xFFF59E0B).withOpacity(0.35)
+                        : Colors.transparent,
+            width: isSelected ? 1.5 : 1.0,
+          ),
+          boxShadow: isSelected || hasUnread
+              ? [
+                  BoxShadow(
+                    color: isSelected
+                        ? c.primary.withOpacity(0.10)
+                        : c.primary.withOpacity(0.06),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.04),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
         ),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         child: Row(
@@ -1351,75 +1701,140 @@ class _ChatSidebarState extends State<ChatSidebar> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Flexible(
-                        child: Text(
-                          name,
-                          style: TextStyle(
-                            fontWeight:
-                                hasUnread ? FontWeight.w700 : FontWeight.w600,
-                            fontSize: 13,
-                            color: isPaid ? c.primary : c.text,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                name,
+                                style: TextStyle(
+                                  fontWeight:
+                                      hasUnread ? FontWeight.w700 : FontWeight.w600,
+                                  fontSize: 13,
+                                  color: isPaid ? c.primary : c.text,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            if (isVerified) ...[
+                              const SizedBox(width: 3),
+                              const Icon(
+                                Icons.verified_rounded,
+                                size: 11,
+                                color: Color(0xFF10B981),
+                              ),
+                            ],
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: isPaid
+                                    ? const Color(0xFF7B61FF).withOpacity(0.12)
+                                    : Colors.grey.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: isPaid
+                                      ? const Color(0xFF7B61FF).withOpacity(0.5)
+                                      : Colors.grey.withOpacity(0.4),
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: Text(
+                                isPaid ? 'PAID' : 'FREE',
+                                style: TextStyle(
+                                  fontSize: 8,
+                                  fontWeight: FontWeight.w700,
+                                  color: isPaid
+                                      ? const Color(0xFF7B61FF)
+                                      : Colors.grey[600],
+                                  letterSpacing: 0.3,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      if (isVerified) ...[
-                        const SizedBox(width: 3),
-                        const Icon(
-                          Icons.verified_rounded,
-                          size: 11,
-                          color: Color(0xFF10B981),
-                        ),
-                      ],
+                      // Top-right: pin icon + time
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (isPinned) ...[
+                            const Icon(
+                              Icons.push_pin,
+                              size: 10,
+                              color: Color(0xFFF59E0B),
+                            ),
+                            const SizedBox(width: 3),
+                          ],
+                          if (timeLabel.isNotEmpty)
+                            Text(
+                              timeLabel,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: hasUnread ? c.primary : c.muted,
+                                fontWeight: hasUnread ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                        ],
+                      ),
                     ],
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    isOnline ? "Online" : lastSeen,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: isOnline ? c.online : c.muted,
-                    ),
-                  ),
-                  if (chatMessage.isNotEmpty)
-                    Text(
-                      chatMessage,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: hasUnread ? c.text : c.muted,
-                        fontWeight: hasUnread
-                            ? FontWeight.w600
-                            : FontWeight.normal,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isOnline ? "Online" : lastSeen,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: isOnline ? c.online : c.muted,
+                              ),
+                            ),
+                            if (chatMessage.isNotEmpty)
+                              Text(
+                                chatMessage,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: hasUnread ? c.text : c.muted,
+                                  fontWeight: hasUnread
+                                      ? FontWeight.w600
+                                      : FontWeight.normal,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                          ],
+                        ),
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                      // Bottom-right: unread badge
+                      if (hasUnread)
+                        Container(
+                          constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: c.primary,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            unreadCount > _maxUnreadBadge ? '$_maxUnreadBadge+' : '$unreadCount',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
-
-            // Right column: WhatsApp-style unread message count badge
-            if (hasUnread)
-              Container(
-                constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(
-                  color: c.primary,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  unreadCount > _maxUnreadBadge ? '$_maxUnreadBadge+' : '$unreadCount',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
           ],
         ),
       ),

@@ -35,6 +35,7 @@ class SocketService {
   final _messageEditedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageDeletedCtrl =
       StreamController<Map<String, dynamic>>.broadcast();
+  final _messageUnsentCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageLikedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageReactionCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _typingStartCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -74,6 +75,7 @@ class SocketService {
   Stream<Map<String, dynamic>> get onMessageEdited => _messageEditedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageDeleted =>
       _messageDeletedCtrl.stream;
+  Stream<Map<String, dynamic>> get onMessageUnsent => _messageUnsentCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageLiked => _messageLikedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageReaction => _messageReactionCtrl.stream;
   Stream<Map<String, dynamic>> get onTypingStart => _typingStartCtrl.stream;
@@ -177,6 +179,10 @@ class SocketService {
 
     _socket!.on('message_deleted', (data) {
       _messageDeletedCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('message_unsent', (data) {
+      _messageUnsentCtrl.add(_toMap(data));
     });
 
     _socket!.on('message_liked', (data) {

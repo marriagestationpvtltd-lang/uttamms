@@ -13,7 +13,7 @@ import 'package:adminmrz/config/app_endpoints.dart';
 // ─────────────────────────────────────────────────────────────────────────────
 //  Static design tokens (same in both modes)
 // ─────────────────────────────────────────────────────────────────────────────
-const _kPrimary = Color(0xFFD81B60);
+const _kPrimary = Color(0xFF7B61FF);
 const _kOnline  = Color(0xFF22C55E);
 
 const _kPaginationScrollThreshold = 200.0;
@@ -1105,7 +1105,7 @@ class _ProfileSidebarState extends State<ProfileSidebar> {
                     horizontal: 20, vertical: 10),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
-                    colors: [Color(0xFFD81B60), Color(0xFFAD1457)],
+                    colors: [Color(0xFF7B61FF), Color(0xFF5B41CF)],
                   ),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [

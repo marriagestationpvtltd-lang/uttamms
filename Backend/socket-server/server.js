@@ -17,6 +17,11 @@ const { v4: uuidv4 } = require('uuid');
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
+// Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
+// Recommended for production so image URLs are always correct regardless of
+// how reverse-proxy headers are forwarded.
+// Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
+const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 // Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
@@ -235,6 +240,9 @@ const messageQueue = [];
 // Express + Socket.IO setup
 // ──────────────────────────────────────────────────────────────────────────────
 const app    = express();
+// Trust reverse-proxy headers (X-Forwarded-Proto, X-Forwarded-For) so that
+// req.protocol returns 'https' when running behind nginx/Apache.
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -268,12 +276,53 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB
 
+// Allowed MIME types per upload category
+const ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+]);
+const ALLOWED_VOICE_MIMES = new Set([
+  'audio/mpeg', 'audio/mp4', 'audio/webm', 'audio/ogg', 'audio/wav', 'audio/aac',
+  'audio/x-m4a', 'application/octet-stream',
+]);
+
+/** Build a public URL for an uploaded file.
+ *  When PUBLIC_URL is set in the environment it is used as the base, giving
+ *  operators an explicit override that is immune to proxy-header variations.
+ *  Otherwise the URL is derived from the incoming request (req.protocol is
+ *  correct because trust proxy is enabled, so nginx's X-Forwarded-Proto is
+ *  respected).
+ */
+function buildFileUrl(req, subDir, filename) {
+  const base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  return `${base}/uploads/${subDir}/${filename}`;
+}
+
 // POST /upload?type=image|voice
 app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const subDir = req.query.type === 'voice' ? 'voice_messages' : 'chat_images';
-  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${subDir}/${req.file.filename}`;
-  res.json({ url: fileUrl });
+  const isVoice = req.query.type === 'voice';
+  const subDir = isVoice ? 'voice_messages' : 'chat_images';
+  const allowed = isVoice ? ALLOWED_VOICE_MIMES : ALLOWED_IMAGE_MIMES;
+  if (!allowed.has(req.file.mimetype)) {
+    return res.status(400).json({ error: 'File type not allowed' });
+  }
+  res.json({ url: buildFileUrl(req, subDir, req.file.filename) });
+});
+
+// POST /upload-multiple?type=image
+// Accepts up to 10 image files under the field name 'files' and returns
+// an array of public URLs so the admin can send image_gallery messages.
+app.post('/upload-multiple', upload.array('files', 10), (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: 'No files uploaded' });
+  }
+  const subDir = 'chat_images';
+  const invalidFile = req.files.find(f => !ALLOWED_IMAGE_MIMES.has(f.mimetype));
+  if (invalidFile) {
+    return res.status(400).json({ error: 'One or more files have a disallowed type' });
+  }
+  const urls = req.files.map(f => buildFileUrl(req, subDir, f.filename));
+  res.json({ urls });
 });
 
 // GET /health
@@ -1082,6 +1131,25 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ── payment_updated ───────────────────────────────────────────────────────
+  // Emitted by the payment handler (PHP webhook or admin panel) to notify the
+  // admin chat list that a user's payment/subscription status has changed.
+  // Payload: { userId, usertype, is_paid }
+  // The event is broadcast to admin_room so all admin sessions update instantly.
+  socket.on('payment_updated', (data) => {
+    const { userId, usertype = '', is_paid = false } = data || {};
+    if (!userId) return;
+
+    const payload = {
+      userId:   userId.toString(),
+      usertype: usertype,
+      is_paid:  Boolean(is_paid),
+      timestamp: new Date().toISOString(),
+    };
+    console.log(`💳 payment_updated: userId=${userId} usertype=${usertype} is_paid=${is_paid}`);
+    io.to('admin_room').emit('payment_updated', payload);
+  });
+
   // ── set_active_chat ───────────────────────────────────────────────────────
   socket.on('set_active_chat', async ({ userId, chatRoomId, isActive }) => {
     const uid = (userId || authenticatedUserId || '').toString();
@@ -1155,6 +1223,10 @@ io.on('connection', (socket) => {
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
     io.to(chatRoomId).emit('new_message', clientMsg);
+    // Also emit to each participant's personal room so their chat-list screen
+    // receives the event instantly even when they have not joined the chat room.
+    io.to(`user:${senderId}`).emit('new_message', clientMsg);
+    io.to(`user:${receiverId}`).emit('new_message', clientMsg);
 
     // ── Real-time admin monitoring ────────────────────────────────────────
     // Emit a dedicated send_message event to admin_room for ALL message types
@@ -1493,6 +1565,11 @@ io.on('connection', (socket) => {
       }
     } else if (userSockets.has(recipientIdStr)) {
       // Recipient is online — deliver the call and confirm ringing to caller.
+      // Mark non-admin callers as busy from the moment the call starts (not just
+      // after acceptance), so that concurrent callers see the correct busy state.
+      if (callerIdStr && callerIdStr !== '1' && channelName) {
+        activeCallUsers.set(callerIdStr, channelName);
+      }
       io.to(`user:${recipientIdStr}`).emit('incoming_call', callPayload);
       if (callerIdStr) {
         io.to(`user:${callerIdStr}`).emit('call_ringing', {
@@ -1504,6 +1581,10 @@ io.on('connection', (socket) => {
     } else {
       // Recipient is offline — notify the caller immediately so they can show
       // an appropriate message (FCM push has already been sent by the client).
+      // Still mark non-admin callers as busy while the call is pending (FCM path).
+      if (callerIdStr && callerIdStr !== '1' && channelName) {
+        activeCallUsers.set(callerIdStr, channelName);
+      }
       if (callerIdStr) {
         io.to(`user:${callerIdStr}`).emit('call_user_offline', {
           channelName:  channelName,
@@ -1563,6 +1644,8 @@ io.on('connection', (socket) => {
     const { callerId, ...rest } = data || {};
     if (!callerId) return;
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
+    // Clear the caller's busy state — the call never connected.
+    activeCallUsers.delete(callerId.toString());
     io.to(`user:${callerId.toString()}`).emit('call_rejected', {
       ...rest,
       callerId: callerId.toString(),
@@ -1572,9 +1655,11 @@ io.on('connection', (socket) => {
   // ── call_cancel ───────────────────────────────────────────────────────────
   // Caller emits this when they cancel before the recipient answers.
   socket.on('call_cancel', (data) => {
-    const { recipientId, ...rest } = data || {};
+    const { recipientId, callerId, ...rest } = data || {};
     if (!recipientId) return;
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
+    // Clear the caller's busy state — the call was cancelled before connecting.
+    if (callerId) activeCallUsers.delete(callerId.toString());
     io.to(`user:${recipientId.toString()}`).emit('call_cancelled', {
       ...rest,
       recipientId: recipientId.toString(),
