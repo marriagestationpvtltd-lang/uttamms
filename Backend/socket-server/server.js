@@ -269,34 +269,50 @@ app.use('/uploads', express.static(UPLOAD_DIR));
 // a message emitted by worker A is automatically delivered to sockets connected
 // to workers B, C, D, etc.
 // ──────────────────────────────────────────────────────────────────────────────
-if (REDIS_ENABLED) {
+// Redis adapter (multi-instance / cluster mode)
+// Enabled when REDIS_ENABLED=true (the default).
+// When running multiple PM2 workers via ecosystem.config.js, the Redis adapter
+// synchronises Socket.IO rooms and events across all worker processes so that
+// a message emitted by worker A is automatically delivered to sockets connected
+// to workers B, C, D, etc.
+// The server only begins accepting connections after the Redis adapter is ready
+// (or after a failed connection attempt, in which case it falls back to
+// single-instance mode with a warning).
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Connects the Redis adapter and returns a cleanup function.
+ * Resolves (with or without an adapter) so the server can always start.
+ */
+async function setupRedisAdapter() {
+  if (!REDIS_ENABLED) {
+    console.log('ℹ️  Redis adapter disabled (REDIS_ENABLED=false) — single-instance mode');
+    return;
+  }
+
   const redisOpts = {
-    host:            REDIS_HOST,
-    port:            REDIS_PORT,
-    password:        REDIS_PASSWORD,
+    host:             REDIS_HOST,
+    port:             REDIS_PORT,
+    password:         REDIS_PASSWORD,
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
-    lazyConnect:     true,
+    lazyConnect:      true,
   };
 
   const pubClient = new Redis(redisOpts);
   const subClient = pubClient.duplicate();
 
-  // Connect both clients before attaching the adapter.
-  Promise.all([pubClient.connect(), subClient.connect()])
-    .then(() => {
-      io.adapter(createAdapter(pubClient, subClient));
-      console.log(`✅ Socket.IO Redis adapter connected (${REDIS_HOST}:${REDIS_PORT})`);
-    })
-    .catch(err => {
-      console.error('❌ Redis adapter connection failed:', err.message);
-      console.warn('⚠️  Running without Redis adapter — multi-instance state will NOT be shared');
-    });
+  pubClient.on('error', err => console.error('Redis publish client error:', err.message));
+  subClient.on('error', err => console.error('Redis subscribe client error:', err.message));
 
-  pubClient.on('error', err => console.error('Redis pub error:', err.message));
-  subClient.on('error', err => console.error('Redis sub error:', err.message));
-} else {
-  console.log('ℹ️  Redis adapter disabled (REDIS_ENABLED=false) — single-instance mode');
+  try {
+    await Promise.all([pubClient.connect(), subClient.connect()]);
+    io.adapter(createAdapter(pubClient, subClient));
+    console.log(`✅ Socket.IO Redis adapter connected (${REDIS_HOST}:${REDIS_PORT})`);
+  } catch (err) {
+    console.error('❌ Redis adapter connection failed:', err.message);
+    console.warn('⚠️  Running without Redis adapter — multi-instance state will NOT be shared');
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1937,6 +1953,11 @@ setInterval(() => {
 }, MONITOR_INTERVAL);
 
 // ──────────────────────────────────────────────────────────────────────────────
-server.listen(PORT, () => {
-  console.log(`🚀 Socket.IO server running on port ${PORT}`);
+// Start server — Redis adapter is initialised before accepting connections so
+// that all Socket.IO rooms are already shared across PM2 workers on first connect.
+// ──────────────────────────────────────────────────────────────────────────────
+setupRedisAdapter().then(() => {
+  server.listen(PORT, () => {
+    console.log(`🚀 Socket.IO server running on port ${PORT}`);
+  });
 });
