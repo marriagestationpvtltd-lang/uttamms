@@ -1770,7 +1770,8 @@ class _ChatWindowState extends State<ChatWindow> {
   }
 
   bool _canMutateMessage(Map<String, dynamic> data, bool isSentByMe) {
-    return isSentByMe && data['deleted'] != true && data['unsent'] != true;
+    // Admin can delete/unsend any message (not just their own).
+    return data['deleted'] != true && data['unsent'] != true;
   }
 
   Future<void> _syncReplySnapshots(
@@ -3635,6 +3636,7 @@ class _ChatWindowState extends State<ChatWindow> {
         messageId: messageId,
         replyPayload: replyPayload,
         onForward: () => _forwardImage(imageUrl, 'image'),
+        onCopy: () => _copyToClipboard(imageUrl),
       );
     }
 
@@ -3685,6 +3687,7 @@ class _ChatWindowState extends State<ChatWindow> {
         messageId: messageId,
         replyPayload: replyPayload,
         onForward: () => _forwardImage(message, 'image_gallery'),
+        onCopy: () => _copyToClipboard(galleryUrls.join('\n')),
       );
     }
 
@@ -4687,6 +4690,7 @@ class _ChatWindowState extends State<ChatWindow> {
       canMutate: canMutate,
       messageId: messageId,
       replyPayload: replyPayload,
+      onCopy: (deleted || unsent) ? null : () => _copyToClipboard(message),
     );
   }
 
@@ -4698,6 +4702,7 @@ class _ChatWindowState extends State<ChatWindow> {
     required String? messageId,
     required Map<String, dynamic>? replyPayload,
     VoidCallback? onForward,
+    VoidCallback? onCopy,
   }) {
     if (messageId == null || replyPayload == null) {
       return Align(
@@ -4724,6 +4729,7 @@ class _ChatWindowState extends State<ChatWindow> {
       onDelete: canMutate ? () => _deleteMessage(messageId) : null,
       onUnsend: canMutate ? () => _unsendMessage(messageId) : null,
       onForward: onForward,
+      onCopy: onCopy,
     );
   }
 
@@ -6210,6 +6216,12 @@ class _ChatWindowState extends State<ChatWindow> {
         ? replyPayload['imageUrl']?.toString()
         : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
     final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
+    // Determine copyable text: image URL for images, message text for text messages
+    final String? copyText = isImageMsg
+        ? imagePayload
+        : ((msgType == null || msgType == 'text') ? replyPayload['message']?.toString() : null);
+    final bool canCopy = copyText != null && copyText.isNotEmpty &&
+        replyPayload['deleted'] != true && replyPayload['unsent'] != true;
 
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final String currentRoomId =
@@ -6357,6 +6369,16 @@ class _ChatWindowState extends State<ChatWindow> {
                               _forwardImage(imagePayload!, msgType ?? 'image');
                             },
                           ),
+                        if (canCopy)
+                          _adminOverlayMenuItem(
+                            Icons.copy_rounded,
+                            "Copy",
+                            const Color(0xFF475569),
+                            () {
+                              if (mounted) setState(() => _showMsgActionOverlay = false);
+                              _copyToClipboard(copyText!);
+                            },
+                          ),
                         if (_overlayIsSentByMe && _overlayCanEdit)
                           _adminOverlayMenuItem(
                             Icons.edit,
@@ -6368,7 +6390,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                   messageId, replyPayload['message']?.toString() ?? '');
                             },
                           ),
-                        if (_overlayIsSentByMe && _overlayCanMutate) ...[
+                        if (_overlayCanMutate) ...[
                           _adminOverlayMenuItem(
                             Icons.delete,
                             "Delete",
@@ -6431,6 +6453,12 @@ class _ChatWindowState extends State<ChatWindow> {
         ? replyPayload['imageUrl']?.toString()
         : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
     final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
+    // Determine copyable text: image URL for images, message text for text messages
+    final String? copyText = isImageMsg
+        ? imagePayload
+        : ((msgType == null || msgType == 'text') ? replyPayload['message']?.toString() : null);
+    final bool canCopy = copyText != null && copyText.isNotEmpty &&
+        replyPayload['deleted'] != true && replyPayload['unsent'] != true;
 
     // Get the current chat room ID
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -6514,6 +6542,15 @@ class _ChatWindowState extends State<ChatWindow> {
                   _forwardImage(imagePayload!, msgType ?? 'image');
                 },
               ),
+            if (canCopy)
+              ListTile(
+                leading: const Icon(Icons.copy_rounded, size: 20, color: Color(0xFF475569)),
+                title: Text(isImageMsg ? "Copy Link" : "Copy", style: const TextStyle(fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _copyToClipboard(copyText!);
+                },
+              ),
             if (isSentByMe && canEdit) ...[
               ListTile(
                 leading: const Icon(Icons.edit, size: 20, color: Color(0xFF0EA5E9)),
@@ -6524,7 +6561,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 },
               ),
             ],
-            if (isSentByMe && canMutate) ...[
+            if (canMutate) ...[
               ListTile(
                 leading: const Icon(Icons.delete, size: 20, color: Color(0xFFEF4444)),
                 title: const Text("Delete", style: TextStyle(fontSize: 14)),
@@ -6559,6 +6596,18 @@ class _ChatWindowState extends State<ChatWindow> {
     String senderName,
   ) {
     _startReply(messageId, originalMessage, senderid, senderName);
+  }
+
+  void _copyToClipboard(String text) {
+    Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Copied to clipboard'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
   }
 
   void _deleteMessage(String messageId) {
@@ -6931,6 +6980,7 @@ class _HoverableMessageBubble extends StatefulWidget {
     this.onDelete,
     this.onUnsend,
     this.onForward,
+    this.onCopy,
     this.canEdit = false,
     this.canDelete = false,
     this.canUnsend = false,
@@ -6943,6 +6993,7 @@ class _HoverableMessageBubble extends StatefulWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onUnsend;
   final VoidCallback? onForward;
+  final VoidCallback? onCopy;
   final bool canEdit;
   final bool canDelete;
   final bool canUnsend;
@@ -6991,6 +7042,7 @@ class _HoverableMessageBubbleState extends State<_HoverableMessageBubble>
       onDelete: widget.onDelete,
       onUnsend: widget.onUnsend,
       onForward: widget.onForward,
+      onCopy: widget.onCopy,
       canEdit: widget.canEdit,
       canDelete: widget.canDelete,
       canUnsend: widget.canUnsend,
@@ -7035,6 +7087,7 @@ class _MessageActionMenu extends StatelessWidget {
     this.onDelete,
     this.onUnsend,
     this.onForward,
+    this.onCopy,
     this.canEdit = false,
     this.canDelete = false,
     this.canUnsend = false,
@@ -7045,6 +7098,7 @@ class _MessageActionMenu extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onUnsend;
   final VoidCallback? onForward;
+  final VoidCallback? onCopy;
   final bool canEdit;
   final bool canDelete;
   final bool canUnsend;
@@ -7084,10 +7138,15 @@ class _MessageActionMenu extends StatelessWidget {
           case _MsgAction.forward:
             onForward?.call();
             break;
+          case _MsgAction.copy:
+            onCopy?.call();
+            break;
         }
       },
       itemBuilder: (context) => [
         _menuItem(_MsgAction.reply, Icons.reply_rounded, 'Reply', kPrimary),
+        if (onCopy != null)
+          _menuItem(_MsgAction.copy, Icons.copy_rounded, 'Copy', const Color(0xFF475569)),
         if (onForward != null)
           _menuItem(_MsgAction.forward, Icons.forward_rounded, 'Forward', const Color(0xFF10B981)),
         if (canEdit)
@@ -7120,7 +7179,7 @@ class _MessageActionMenu extends StatelessWidget {
   }
 }
 
-enum _MsgAction { reply, edit, delete, unsend, forward }
+enum _MsgAction { reply, edit, delete, unsend, forward, copy }
 
 // ---------------------------------------------------------------------------
 // Data class grouping chat messages by calendar date.
