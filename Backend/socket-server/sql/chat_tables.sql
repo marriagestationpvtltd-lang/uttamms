@@ -102,3 +102,26 @@ CREATE TABLE IF NOT EXISTS `call_history` (
   INDEX `idx_recipient`  (`recipient_id`),
   INDEX `idx_start_time` (`start_time`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- user_chat_rooms junction table
+-- Replaces the slow JSON_CONTAINS(participants, ?) in getChatRooms queries with
+-- a standard indexed B-tree join for much faster room lookups at scale.
+-- Back-fill from existing chat_rooms is performed by the server startup migration.
+-- ──────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS `user_chat_rooms` (
+  `user_id`      VARCHAR(50)  NOT NULL,
+  `chat_room_id` VARCHAR(150) NOT NULL,
+  PRIMARY KEY (`user_id`, `chat_room_id`),
+  INDEX `idx_ucr_user` (`user_id`),
+  INDEX `idx_ucr_room` (`chat_room_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Back-fill junction table from chat_rooms (idempotent via INSERT IGNORE).
+INSERT IGNORE INTO `user_chat_rooms` (`user_id`, `chat_room_id`)
+SELECT JSON_UNQUOTE(JSON_EXTRACT(participants, '$[0]')), id
+  FROM `chat_rooms` WHERE participants IS NOT NULL AND JSON_LENGTH(participants) >= 1
+UNION ALL
+SELECT JSON_UNQUOTE(JSON_EXTRACT(participants, '$[1]')), id
+  FROM `chat_rooms` WHERE participants IS NOT NULL AND JSON_LENGTH(participants) >= 2;
+

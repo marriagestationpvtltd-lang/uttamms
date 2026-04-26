@@ -60,6 +60,9 @@ class _ChatSidebarState extends State<ChatSidebar> {
   StreamSubscription<Map<String, dynamic>>? _statusSub;
   StreamSubscription<Map<String, dynamic>>? _paymentSub;
   StreamSubscription<bool>? _connectionSub;
+  // Listens to lightweight unread_reset events to update badges without
+  // reloading the full room list.
+  StreamSubscription<Map<String, dynamic>>? _unreadResetSub;
 
   // Tracks the last known message timestamp per conversation so we can
   // detect truly NEW incoming messages (from users, not the admin).
@@ -120,6 +123,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
     _statusSub?.cancel();
     _paymentSub?.cancel();
     _connectionSub?.cancel();
+    _unreadResetSub?.cancel();
     _scrollController.dispose();
     _searchDebounce?.cancel();
     _lastSeenRefreshTimer?.cancel();
@@ -441,6 +445,26 @@ class _ChatSidebarState extends State<ChatSidebar> {
         chatProvider.updatePaidStatus(isPaid);
       }
       _applyFilters();
+    });
+
+    // Lightweight unread badge reset — server emits this after mark_read so we
+    // can zero the badge for the affected room without reloading all rooms.
+    _unreadResetSub?.cancel();
+    _unreadResetSub = _socketService.onUnreadReset.listen((data) {
+      if (!mounted) return;
+      final roomId = data['chatRoomId']?.toString() ?? '';
+      if (roomId.isEmpty) return;
+      // Find the user whose room matches and reset their unread count.
+      final idx = _users.indexWhere((u) {
+        final uid = u['id']?.toString() ?? '';
+        return AdminSocketService.chatRoomId(uid) == roomId;
+      });
+      if (idx == -1) return;
+      final userId = _users[idx]['id']?.toString() ?? '';
+      if (!mounted) return;
+      setState(() {
+        _unreadCounts[userId] = 0;
+      });
     });
   }
 
