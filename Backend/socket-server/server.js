@@ -276,6 +276,20 @@ app.post('/upload', upload.single('file'), (req, res) => {
   res.json({ url: fileUrl });
 });
 
+// POST /upload-multiple?type=image
+// Accepts up to 10 image files under the field name 'files[]' and returns
+// an array of public URLs so the admin can send image_gallery messages.
+app.post('/upload-multiple', upload.array('files', 10), (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: 'No files uploaded' });
+  }
+  const subDir = 'chat_images';
+  const urls = req.files.map(f =>
+    `${req.protocol}://${req.get('host')}/uploads/${subDir}/${f.filename}`
+  );
+  res.json({ urls });
+});
+
 // GET /health
 app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date() }));
 

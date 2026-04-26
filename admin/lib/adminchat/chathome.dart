@@ -79,8 +79,7 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _isSearching = false;
   bool _showMatchInfo = false;
   bool _isHorizontalDragging = false;
-  File? _selectedImage;
-  Uint8List? _selectedImageBytes;
+  List<PlatformFile> _selectedImages = [];
   js.JsObject? _webSpeechRecognition;
   FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final ScrollController _scrollController = ScrollController();
@@ -5626,46 +5625,92 @@ class _ChatWindowState extends State<ChatWindow> {
           // ── Inline reply / edit banner ──────────────────────────────────
           if (_replyingTo != null || _editingMessageId != null)
             _buildActionBanner(colors),
-          if (_selectedImage != null || _selectedImageBytes != null)
+          if (_selectedImages.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    height: 80,
-                    width: 80,
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(8),
-                      image: DecorationImage(
-                        image: kIsWeb
-                            ? MemoryImage(_selectedImageBytes!) as ImageProvider
-                            : FileImage(_selectedImage!),
-                        fit: BoxFit.cover,
+                  SizedBox(
+                    height: 88,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _selectedImages.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      itemBuilder: (context, index) {
+                        final file = _selectedImages[index];
+                        ImageProvider? imgProvider;
+                        if (kIsWeb && file.bytes != null) {
+                          imgProvider = MemoryImage(file.bytes!);
+                        } else if (!kIsWeb && file.path != null) {
+                          imgProvider = FileImage(File(file.path!));
+                        }
+                        return Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            Container(
+                              height: 80,
+                              width: 80,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: colors.border,
+                                image: imgProvider != null
+                                    ? DecorationImage(image: imgProvider, fit: BoxFit.cover)
+                                    : null,
+                              ),
+                              child: imgProvider == null
+                                  ? Icon(Icons.image, color: colors.muted, size: 32)
+                                  : null,
+                            ),
+                            Positioned(
+                              top: -4,
+                              right: -4,
+                              child: GestureDetector(
+                                onTap: () => setState(() {
+                                  _selectedImages = List<PlatformFile>.from(_selectedImages)..removeAt(index);
+                                }),
+                                child: Container(
+                                  width: 20,
+                                  height: 20,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.red,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close, color: Colors.white, size: 14),
+                                ),
+                              ),
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      ElevatedButton(
+                        onPressed: _sendImageMessage,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kPrimary,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                        ),
+                        child: Text(
+                          _selectedImages.length == 1
+                              ? 'Send Photo'
+                              : 'Send ${_selectedImages.length} Photos',
+                          style: const TextStyle(fontSize: 13),
+                        ),
                       ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _sendImageMessage,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: kPrimary,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    ),
-                    child: const Text("Send", style: TextStyle(fontSize: 13)),
-                  ),
-                  const SizedBox(width: 8),
-                  IconButton(
-                    icon: Icon(Icons.close, color: colors.muted, size: 18),
-                    onPressed: () {
-                      setState(() {
-                        _selectedImage = null;
-                        _selectedImageBytes = null;
-                      });
-                    },
-                    constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-                    padding: EdgeInsets.zero,
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(Icons.close, color: colors.muted, size: 18),
+                        onPressed: () => setState(() => _selectedImages = []),
+                        constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                        padding: EdgeInsets.zero,
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -5877,23 +5922,12 @@ class _ChatWindowState extends State<ChatWindow> {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.image,
-        allowMultiple: false,
+        allowMultiple: true,
       );
-      if (result != null) {
-        if (kIsWeb) {
-          setState(() {
-            _selectedImageBytes = result.files.single.bytes;
-            _selectedImage = null;
-          });
-        } else {
-          if (result.files.single.path != null) {
-            setState(() {
-              _selectedImage = File(result.files.single.path!);
-              _selectedImageBytes = null;
-            });
-          }
-        }
-      } else {
+      if (result != null && result.files.isNotEmpty) {
+        setState(() {
+          _selectedImages = result.files;
+        });
       }
     } catch (e) {
       if (!mounted) return;
@@ -5906,61 +5940,91 @@ class _ChatWindowState extends State<ChatWindow> {
   void _sendImageMessage() {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
 
-    if (_selectedImage == null && _selectedImageBytes == null) return;
+    if (_selectedImages.isEmpty) return;
 
-    // Capture data and clear UI immediately (background processing)
-    final File? imageToSend = _selectedImage;
-    final Uint8List? imageBytesToSend = _selectedImageBytes;
+    // Capture and clear immediately so UI resets right away
+    final List<PlatformFile> imagesToSend = List<PlatformFile>.from(_selectedImages);
     final String receiverId = chatProvider.id.toString();
 
     setState(() {
-      _selectedImage = null;
-      _selectedImageBytes = null;
+      _selectedImages = [];
     });
 
     // Upload and send in background without blocking the UI
-    _uploadImageInBackground(imageToSend, imageBytesToSend, receiverId);
+    _uploadImagesInBackground(imagesToSend, receiverId);
   }
 
-  Future<void> _uploadImageInBackground(
-    File? image,
-    Uint8List? imageBytes,
+  Future<void> _uploadImagesInBackground(
+    List<PlatformFile> images,
     String receiverId,
   ) async {
     try {
       final connected = await _socketService.ensureConnected();
       if (!connected) throw Exception('Socket not connected');
-      final imageUrl = await _uploadChatImage(
-        image: image,
-        imageBytes: imageBytes,
-      );
+
+      // Upload all images, collecting URLs
+      final List<String> urls = [];
+      for (final file in images) {
+        final url = await _uploadChatImage(
+          image: (!kIsWeb && file.path != null) ? File(file.path!) : null,
+          imageBytes: kIsWeb ? file.bytes : null,
+          fileName: file.name,
+        );
+        urls.add(url);
+      }
 
       if (!mounted) return;
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-      _socketService.sendMessage(
-        chatRoomId: AdminSocketService.chatRoomId(receiverId),
-        receiverId: receiverId,
-        message: imageUrl,
-        messageType: 'image',
-        messageId: 'image_${DateTime.now().millisecondsSinceEpoch}_$senderId',
-        receiverName: chatProvider.namee,
-        receiverImage: chatProvider.profilePicture,
-      );
 
-      await NotificationService.sendChatNotification(
-        recipientUserId: receiverId,
-        senderName: "Admin",
-        senderId: '1',
-        message: '📷 Photo',
-        extraData: {
-          'chatId': receiverId,
-          'screen': 'chat',
-        },
-      );
+      if (urls.length == 1) {
+        // Single image — use existing 'image' type for backward compatibility
+        _socketService.sendMessage(
+          chatRoomId: AdminSocketService.chatRoomId(receiverId),
+          receiverId: receiverId,
+          message: urls.first,
+          messageType: 'image',
+          messageId: 'image_${DateTime.now().millisecondsSinceEpoch}_$senderId',
+          receiverName: chatProvider.namee,
+          receiverImage: chatProvider.profilePicture,
+        );
+
+        await NotificationService.sendChatNotification(
+          recipientUserId: receiverId,
+          senderName: "Admin",
+          senderId: '1',
+          message: '📷 Photo',
+          extraData: {
+            'chatId': receiverId,
+            'screen': 'chat',
+          },
+        );
+      } else {
+        // Multiple images — use 'image_gallery' type with JSON array
+        _socketService.sendMessage(
+          chatRoomId: AdminSocketService.chatRoomId(receiverId),
+          receiverId: receiverId,
+          message: jsonEncode(urls),
+          messageType: 'image_gallery',
+          messageId: 'gallery_${DateTime.now().millisecondsSinceEpoch}_$senderId',
+          receiverName: chatProvider.namee,
+          receiverImage: chatProvider.profilePicture,
+        );
+
+        await NotificationService.sendChatNotification(
+          recipientUserId: receiverId,
+          senderName: "Admin",
+          senderId: '1',
+          message: '📷 ${urls.length} Photos',
+          extraData: {
+            'chatId': receiverId,
+            'screen': 'chat',
+          },
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Failed to send image: $e")));
+            .showSnackBar(SnackBar(content: Text("Failed to send image(s): $e")));
       }
     }
   }
@@ -5968,6 +6032,7 @@ class _ChatWindowState extends State<ChatWindow> {
   Future<String> _uploadChatImage({
     File? image,
     Uint8List? imageBytes,
+    String? fileName,
   }) async {
     final request = http.MultipartRequest(
       'POST',
@@ -5985,7 +6050,7 @@ class _ChatWindowState extends State<ChatWindow> {
         http.MultipartFile.fromBytes(
           'file',
           imageBytes,
-          filename: 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          filename: fileName ?? 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
         ),
       );
     } else {
