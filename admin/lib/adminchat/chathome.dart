@@ -3599,21 +3599,26 @@ class _ChatWindowState extends State<ChatWindow> {
                     child: CachedNetworkImage(
                       imageUrl: imageUrl,
                       width: MediaQuery.of(context).size.width * 0.24,
+                      height: MediaQuery.of(context).size.width * 0.24,
                       memCacheWidth: (MediaQuery.of(context).size.width * 0.24).toInt(),
+                      memCacheHeight: (MediaQuery.of(context).size.width * 0.24).toInt(),
                       fit: BoxFit.cover,
-                      placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: kPrimary)),
-                      errorWidget: (context, url, error) {
-                        return Column(
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey.shade200,
+                        child: const Center(child: CircularProgressIndicator(color: kPrimary, strokeWidth: 2)),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey.shade200,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text('Error loading image'),
-                            Text('Details: $error', style: const TextStyle(fontSize: 10)),
-                            ElevatedButton(
-                              onPressed: () => setState(() {}),
-                              child: const Text("Retry"),
-                            ),
+                            Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 32),
+                            const SizedBox(height: 6),
+                            Text('File not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
                           ],
-                        );
-                      },
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -4834,12 +4839,28 @@ class _ChatWindowState extends State<ChatWindow> {
                       imageUrl: imageUrl!,
                       width: 50,
                       height: 54,
+                      memCacheWidth: 50,
+                      memCacheHeight: 54,
                       fit: BoxFit.cover,
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (_, __) => Container(
+                        width: 50,
+                        height: 54,
+                        color: Colors.grey.shade200,
+                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
                       errorWidget: (_, __, ___) => Container(
                         width: 50,
                         height: 54,
-                        color: Colors.grey.shade300,
-                        child: Icon(Icons.image, color: Colors.grey.shade500, size: 24),
+                        color: Colors.grey.shade200,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 18),
+                            const SizedBox(height: 2),
+                            Text('Not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 8)),
+                          ],
+                        ),
                       ),
                     ),
                   )
@@ -4876,13 +4897,23 @@ class _ChatWindowState extends State<ChatWindow> {
       Widget img = CachedNetworkImage(
         imageUrl: url,
         fit: BoxFit.cover,
+        memCacheWidth: gridWidth.toInt(),
+        memCacheHeight: gridWidth.toInt(),
+        fadeInDuration: const Duration(milliseconds: 150),
         placeholder: (ctx, url) => Container(
           color: Colors.grey.shade200,
           child: const Center(child: CircularProgressIndicator(color: adminPrimary, strokeWidth: 2)),
         ),
         errorWidget: (_, __, ___) => Container(
-          color: Colors.grey.shade300,
-          child: Icon(Icons.broken_image, color: Colors.grey.shade500),
+          color: Colors.grey.shade200,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 28),
+              const SizedBox(height: 4),
+              Text('File not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+            ],
+          ),
         ),
       );
       return GestureDetector(
@@ -7554,10 +7585,17 @@ class _ZoomablePageImageState extends State<_ZoomablePageImage> {
         child: CachedNetworkImage(
           imageUrl: widget.url,
           fit: BoxFit.contain,
-          errorWidget: (_, __, ___) => const Icon(
-            Icons.broken_image,
-            color: Colors.white54,
-            size: 64,
+          fadeInDuration: const Duration(milliseconds: 150),
+          placeholder: (_, __) => const Center(
+            child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
+          ),
+          errorWidget: (_, __, ___) => Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: const [
+              Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
+              SizedBox(height: 8),
+              Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
+            ],
           ),
         ),
       ),
@@ -7769,10 +7807,23 @@ class _AdminUserProfileSheet extends StatelessWidget {
                               CachedNetworkImage(
                                 imageUrl: sharedPhotos[i].url,
                                 fit: BoxFit.cover,
-                                errorWidget: (_, __, ___) => const Icon(
-                                  Icons.photo,
-                                  color: Colors.grey,
-                                  size: 30,
+                                memCacheWidth: 80,
+                                memCacheHeight: 80,
+                                fadeInDuration: const Duration(milliseconds: 150),
+                                placeholder: (_, __) => Container(
+                                  color: Colors.grey.shade200,
+                                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                ),
+                                errorWidget: (_, __, ___) => Container(
+                                  color: Colors.grey.shade200,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 22),
+                                      const SizedBox(height: 2),
+                                      Text('Not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 9)),
+                                    ],
+                                  ),
                                 ),
                               ),
                               if (isLastVisible)
@@ -8059,10 +8110,17 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                     child: CachedNetworkImage(
                       imageUrl: _photos[i].url,
                       fit: BoxFit.contain,
-                      errorWidget: (_, __, ___) => const Icon(
-                        Icons.broken_image,
-                        color: Colors.white54,
-                        size: 64,
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (_, __) => const Center(
+                        child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
+                      ),
+                      errorWidget: (_, __, ___) => Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: const [
+                          Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
+                          SizedBox(height: 8),
+                          Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
+                        ],
                       ),
                     ),
                   ),
@@ -8192,10 +8250,16 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                           child: CachedNetworkImage(
                             imageUrl: _photos[i].url,
                             fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => const Icon(
-                              Icons.broken_image,
-                              color: Colors.white54,
-                              size: 24,
+                            memCacheWidth: _thumbSize.toInt(),
+                            memCacheHeight: _thumbSize.toInt(),
+                            fadeInDuration: const Duration(milliseconds: 150),
+                            placeholder: (_, __) => Container(
+                              color: Colors.white10,
+                              child: const Center(child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 1.5)),
+                            ),
+                            errorWidget: (_, __, ___) => Container(
+                              color: Colors.white10,
+                              child: const Icon(Icons.image_not_supported_outlined, color: Colors.white38, size: 20),
                             ),
                           ),
                         ),
@@ -8309,10 +8373,23 @@ class _AdminGalleryGridPageState extends State<_AdminGalleryGridPage> {
                       child: CachedNetworkImage(
                         imageUrl: widget.photos[i].url,
                         fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Icon(
-                          Icons.broken_image,
-                          color: Colors.grey[400],
-                          size: 40,
+                        memCacheWidth: 200,
+                        memCacheHeight: 200,
+                        fadeInDuration: const Duration(milliseconds: 150),
+                        placeholder: (_, __) => Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          color: Colors.grey.shade200,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 32),
+                              const SizedBox(height: 4),
+                              Text('File not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+                            ],
+                          ),
                         ),
                       ),
                     ),
