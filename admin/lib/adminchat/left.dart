@@ -698,6 +698,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
     setState(() {
       _selectedChat = _users[matchIndex];
+      // Immediately clear the unread badge when a chat is selected externally
+      // (e.g. via a push notification or the Members → Chat shortcut) so the
+      // list item stops appearing bold before the server's mark_read response
+      // arrives.
+      _unreadCounts[targetId] = 0;
     });
     _updateSelectedChat();
     _saveLastSelectedUserId(targetId);
@@ -760,7 +765,11 @@ class _ChatSidebarState extends State<ChatSidebar> {
 
     // If a chat is currently open the admin has already seen those messages,
     // so ensure the server data never re-adds an unread badge for it.
-    final String? openUserId = _selectedChat?['id']?.toString();
+    // Use _chatProvider?.id as a fallback for the case where _selectedChat
+    // has not yet been assigned (race window during initial load when
+    // chatProvider.id is already set, e.g. via an external navigation).
+    final String? openUserId = _selectedChat?['id']?.toString() ??
+        _chatProvider?.id?.toString();
     if (openUserId != null && openUserId.isNotEmpty) {
       unreadCounts[openUserId] = 0;
     }
