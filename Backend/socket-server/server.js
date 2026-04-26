@@ -10,40 +10,16 @@ const multer    = require('multer');
 const path      = require('path');
 const fs        = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const sharp     = require('sharp');
-const { createAdapter } = require('@socket.io/redis-adapter');
-const Redis     = require('ioredis');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
-
-// Database — read from .env; fall back to the same defaults used by the PHP
-// backend (db_connect.php) so the server starts without a .env file.
-const DB_HOST     = process.env.DB_HOST     || 'localhost';
-const DB_USER     = process.env.DB_USER     || 'ms';
-const DB_PASSWORD = process.env.DB_PASSWORD || 'ms';
-const DB_NAME     = process.env.DB_NAME     || 'ms';
-
-// Optional — sensible defaults are acceptable for these settings.
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
-// Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
-// Recommended for production so image URLs are always correct regardless of
-// how reverse-proxy headers are forwarded.
-// Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
-const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 // Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
-// Redis is optional. Set REDIS_ENABLED=true in .env to activate the
-// @socket.io/redis-adapter for multi-instance / horizontal scaling.
-const REDIS_ENABLED = (process.env.REDIS_ENABLED ?? 'false') === 'true';
-// Max image dimension (px) after server-side compression — preserves aspect ratio.
-const IMAGE_MAX_DIMENSION = parseInt(process.env.IMAGE_MAX_DIMENSION || '1200', 10);
-// JPEG quality for compressed chat images (1–100).
-const IMAGE_JPEG_QUALITY  = parseInt(process.env.IMAGE_JPEG_QUALITY  || '80', 10);
 
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
@@ -54,15 +30,16 @@ const IMAGE_JPEG_QUALITY  = parseInt(process.env.IMAGE_JPEG_QUALITY  || '80', 10
 // ──────────────────────────────────────────────────────────────────────────────
 // MySQL connection pool
 // ──────────────────────────────────────────────────────────────────────────────
-console.log(`🗄️  Connecting to MySQL: host=${DB_HOST} db=${DB_NAME} user=${DB_USER}`);
 const pool = mysql.createPool({
-  host:               DB_HOST,
-  port:               parseInt(process.env.DB_PORT || '3306', 10),
-  user:               DB_USER,
-  password:           DB_PASSWORD,
-  database:           DB_NAME,
+  // TODO: Move to environment variable - SECURITY RISK: fallback credentials below must not be used in production
+  host:               process.env.DB_HOST     || 'localhost',
+  port:               parseInt(process.env.DB_PORT || '3306'),
+  user:               process.env.DB_USER     || 'root',
+  // TODO: Move to environment variable - SECURITY RISK: hardcoded password fallback
+  password:           process.env.DB_PASSWORD || '',
+  database:           process.env.DB_NAME     || 'ms',
   waitForConnections: true,
-  connectionLimit:    parseInt(process.env.DB_POOL_LIMIT || '100', 10),
+  connectionLimit:    50,
   // 0 = unlimited connection request queuing; safe because we also cap at
   // MAX_QUEUE_SIZE in the message queue, preventing unbounded work growth.
   queueLimit:         0,
@@ -76,7 +53,7 @@ const pool = mysql.createPool({
 pool.getConnection()
   .then(async conn => {
     console.log('✅ MySQL connected');
-    const dbName = DB_NAME;
+    const dbName = process.env.DB_NAME || 'ms';
 
     // Ensure this session uses UTC so UTC_TIMESTAMP() / NOW() return UTC values.
     await conn.query("SET time_zone = '+00:00'");
@@ -214,52 +191,6 @@ pool.getConnection()
       console.log('✅ Added idx_isOnline index to users table for dashboard queries');
     }
 
-    // Ensure composite index (chat_room_id, created_at) for fast paginated
-    // message queries.  New installs get this from chat_tables.sql; existing
-    // deployments that only have the standalone idx_created_at get it here.
-    const [[idxRoomCreated]] = await conn.query(
-      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'chat_messages' AND INDEX_NAME = 'idx_chat_room_time'
-        LIMIT 1`,
-      [dbName],
-    );
-    if (!idxRoomCreated) {
-      await conn.query(
-        `ALTER TABLE chat_messages ADD INDEX idx_chat_room_time (chat_room_id, created_at)`
-      ).catch(e => console.warn('idx_chat_room_time already exists:', e.message));
-      console.log('✅ Added composite index idx_chat_room_time to chat_messages');
-    }
-
-    // ── user_chat_rooms junction table ───────────────────────────────────────
-    // Replaces the slow JSON_CONTAINS(participants, ?) lookup in getChatRooms
-    // with a standard B-tree join — critical for large user bases.
-    await conn.query(`
-      CREATE TABLE IF NOT EXISTS \`user_chat_rooms\` (
-        \`user_id\`      VARCHAR(50)  NOT NULL,
-        \`chat_room_id\` VARCHAR(150) NOT NULL,
-        PRIMARY KEY (\`user_id\`, \`chat_room_id\`),
-        INDEX \`idx_ucr_user\` (\`user_id\`),
-        INDEX \`idx_ucr_room\` (\`chat_room_id\`)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-    console.log('✅ user_chat_rooms junction table ready');
-
-    // Back-fill user_chat_rooms from existing chat_rooms (idempotent via INSERT IGNORE).
-    // Each chat_rooms row has a participants JSON array with exactly 2 user IDs.
-    await conn.query(`
-      INSERT IGNORE INTO user_chat_rooms (user_id, chat_room_id)
-      SELECT JSON_UNQUOTE(JSON_EXTRACT(participants, '$[0]')), id
-        FROM chat_rooms
-       WHERE participants IS NOT NULL
-         AND JSON_LENGTH(participants) >= 1
-      UNION ALL
-      SELECT JSON_UNQUOTE(JSON_EXTRACT(participants, '$[1]')), id
-        FROM chat_rooms
-       WHERE participants IS NOT NULL
-         AND JSON_LENGTH(participants) >= 2
-    `).catch(e => console.warn('user_chat_rooms backfill warning:', e.message));
-    console.log('✅ user_chat_rooms backfill complete');
-
     conn.release();
   })
   .catch(err => { console.error('❌ MySQL connection failed:', err.message); });
@@ -304,9 +235,6 @@ const messageQueue = [];
 // Express + Socket.IO setup
 // ──────────────────────────────────────────────────────────────────────────────
 const app    = express();
-// Trust reverse-proxy headers (X-Forwarded-Proto, X-Forwarded-For) so that
-// req.protocol returns 'https' when running behind nginx/Apache.
-app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -317,32 +245,6 @@ const io     = new Server(server, {
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
 });
-
-// ── Redis adapter (optional — enables horizontal scaling across multiple
-//    Node.js workers/instances sharing one Redis pub/sub channel) ─────────────
-if (REDIS_ENABLED) {
-  try {
-    const redisOpts = {
-      host:     process.env.REDIS_HOST     || '127.0.0.1',
-      port:     parseInt(process.env.REDIS_PORT || '6379', 10),
-      ...(process.env.REDIS_PASSWORD ? { password: process.env.REDIS_PASSWORD } : {}),
-      // Reconnect with back-off so a Redis blip does not crash the server.
-      retryStrategy: (times) => Math.min(times * 100, 3000),
-      enableOfflineQueue: false,
-      lazyConnect: false,
-    };
-    const pubClient = new Redis(redisOpts);
-    const subClient = pubClient.duplicate();
-    pubClient.on('error', err => console.error('❌ Redis pub error:', err.message));
-    subClient.on('error', err => console.error('❌ Redis sub error:', err.message));
-    pubClient.on('connect',  () => console.log('✅ Redis pub connected'));
-    subClient.on('connect',  () => console.log('✅ Redis sub connected'));
-    io.adapter(createAdapter(pubClient, subClient));
-    console.log('✅ Redis adapter configured for Socket.IO (REDIS_ENABLED=true)');
-  } catch (err) {
-    console.error('❌ Redis adapter setup failed — running single-instance:', err.message);
-  }
-}
 
 app.use(cors({
   origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
@@ -366,108 +268,12 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB
 
-// Allowed MIME types per upload category
-const ALLOWED_IMAGE_MIMES = new Set([
-  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
-]);
-const ALLOWED_VOICE_MIMES = new Set([
-  'audio/mpeg', 'audio/mp4', 'audio/webm', 'audio/ogg', 'audio/wav', 'audio/aac',
-  'audio/x-m4a', 'application/octet-stream',
-]);
-
-/** Build a public URL for an uploaded file.
- *  When PUBLIC_URL is set in the environment it is used as the base, giving
- *  operators an explicit override that is immune to proxy-header variations.
- *  Otherwise the URL is derived from the incoming request (req.protocol is
- *  correct because trust proxy is enabled, so nginx's X-Forwarded-Proto is
- *  respected).
- */
-function buildFileUrl(req, subDir, filename) {
-  const base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
-  return `${base}/uploads/${subDir}/${filename}`;
-}
-
-/**
- * Compress an image file in-place using sharp.
- * Resizes to at most IMAGE_MAX_DIMENSION × IMAGE_MAX_DIMENSION (preserving aspect ratio),
- * then re-encodes as JPEG with IMAGE_JPEG_QUALITY.
- * Animated GIFs are left untouched (sharp does not support multi-frame GIF output).
- * Returns the (possibly new) filename after compression.
- */
-async function compressImage(filePath, originalFilename) {
-  // Skip animated GIFs
-  if (/\.gif$/i.test(originalFilename)) return path.basename(filePath);
-
-  try {
-    const compressed = await sharp(filePath)
-      .resize({
-        width:               IMAGE_MAX_DIMENSION,
-        height:              IMAGE_MAX_DIMENSION,
-        fit:                 'inside',
-        withoutEnlargement:  true,
-      })
-      .jpeg({ quality: IMAGE_JPEG_QUALITY, progressive: true })
-      .toBuffer();
-
-    // Replace the original file with the compressed version (always .jpg).
-    const dir      = path.dirname(filePath);
-    const baseName = path.basename(filePath, path.extname(filePath));
-    const newName  = `${baseName}.jpg`;
-    const newPath  = path.join(dir, newName);
-    fs.writeFileSync(newPath, compressed);
-
-    // Remove the original if the name changed (e.g. .png → .jpg).
-    if (newPath !== filePath) {
-      fs.unlink(filePath, () => {});
-    }
-    return newName;
-  } catch (err) {
-    console.error(`compressImage failed for ${filePath}:`, err.message);
-    // Return the original filename — upload still succeeds, just uncompressed.
-    return path.basename(filePath);
-  }
-}
-
 // POST /upload?type=image|voice
-app.post('/upload', upload.single('file'), async (req, res) => {
+app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const isVoice = req.query.type === 'voice';
-  const subDir = isVoice ? 'voice_messages' : 'chat_images';
-  const allowed = isVoice ? ALLOWED_VOICE_MIMES : ALLOWED_IMAGE_MIMES;
-  if (!allowed.has(req.file.mimetype)) {
-    fs.unlink(req.file.path, () => {});
-    return res.status(400).json({ error: 'File type not allowed' });
-  }
-
-  let filename = req.file.filename;
-  if (!isVoice) {
-    // Compress image server-side before storing.
-    filename = await compressImage(req.file.path, req.file.originalname);
-  }
-
-  res.json({ url: buildFileUrl(req, subDir, filename) });
-});
-
-// POST /upload-multiple?type=image
-// Accepts up to 10 image files under the field name 'files' and returns
-// an array of public URLs so the admin can send image_gallery messages.
-app.post('/upload-multiple', upload.array('files', 10), async (req, res) => {
-  if (!req.files || req.files.length === 0) {
-    return res.status(400).json({ error: 'No files uploaded' });
-  }
-  const subDir = 'chat_images';
-  const invalidFile = req.files.find(f => !ALLOWED_IMAGE_MIMES.has(f.mimetype));
-  if (invalidFile) {
-    req.files.forEach(f => fs.unlink(f.path, () => {}));
-    return res.status(400).json({ error: 'One or more files have a disallowed type' });
-  }
-
-  // Compress all images concurrently.
-  const filenames = await Promise.all(
-    req.files.map(f => compressImage(f.path, f.originalname)),
-  );
-  const urls = filenames.map(name => buildFileUrl(req, subDir, name));
-  res.json({ urls });
+  const subDir = req.query.type === 'voice' ? 'voice_messages' : 'chat_images';
+  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${subDir}/${req.file.filename}`;
+  res.json({ url: fileUrl });
 });
 
 // GET /health
@@ -843,13 +649,6 @@ app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
 const userSockets    = new Map(); // userId → socketId
 const userActiveChatRoom = new Map(); // userId → chatRoomId | null
 
-// ── In-memory online-status cache ────────────────────────────────────────────
-// Avoids a DB hit for every get_user_status query.
-// Format: userId → { isOnline, lastSeen (ISO string | null), cachedAt (ms) }
-// TTL: 30 s for offline entries (online entries are invalidated on disconnect).
-const onlineStatusCache  = new Map();
-const STATUS_CACHE_TTL_MS = 30_000;
-
 // Tracks calls that have been sent but not yet answered/rejected/cancelled.
 // channelName → { callerId, recipientId, data, createdAt }
 // Used to re-deliver incoming_call when recipient connects while call is active.
@@ -925,12 +724,6 @@ async function ensureChatRoom({ chatRoomId, user1Id, user2Id, user1Name, user2Na
     'INSERT IGNORE INTO chat_unread_counts (chat_room_id, user_id, unread_count) VALUES (?,?,0),(?,?,0)',
     [chatRoomId, user1Id, chatRoomId, user2Id],
   );
-
-  // Keep the junction table in sync (idempotent via INSERT IGNORE).
-  await pool.query(
-    'INSERT IGNORE INTO user_chat_rooms (user_id, chat_room_id) VALUES (?,?),(?,?)',
-    [user1Id, chatRoomId, user2Id, chatRoomId],
-  );
 }
 
 async function saveMessage(msg) {
@@ -1005,16 +798,12 @@ async function updateChatRoomLastMessage({ chatRoomId, message, messageType, sen
 }
 
 async function getChatRooms(userId) {
-  // Use the user_chat_rooms junction table for an indexed B-tree join instead of
-  // the previous JSON_CONTAINS(participants, ?) which caused full table scans.
   const [rooms] = await pool.query(
     `SELECT cr.*,
             COALESCE(uc.unread_count, 0) AS unread_count
-       FROM user_chat_rooms ucr
-       JOIN chat_rooms cr ON cr.id = ucr.chat_room_id
-       LEFT JOIN chat_unread_counts uc
-         ON uc.chat_room_id = cr.id AND uc.user_id = ?
-      WHERE ucr.user_id = ?
+       FROM chat_rooms cr
+       LEFT JOIN chat_unread_counts uc ON uc.chat_room_id = cr.id AND uc.user_id = ?
+      WHERE JSON_CONTAINS(cr.participants, JSON_QUOTE(?))
       ORDER BY cr.last_message_time DESC`,
     [userId, userId],
   );
@@ -1031,43 +820,15 @@ async function getChatRooms(userId) {
   }));
 }
 
-/**
- * Retrieve paginated messages for a chat room.
- *
- * Supports two pagination modes (backward-compatible):
- *
- * 1. Cursor-based (preferred for large histories):
- *    Pass `beforeTimestamp` (ISO-8601 string or Date) to get messages
- *    older than that point.  This is O(log N) vs O(N) for OFFSET.
- *
- * 2. Page/offset (legacy, still supported):
- *    Pass `page` and `limit` as before.
- */
-async function getMessages({ chatRoomId, page = 1, limit = 20, beforeTimestamp = null }) {
-  let rows;
-  if (beforeTimestamp) {
-    // Cursor-based — uses the composite idx_chat_room_time index efficiently.
-    const ts = (beforeTimestamp instanceof Date) ? beforeTimestamp : new Date(beforeTimestamp);
-    [rows] = await pool.query(
-      `SELECT * FROM chat_messages
-        WHERE chat_room_id = ?
-          AND created_at < ?
-        ORDER BY created_at DESC
-        LIMIT ?`,
-      [chatRoomId, ts, limit + 1],
-    );
-  } else {
-    // Legacy offset-based (used for page 1 initial load and backward compat).
-    const offset = (page - 1) * limit;
-    [rows] = await pool.query(
-      `SELECT * FROM chat_messages
-        WHERE chat_room_id = ?
-        ORDER BY created_at DESC
-        LIMIT ? OFFSET ?`,
-      [chatRoomId, limit + 1, offset],
-    );
-  }
-
+async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
+  const offset = (page - 1) * limit;
+  const [rows] = await pool.query(
+    `SELECT * FROM chat_messages
+      WHERE chat_room_id = ?
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?`,
+    [chatRoomId, limit + 1, offset],
+  );
   const hasMore = rows.length > limit;
   const messages = rows.slice(0, limit).reverse().map(row => {
     try {
@@ -1095,11 +856,7 @@ async function getMessages({ chatRoomId, page = 1, limit = 20, beforeTimestamp =
       };
     }
   });
-  // Return the oldest message's timestamp as a cursor for the next load-more request.
-  const nextCursor = (hasMore && messages.length > 0)
-    ? messages[0].timestamp
-    : null;
-  return { messages, hasMore, page, nextCursor };
+  return { messages, hasMore, page };
 }
 
 async function markMessagesRead({ chatRoomId, userId }) {
@@ -1166,14 +923,6 @@ async function deleteMessage({ chatRoomId, messageId, userId, deleteForEveryone 
 
 async function upsertOnlineStatus(userId, isOnline, activeChatRoomId = null) {
   try {
-    // Keep the in-memory cache up to date (avoids DB round-trips in get_user_status).
-    const lastSeenNow = isOnline ? null : new Date().toISOString();
-    onlineStatusCache.set(userId.toString(), {
-      isOnline,
-      lastSeen:  lastSeenNow,
-      cachedAt:  Date.now(),
-    });
-
     // Update user_online_status table
     await pool.query(
       `INSERT INTO user_online_status (user_id, is_online, last_seen, active_chat_room_id)
@@ -1461,11 +1210,9 @@ io.on('connection', (socket) => {
   });
 
   // ── get_messages ──────────────────────────────────────────────────────────
-  // Supports cursor-based pagination via `beforeTimestamp` (preferred for large
-  // histories — avoids OFFSET scans) AND legacy page/limit for backward compat.
-  socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20, beforeTimestamp = null }, ack) => {
+  socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20 }, ack) => {
     try {
-      const result = await getMessages({ chatRoomId, page, limit, beforeTimestamp });
+      const result = await getMessages({ chatRoomId, page, limit });
       if (typeof ack === 'function') ack({ success: true, ...result });
     } catch (err) {
       console.error('get_messages error:', err.message);
@@ -1507,10 +1254,7 @@ io.on('connection', (socket) => {
       // Notify sender that their messages were read
       socket.to(chatRoomId).emit('messages_read', { chatRoomId, userId });
 
-      // Emit a lightweight unread-reset event so the client can update the
-      // badge without loading the full room list.  Also emit chat_rooms_update
-      // for full backward compatibility with older clients.
-      socket.emit('unread_reset', { chatRoomId, userId, unreadCount: 0 });
+      // Refresh chat list for this user
       const rooms = await getChatRooms(userId);
       socket.emit('chat_rooms_update', { chatRooms: rooms });
     } catch (err) {
@@ -1546,8 +1290,8 @@ io.on('connection', (socket) => {
       if (!authenticatedUserId) return; // require authentication
       const uid = authenticatedUserId;
 
-      // For "delete for everyone", only the sender (or admin) may do so
-      if (deleteForEveryone && uid !== '1') {
+      // For "delete for everyone", only the sender may do so
+      if (deleteForEveryone) {
         const senderId = await getMessageSender(messageId, chatRoomId);
         if (!senderId || senderId !== uid) return;
       }
@@ -1661,12 +1405,12 @@ io.on('connection', (socket) => {
       const uid = (userId || authenticatedUserId || '').toString();
       if (!uid) return;
 
-      // Only allow the sender (or admin) to unsend
+      // Only allow the sender to unsend
       const [[msg]] = await pool.query(
         'SELECT sender_id FROM chat_messages WHERE message_id = ? AND chat_room_id = ? LIMIT 1',
         [messageId, chatRoomId],
       );
-      if (!msg || (msg.sender_id?.toString() !== uid && uid !== '1')) return;
+      if (!msg || msg.sender_id?.toString() !== uid) return;
 
       await pool.query(
         `UPDATE chat_messages
@@ -1687,31 +1431,17 @@ io.on('connection', (socket) => {
     try {
       const uid = (userId || '').toString();
       if (!uid) return callback({ userId: uid, isOnline: false, lastSeen: null });
-
-      // 1. If the user has an active socket connection they are definitely online —
-      //    no DB query needed.
-      if (userSockets.has(uid)) {
-        return callback({ userId: uid, isOnline: true, lastSeen: null });
-      }
-
-      // 2. Check the in-memory cache (valid for STATUS_CACHE_TTL_MS).
-      const cached = onlineStatusCache.get(uid);
-      if (cached && (Date.now() - cached.cachedAt) < STATUS_CACHE_TTL_MS) {
-        return callback({ userId: uid, isOnline: cached.isOnline, lastSeen: cached.lastSeen });
-      }
-
-      // 3. Fall back to DB and populate the cache.
       const [rows] = await pool.query(
         'SELECT is_online, last_seen FROM user_online_status WHERE user_id = ?',
         [uid],
       );
       if (rows.length > 0) {
-        const isOnline = rows[0].is_online === 1;
-        const lastSeen = rows[0].last_seen ? rows[0].last_seen.toISOString() : null;
-        onlineStatusCache.set(uid, { isOnline, lastSeen, cachedAt: Date.now() });
-        callback({ userId: uid, isOnline, lastSeen });
+        callback({
+          userId:   uid,
+          isOnline: rows[0].is_online === 1,
+          lastSeen: rows[0].last_seen ? rows[0].last_seen.toISOString() : null,
+        });
       } else {
-        onlineStatusCache.set(uid, { isOnline: false, lastSeen: null, cachedAt: Date.now() });
         callback({ userId: uid, isOnline: false, lastSeen: null });
       }
     } catch (err) {
@@ -1725,9 +1455,6 @@ io.on('connection', (socket) => {
   // room if they are online; caller should also send a FCM push as fallback.
   socket.on('call_invite', async (data) => {
     if (!CALLS_ENABLED) return;
-    // Remove any expired pending calls before checking the busy/ringing state so
-    // that a timed-out previous call attempt does not produce a false 'call_busy'.
-    _cleanExpiredPendingCalls();
     const { recipientId, callerId, ...rest } = data || {};
     if (!recipientId) return;
 
@@ -1789,11 +1516,6 @@ io.on('connection', (socket) => {
       }
     } else if (userSockets.has(recipientIdStr)) {
       // Recipient is online — deliver the call and confirm ringing to caller.
-      // Mark non-admin callers as busy from the moment the call starts (not just
-      // after acceptance), so that concurrent callers see the correct busy state.
-      if (callerIdStr && callerIdStr !== '1' && channelName) {
-        activeCallUsers.set(callerIdStr, channelName);
-      }
       io.to(`user:${recipientIdStr}`).emit('incoming_call', callPayload);
       if (callerIdStr) {
         io.to(`user:${callerIdStr}`).emit('call_ringing', {
@@ -1805,10 +1527,6 @@ io.on('connection', (socket) => {
     } else {
       // Recipient is offline — notify the caller immediately so they can show
       // an appropriate message (FCM push has already been sent by the client).
-      // Still mark non-admin callers as busy while the call is pending (FCM path).
-      if (callerIdStr && callerIdStr !== '1' && channelName) {
-        activeCallUsers.set(callerIdStr, channelName);
-      }
       if (callerIdStr) {
         io.to(`user:${callerIdStr}`).emit('call_user_offline', {
           channelName:  channelName,
@@ -1868,8 +1586,6 @@ io.on('connection', (socket) => {
     const { callerId, ...rest } = data || {};
     if (!callerId) return;
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
-    // Clear the caller's busy state — the call never connected.
-    activeCallUsers.delete(callerId.toString());
     io.to(`user:${callerId.toString()}`).emit('call_rejected', {
       ...rest,
       callerId: callerId.toString(),
@@ -1879,11 +1595,9 @@ io.on('connection', (socket) => {
   // ── call_cancel ───────────────────────────────────────────────────────────
   // Caller emits this when they cancel before the recipient answers.
   socket.on('call_cancel', (data) => {
-    const { recipientId, callerId, ...rest } = data || {};
+    const { recipientId, ...rest } = data || {};
     if (!recipientId) return;
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
-    // Clear the caller's busy state — the call was cancelled before connecting.
-    if (callerId) activeCallUsers.delete(callerId.toString());
     io.to(`user:${recipientId.toString()}`).emit('call_cancelled', {
       ...rest,
       recipientId: recipientId.toString(),
