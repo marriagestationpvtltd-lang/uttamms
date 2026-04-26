@@ -15,38 +15,15 @@ const { createAdapter } = require('@socket.io/redis-adapter');
 const Redis     = require('ioredis');
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Required environment variable validation
-// Fail fast at startup if critical variables are missing so the server never
-// silently connects to a wrong or default database in production.
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * Returns the value of an environment variable, or exits the process with a
- * clear error message if it is not set. Use for variables that have no safe
- * default and must be explicitly configured for each deployment.
- *
- * @param {string} name  Environment variable name
- * @returns {string}     The non-empty value
- */
-function requireEnv(name) {
-  const value = process.env[name];
-  if (value == null || value.trim() === '') {
-    console.error(`❌ FATAL: Required environment variable "${name}" is not set.`);
-    console.error('   Create a .env file from .env.example and fill in all required values.');
-    process.exit(1);
-  }
-  return value.trim();
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
 
-// Required — must be set in .env; no safe default exists for production.
-const DB_HOST     = requireEnv('DB_HOST');
-const DB_USER     = requireEnv('DB_USER');
-const DB_PASSWORD = requireEnv('DB_PASSWORD');
-const DB_NAME     = requireEnv('DB_NAME');
+// Database — read from .env; fall back to the same defaults used by the PHP
+// backend (db_connect.php) so the server starts without a .env file.
+const DB_HOST     = process.env.DB_HOST     || 'localhost';
+const DB_USER     = process.env.DB_USER     || 'ms';
+const DB_PASSWORD = process.env.DB_PASSWORD || 'ms';
+const DB_NAME     = process.env.DB_NAME     || 'ms';
 
 // Optional — sensible defaults are acceptable for these settings.
 const PORT        = process.env.PORT || 3001;
@@ -99,7 +76,7 @@ const pool = mysql.createPool({
 pool.getConnection()
   .then(async conn => {
     console.log('✅ MySQL connected');
-    const dbName = DB_NAME; // already validated at startup via requireEnv('DB_NAME')
+    const dbName = DB_NAME;
 
     // Ensure this session uses UTC so UTC_TIMESTAMP() / NOW() return UTC values.
     await conn.query("SET time_zone = '+00:00'");
