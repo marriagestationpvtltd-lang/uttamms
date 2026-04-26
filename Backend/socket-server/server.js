@@ -1155,6 +1155,10 @@ io.on('connection', (socket) => {
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
     io.to(chatRoomId).emit('new_message', clientMsg);
+    // Also emit to each participant's personal room so their chat-list screen
+    // receives the event instantly even when they have not joined the chat room.
+    io.to(`user:${senderId}`).emit('new_message', clientMsg);
+    io.to(`user:${receiverId}`).emit('new_message', clientMsg);
 
     // ── Real-time admin monitoring ────────────────────────────────────────
     // Emit a dedicated send_message event to admin_room for ALL message types
