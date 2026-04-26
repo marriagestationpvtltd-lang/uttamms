@@ -207,6 +207,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription? _messagesSubscription;
   StreamSubscription? _messageEditedSubscription;
   StreamSubscription? _messageDeletedSubscription;
+  StreamSubscription? _messageUnsentSubscription;
   StreamSubscription? _messageReactionSubscription;
 
   // Incoming-message debounce: buffer rapid socket events and flush them in a
@@ -513,6 +514,24 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           });
           _saveMessagesToLocalCache();
         }
+      }
+    });
+
+    _messageUnsentSubscription?.cancel();
+    _messageUnsentSubscription = _socketService.onMessageUnsent.listen((data) {
+      if (!mounted) return;
+      if (data['chatRoomId']?.toString() != widget.chatRoomId) return;
+      final msgId = data['messageId']?.toString();
+      final idx = _cachedMessages.indexWhere((m) => m['messageId']?.toString() == msgId);
+      if (idx >= 0) {
+        setState(() {
+          _cachedMessages[idx] = {
+            ..._cachedMessages[idx],
+            'isUnsent': true,
+          };
+          _messagesCacheVersion++;
+        });
+        _saveMessagesToLocalCache();
       }
     });
 
@@ -942,6 +961,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _incomingMessageDebounce?.cancel();
     _messageEditedSubscription?.cancel();
     _messageDeletedSubscription?.cancel();
+    _messageUnsentSubscription?.cancel();
     _messageReactionSubscription?.cancel();
     _otherUserStatusSub?.cancel();
     _callHistorySubscription?.cancel();
@@ -4194,6 +4214,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         } else {
           final isMine = data['senderId'] == widget.currentUserId;
           final isDeletedForEveryone = data['deletedForEveryone'] == true;
+          final isUnsent = data['isUnsent'] == true;
 
           messageWidgets.add(_messageBubble(
             isMine: isMine,
@@ -4206,7 +4227,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             messageData: data,
             repliedTo: data['repliedTo'],
             isEdited: data['isEdited'] ?? false,
-            isDeleted: isDeletedForEveryone,
+            isDeleted: isDeletedForEveryone || isUnsent,
           ));
         }
       }
