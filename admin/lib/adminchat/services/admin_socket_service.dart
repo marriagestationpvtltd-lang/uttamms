@@ -453,6 +453,16 @@ class AdminSocketService {
     int limit = 30,
   }) {
     final completer = Completer<Map<String, dynamic>>();
+    // Fail fast when socket is not available so callers receive an immediate
+    // error instead of hanging until kAdminSocketTimeout fires.
+    if (_socket == null || !_socket!.connected) {
+      Future.microtask(() {
+        if (!completer.isCompleted) {
+          completer.completeError(Exception('Socket not connected'));
+        }
+      });
+      return completer.future;
+    }
     final timer = Timer(kAdminSocketTimeout, () {
       if (!completer.isCompleted) {
         completer.completeError(
@@ -461,7 +471,7 @@ class AdminSocketService {
       }
     });
 
-    _socket?.emitWithAck(
+    _socket!.emitWithAck(
       'get_messages',
       {'chatRoomId': chatRoomId, 'page': page, 'limit': limit},
       ack: (data) {
@@ -511,6 +521,8 @@ class AdminSocketService {
   }
 
   Future<List<dynamic>> getChatRooms() async {
+    // Return empty list immediately when socket is not connected.
+    if (_socket == null || !_socket!.connected) return const [];
     final completer = Completer<List<dynamic>>();
     final timer = Timer(kAdminSocketTimeout, () {
       if (!completer.isCompleted) {
@@ -520,7 +532,7 @@ class AdminSocketService {
       }
     });
 
-    _socket?.emitWithAck(
+    _socket!.emitWithAck(
       'get_chat_rooms',
       {'userId': kAdminUserId},
       ack: (data) {

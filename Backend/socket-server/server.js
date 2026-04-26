@@ -20,6 +20,11 @@ const Redis     = require('ioredis');
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
+// Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
+// Recommended for production so image URLs are always correct regardless of
+// how reverse-proxy headers are forwarded.
+// Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
+const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
 // Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
@@ -291,6 +296,9 @@ const messageQueue = [];
 // Express + Socket.IO setup
 // ──────────────────────────────────────────────────────────────────────────────
 const app    = express();
+// Trust reverse-proxy headers (X-Forwarded-Proto, X-Forwarded-For) so that
+// req.protocol returns 'https' when running behind nginx/Apache.
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
@@ -359,11 +367,16 @@ const ALLOWED_VOICE_MIMES = new Set([
   'audio/x-m4a', 'application/octet-stream',
 ]);
 
-/**
- * Build a public URL for an uploaded file.
+/** Build a public URL for an uploaded file.
+ *  When PUBLIC_URL is set in the environment it is used as the base, giving
+ *  operators an explicit override that is immune to proxy-header variations.
+ *  Otherwise the URL is derived from the incoming request (req.protocol is
+ *  correct because trust proxy is enabled, so nginx's X-Forwarded-Proto is
+ *  respected).
  */
 function buildFileUrl(req, subDir, filename) {
-  return `${req.protocol}://${req.get('host')}/uploads/${subDir}/${filename}`;
+  const base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  return `${base}/uploads/${subDir}/${filename}`;
 }
 
 /**

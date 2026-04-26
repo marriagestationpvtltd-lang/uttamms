@@ -234,6 +234,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   StreamSubscription? _audioPlayerStateSubscription;
   StreamSubscription? _audioPlayerPositionSubscription;
   StreamSubscription? _audioPlayerDurationSubscription;
+  // Reconnect listener — reloads messages when socket reconnects after disconnect.
+  StreamSubscription<bool>? _connectionSubscription;
   // Track whether the next scroll-to-bottom should be forced (own message sent)
   bool _forceScrollToBottom = false;
 
@@ -401,10 +403,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  void _listenToMessages() {
-    _socketService.joinRoom(widget.chatRoomId);
-
-    // Load initial page via Socket.IO request-response
+  /// Fetch the first page of messages from the server and update state.
+  void _fetchInitialMessages() {
     _socketService.getMessages(widget.chatRoomId, page: 1, limit: _messagesPerPage).then((result) {
       if (!mounted) return;
       final messages = List<Map<String, dynamic>>.from(
@@ -440,6 +440,28 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         });
       }
     });
+  }
+
+  void _listenToMessages() {
+    _socketService.joinRoom(widget.chatRoomId);
+
+    // If the socket is not yet connected, wait for the first connection event
+    // before fetching messages.  This avoids a 15-second timeout hang when
+    // the screen is opened before the socket has finished connecting.
+    if (!_socketService.isConnected) {
+      _connectionSubscription?.cancel();
+      _connectionSubscription =
+          _socketService.onConnectionChange.listen((connected) {
+        if (connected && mounted) {
+          _connectionSubscription?.cancel();
+          _connectionSubscription = null;
+          _socketService.joinRoom(widget.chatRoomId);
+          _fetchInitialMessages();
+        }
+      });
+    } else {
+      _fetchInitialMessages();
+    }
 
     // Real-time new messages — debounced to batch rapid consecutive socket events
     // into a single setState instead of one rebuild per message.
@@ -967,6 +989,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _callHistorySubscription?.cancel();
     _callListenerSubscription?.cancel();
     _messagesSubscription?.cancel();
+    _connectionSubscription?.cancel();
     _socketService.leaveRoom(widget.chatRoomId);
     _clearTyping(); // Remove our typing entry on exit
     super.dispose();
