@@ -1516,6 +1516,11 @@ io.on('connection', (socket) => {
       }
     } else if (userSockets.has(recipientIdStr)) {
       // Recipient is online — deliver the call and confirm ringing to caller.
+      // Mark non-admin callers as busy from the moment the call starts (not just
+      // after acceptance), so that concurrent callers see the correct busy state.
+      if (callerIdStr && callerIdStr !== '1' && channelName) {
+        activeCallUsers.set(callerIdStr, channelName);
+      }
       io.to(`user:${recipientIdStr}`).emit('incoming_call', callPayload);
       if (callerIdStr) {
         io.to(`user:${callerIdStr}`).emit('call_ringing', {
@@ -1527,6 +1532,10 @@ io.on('connection', (socket) => {
     } else {
       // Recipient is offline — notify the caller immediately so they can show
       // an appropriate message (FCM push has already been sent by the client).
+      // Still mark non-admin callers as busy while the call is pending (FCM path).
+      if (callerIdStr && callerIdStr !== '1' && channelName) {
+        activeCallUsers.set(callerIdStr, channelName);
+      }
       if (callerIdStr) {
         io.to(`user:${callerIdStr}`).emit('call_user_offline', {
           channelName:  channelName,
@@ -1586,6 +1595,8 @@ io.on('connection', (socket) => {
     const { callerId, ...rest } = data || {};
     if (!callerId) return;
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
+    // Clear the caller's busy state — the call never connected.
+    activeCallUsers.delete(callerId.toString());
     io.to(`user:${callerId.toString()}`).emit('call_rejected', {
       ...rest,
       callerId: callerId.toString(),
@@ -1595,9 +1606,11 @@ io.on('connection', (socket) => {
   // ── call_cancel ───────────────────────────────────────────────────────────
   // Caller emits this when they cancel before the recipient answers.
   socket.on('call_cancel', (data) => {
-    const { recipientId, ...rest } = data || {};
+    const { recipientId, callerId, ...rest } = data || {};
     if (!recipientId) return;
     if (rest.channelName) activePendingCalls.delete(rest.channelName);
+    // Clear the caller's busy state — the call was cancelled before connecting.
+    if (callerId) activeCallUsers.delete(callerId.toString());
     io.to(`user:${recipientId.toString()}`).emit('call_cancelled', {
       ...rest,
       recipientId: recipientId.toString(),
