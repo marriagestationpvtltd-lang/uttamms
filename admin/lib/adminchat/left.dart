@@ -317,7 +317,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
       final senderIdStr = data['senderId']?.toString() ?? '';
       final receiverIdStr = data['receiverId']?.toString() ?? '';
 
-      // Determine which user's conversation row should be updated/sorted.
       final String userId;
       final bool isIncoming;
       if (senderIdStr == senderId.toString()) {
@@ -330,49 +329,26 @@ class _ChatSidebarState extends State<ChatSidebar> {
         if (senderIdStr.isEmpty) return;
         userId = senderIdStr;
         isIncoming = true;
-        // Play notification sound / show browser notification.
         _handleIncomingMessage(
           senderIdStr: senderIdStr,
           message: _messagePreviewFromSocket(data),
         );
       }
 
-      // Update conversationMap so this user sorts to the top under 'recent'.
-      final preview = _messagePreviewFromSocket(data);
-      // Prefer the server-provided timestamp to avoid clock-skew issues; fall
-      // back to the current time only when the server omits it.
       final DateTime msgTime =
           AdminSocketService.parseTimestamp(data['timestamp']) ??
           AdminSocketService.parseTimestamp(data['createdAt']) ??
           DateTime.now();
-      conversationMap[userId] = {
-        'lastMessage': data['message']?.toString() ?? '',
-        'lastMessagePreview': preview,
-        'lastTimestamp': msgTime,
-        'lastMessageType': data['messageType']?.toString() ?? 'text',
-      };
 
-      // Increment local unread badge for incoming messages from non-active users.
-      if (isIncoming && _selectedChat?['id']?.toString() != userId) {
-        _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
-      }
-
-      // If the user who just messaged is not yet in the list, fetch them so
-      // they appear immediately at the top rather than waiting for the next
-      // full page load. Otherwise move them to the front of _users so the
-      // 'recent' sort is instant even before chat_rooms_update arrives.
-      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
-      if (idx == -1) {
-        _fetchSingleUser(userId);
-        // _fetchSingleUser calls _applyFilters() once the user is loaded.
-        return;
-      }
-      if (idx > 0) {
-        final user = _users.removeAt(idx);
-        _users.insert(0, user);
-      }
-
-      _applyFilters();
+      _updateChatAndMoveToTop(
+        userId: userId,
+        preview: _messagePreviewFromSocket(data),
+        rawMessage: data['message']?.toString() ?? '',
+        messageType: data['messageType']?.toString() ?? 'text',
+        msgTime: msgTime,
+        isIncoming: isIncoming,
+        onlyIfNewer: false,
+      );
     });
 
     // Subscribe to send_message events broadcast to admin_room.
@@ -385,51 +361,31 @@ class _ChatSidebarState extends State<ChatSidebar> {
       final senderIdStr   = data['senderId']?.toString()   ?? '';
       final receiverIdStr = data['receiverId']?.toString() ?? '';
 
-      // Determine which non-admin user is involved in this message.
       final String userId;
       if (senderIdStr == senderId.toString()) {
-        // Admin sent the message — the other party is the receiver.
         if (receiverIdStr.isEmpty || receiverIdStr == senderId.toString()) return;
         userId = receiverIdStr;
       } else {
-        // A user sent a message to admin.
         if (senderIdStr.isEmpty) return;
         userId = senderIdStr;
       }
 
-      // Update conversationMap so this user sorts to the top under 'recent'.
-      // Prefer the server-supplied timestamp to avoid client clock-skew.
-      final preview = _messagePreviewFromSocket(data);
       final DateTime msgTime =
           AdminSocketService.parseTimestamp(data['timestamp']) ??
           AdminSocketService.parseTimestamp(data['createdAt']) ??
           DateTime.now();
 
-      // Only update if this event is strictly newer than what we already have,
-      // to avoid overwriting a fresher entry that arrived via onNewMessage first.
-      final existing = conversationMap[userId]?['lastTimestamp'] as DateTime?;
-      if (existing == null || msgTime.isAfter(existing)) {
-        conversationMap[userId] = {
-          'lastMessage':        data['message']?.toString()     ?? '',
-          'lastMessagePreview': preview,
-          'lastTimestamp':      msgTime,
-          'lastMessageType':    data['messageType']?.toString() ?? 'text',
-        };
-      }
-
-      // Move user to the front of the list for instant visual feedback.
-      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
-      if (idx == -1) {
-        // Unknown user — fetch their profile so they appear in the list.
-        _fetchSingleUser(userId);
-        return;
-      }
-      if (idx > 0) {
-        final user = _users.removeAt(idx);
-        _users.insert(0, user);
-      }
-
-      _applyFilters();
+      // Use onlyIfNewer: true so this event never overwrites a fresher entry
+      // that already arrived via onNewMessage.
+      _updateChatAndMoveToTop(
+        userId: userId,
+        preview: _messagePreviewFromSocket(data),
+        rawMessage: data['message']?.toString() ?? '',
+        messageType: data['messageType']?.toString() ?? 'text',
+        msgTime: msgTime,
+        isIncoming: false,
+        onlyIfNewer: true,
+      );
     });
 
     _statusSub?.cancel();
@@ -499,6 +455,67 @@ class _ChatSidebarState extends State<ChatSidebar> {
     } catch (error) {
       debugPrint('Error loading chat rooms: $error');
     }
+  }
+
+  // ── Core real-time update ────────────────────────────────────────────────────
+
+  /// Single entry point for updating a conversation and floating it to the top
+  /// of the list without reloading the full chat list.
+  ///
+  /// [userId]      — the non-admin user involved in the conversation.
+  /// [preview]     — formatted last-message preview string.
+  /// [rawMessage]  — raw message text stored alongside the preview.
+  /// [messageType] — socket message type string (e.g. 'text', 'image').
+  /// [msgTime]     — server-provided timestamp; falls back to [DateTime.now].
+  /// [isIncoming]  — true when the user sent the message (unread count increments
+  ///                 unless that user's conversation is currently open).
+  /// [onlyIfNewer] — when true the [conversationMap] entry is only replaced if
+  ///                 [msgTime] is strictly newer than the existing timestamp.
+  ///                 Pass true for monitor-channel events so they never overwrite
+  ///                 a fresher entry that already arrived via onNewMessage.
+  void _updateChatAndMoveToTop({
+    required String userId,
+    required String preview,
+    required String rawMessage,
+    required String messageType,
+    DateTime? msgTime,
+    bool isIncoming = false,
+    bool onlyIfNewer = false,
+  }) {
+    if (!mounted) return;
+
+    final DateTime time = msgTime ?? DateTime.now();
+
+    // ── 1. Update conversation metadata ──────────────────────────────────────
+    final existing = conversationMap[userId]?['lastTimestamp'] as DateTime?;
+    if (!onlyIfNewer || existing == null || time.isAfter(existing)) {
+      conversationMap[userId] = {
+        'lastMessage':        rawMessage,
+        'lastMessagePreview': preview,
+        'lastTimestamp':      time,
+        'lastMessageType':    messageType,
+      };
+    }
+
+    // ── 2. Increment unread badge for messages from non-open conversations ────
+    if (isIncoming && _selectedChat?['id']?.toString() != userId) {
+      _unreadCounts[userId] = (_unreadCounts[userId] ?? 0) + 1;
+    }
+
+    // ── 3. Move user to front of _users so sort is instant ───────────────────
+    final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
+    if (idx == -1) {
+      // User not yet in list — fetch their profile so they appear at the top.
+      _fetchSingleUser(userId);
+      return;
+    }
+    if (idx > 0) {
+      final user = _users.removeAt(idx);
+      _users.insert(0, user);
+    }
+
+    // ── 4. Re-apply filters + sort without a full list reload ─────────────────
+    _applyFilters();
   }
 
   // ── SharedPreferences cache ─────────────────────────────────────────────────
@@ -1487,11 +1504,16 @@ class _ChatSidebarState extends State<ChatSidebar> {
                           }
 
                           var user = _filteredUsers[index];
-                          bool isSelected = _selectedChat == user;
                           final userId = user["id"].toString();
+                          // Use ID comparison — object-reference equality breaks after
+                          // _applyFilters() rebuilds _filteredUsers from _users.
+                          bool isSelected =
+                              _selectedChat?['id']?.toString() == userId;
                           final isPinned = _pinnedUserIds.contains(userId);
 
-                          return _buildUserRow(
+                          return RepaintBoundary(
+                            key: ValueKey('chat_row_$userId'),
+                            child: _buildUserRow(
                             user["name"] ?? "",
                             userId,
                             conversationMap[userId]
@@ -1524,6 +1546,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
                               // Notify parent so mobile view can switch to chat panel.
                               widget.onUserTap?.call();
                             },
+                          ),
                           );
                         },
                       ),
@@ -1563,13 +1586,13 @@ class _ChatSidebarState extends State<ChatSidebar> {
     return GestureDetector(
       onTap: onTap,
       onLongPress: () {
+        // Capture the state before toggling so the message is unambiguous.
+        final wasPinned = _pinnedUserIds.contains(userId);
         _togglePin(userId);
-        // isPinned reflects the state BEFORE the toggle, so the ternary is intentionally
-        // inverted: was pinned → show "unpinned"; was not pinned → show "pinned to top".
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              isPinned ? '$name unpinned' : '$name pinned to top',
+              wasPinned ? '$name unpinned' : '$name pinned to top',
               style: const TextStyle(fontSize: 13),
             ),
             duration: const Duration(seconds: 2),
@@ -1643,7 +1666,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                     children: [
                       Expanded(
                         child: Row(
-                          mainAxisSize: MainAxisSize.min,
                           children: [
                             Flexible(
                               child: Text(
