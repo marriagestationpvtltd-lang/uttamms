@@ -25,7 +25,7 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s =>
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
 // Redis is optional. Set REDIS_ENABLED=true in .env to activate the
 // @socket.io/redis-adapter for multi-instance / horizontal scaling.
-const REDIS_ENABLED = (process.env.REDIS_ENABLED ?? 'false') !== 'false';
+const REDIS_ENABLED = (process.env.REDIS_ENABLED ?? 'false') === 'true';
 // Max image dimension (px) after server-side compression — preserves aspect ratio.
 const IMAGE_MAX_DIMENSION = parseInt(process.env.IMAGE_MAX_DIMENSION || '1200', 10);
 // JPEG quality for compressed chat images (1–100).
