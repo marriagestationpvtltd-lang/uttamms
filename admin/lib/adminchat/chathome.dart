@@ -6216,12 +6216,9 @@ class _ChatWindowState extends State<ChatWindow> {
         ? replyPayload['imageUrl']?.toString()
         : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
     final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
-    // Determine copyable text: image URL for images, message text for text messages
-    final String? copyText = isImageMsg
-        ? imagePayload
-        : ((msgType == null || msgType == 'text') ? replyPayload['message']?.toString() : null);
-    final bool canCopy = copyText != null && copyText.isNotEmpty &&
-        replyPayload['deleted'] != true && replyPayload['unsent'] != true;
+    final copyInfo = _resolveCopyInfo(replyPayload);
+    final String? copyText = copyInfo.copyText;
+    final bool canCopy = copyInfo.canCopy;
 
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final String currentRoomId =
@@ -6453,12 +6450,10 @@ class _ChatWindowState extends State<ChatWindow> {
         ? replyPayload['imageUrl']?.toString()
         : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
     final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
-    // Determine copyable text: image URL for images, message text for text messages
-    final String? copyText = isImageMsg
-        ? imagePayload
-        : ((msgType == null || msgType == 'text') ? replyPayload['message']?.toString() : null);
-    final bool canCopy = copyText != null && copyText.isNotEmpty &&
-        replyPayload['deleted'] != true && replyPayload['unsent'] != true;
+    final copyInfo = _resolveCopyInfo(replyPayload);
+    final String? copyText = copyInfo.copyText;
+    final bool canCopy = copyInfo.canCopy;
+    final bool copyIsImage = copyInfo.isImage;
 
     // Get the current chat room ID
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -6545,7 +6540,7 @@ class _ChatWindowState extends State<ChatWindow> {
             if (canCopy)
               ListTile(
                 leading: const Icon(Icons.copy_rounded, size: 20, color: Color(0xFF475569)),
-                title: Text(isImageMsg ? "Copy Link" : "Copy", style: const TextStyle(fontSize: 14)),
+                title: Text(copyIsImage ? "Copy Link" : "Copy", style: const TextStyle(fontSize: 14)),
                 onTap: () {
                   Navigator.pop(ctx);
                   _copyToClipboard(copyText!);
@@ -6598,8 +6593,8 @@ class _ChatWindowState extends State<ChatWindow> {
     _startReply(messageId, originalMessage, senderid, senderName);
   }
 
-  void _copyToClipboard(String text) {
-    Clipboard.setData(ClipboardData(text: text));
+  Future<void> _copyToClipboard(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -6608,6 +6603,25 @@ class _ChatWindowState extends State<ChatWindow> {
         ),
       );
     }
+  }
+
+  /// Returns the copyable text and whether the copy action is available for a
+  /// given message payload. Used by both the overlay and the bottom sheet.
+  ({String? copyText, bool canCopy, bool isImage}) _resolveCopyInfo(
+      Map<String, dynamic> replyPayload) {
+    final String? msgType = replyPayload['type']?.toString();
+    final bool isImageMsg = msgType == 'image' || msgType == 'image_gallery';
+    final String? imagePayload = msgType == 'image'
+        ? replyPayload['imageUrl']?.toString()
+        : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
+    final String? copyText = isImageMsg
+        ? imagePayload
+        : ((msgType == null || msgType == 'text') ? replyPayload['message']?.toString() : null);
+    final bool canCopy = copyText != null &&
+        copyText.isNotEmpty &&
+        replyPayload['deleted'] != true &&
+        replyPayload['unsent'] != true;
+    return (copyText: copyText, canCopy: canCopy, isImage: isImageMsg);
   }
 
   void _deleteMessage(String messageId) {
