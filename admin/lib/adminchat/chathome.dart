@@ -7591,10 +7591,10 @@ class _ZoomablePageImageState extends State<_ZoomablePageImage> {
           ),
           errorWidget: (_, __, ___) => Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
-              Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
-              SizedBox(height: 8),
-              Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
+            children: [
+              const Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
+              const SizedBox(height: 8),
+              const Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
             ],
           ),
         ),
@@ -8116,10 +8116,10 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                       ),
                       errorWidget: (_, __, ___) => Column(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
-                          SizedBox(height: 8),
-                          Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
+                        children: [
+                          const Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
+                          const SizedBox(height: 8),
+                          const Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
                         ],
                       ),
                     ),
