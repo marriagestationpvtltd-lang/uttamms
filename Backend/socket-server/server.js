@@ -15,8 +15,40 @@ const { createAdapter } = require('@socket.io/redis-adapter');
 const Redis     = require('ioredis');
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Required environment variable validation
+// Fail fast at startup if critical variables are missing so the server never
+// silently connects to a wrong or default database in production.
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the value of an environment variable, or exits the process with a
+ * clear error message if it is not set. Use for variables that have no safe
+ * default and must be explicitly configured for each deployment.
+ *
+ * @param {string} name  Environment variable name
+ * @returns {string}     The non-empty value
+ */
+function requireEnv(name) {
+  const value = process.env[name];
+  if (value == null || value.trim() === '') {
+    console.error(`❌ FATAL: Required environment variable "${name}" is not set.`);
+    console.error('   Create a .env file from .env.example and fill in all required values.');
+    process.exit(1);
+  }
+  return value.trim();
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Required — must be set in .env; no safe default exists for production.
+const DB_HOST     = requireEnv('DB_HOST');
+const DB_USER     = requireEnv('DB_USER');
+const DB_PASSWORD = requireEnv('DB_PASSWORD');
+const DB_NAME     = requireEnv('DB_NAME');
+
+// Optional — sensible defaults are acceptable for these settings.
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
@@ -45,14 +77,13 @@ const IMAGE_JPEG_QUALITY  = parseInt(process.env.IMAGE_JPEG_QUALITY  || '80', 10
 // ──────────────────────────────────────────────────────────────────────────────
 // MySQL connection pool
 // ──────────────────────────────────────────────────────────────────────────────
+console.log(`🗄️  Connecting to MySQL: host=${DB_HOST} db=${DB_NAME} user=${DB_USER}`);
 const pool = mysql.createPool({
-  // TODO: Move to environment variable - SECURITY RISK: fallback credentials below must not be used in production
-  host:               process.env.DB_HOST     || 'localhost',
-  port:               parseInt(process.env.DB_PORT || '3306'),
-  user:               process.env.DB_USER     || 'root',
-  // TODO: Move to environment variable - SECURITY RISK: hardcoded password fallback
-  password:           process.env.DB_PASSWORD || '',
-  database:           process.env.DB_NAME     || 'ms',
+  host:               DB_HOST,
+  port:               parseInt(process.env.DB_PORT || '3306', 10),
+  user:               DB_USER,
+  password:           DB_PASSWORD,
+  database:           DB_NAME,
   waitForConnections: true,
   connectionLimit:    parseInt(process.env.DB_POOL_LIMIT || '100', 10),
   // 0 = unlimited connection request queuing; safe because we also cap at
@@ -68,7 +99,7 @@ const pool = mysql.createPool({
 pool.getConnection()
   .then(async conn => {
     console.log('✅ MySQL connected');
-    const dbName = process.env.DB_NAME || 'ms';
+    const dbName = DB_NAME; // already validated at startup via requireEnv('DB_NAME')
 
     // Ensure this session uses UTC so UTC_TIMESTAMP() / NOW() return UTC values.
     await conn.query("SET time_zone = '+00:00'");
