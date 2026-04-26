@@ -54,9 +54,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
   final AdminSocketService _socketService = AdminSocketService();
   StreamSubscription<List<dynamic>>? _chatRoomsSub;
   StreamSubscription<Map<String, dynamic>>? _newMessageSub;
-  // Listens to send_message events on admin_room so the sidebar updates
-  // instantly for ALL conversations, not just the one currently joined.
-  StreamSubscription<Map<String, dynamic>>? _monitorMsgSub;
   StreamSubscription<Map<String, dynamic>>? _statusSub;
   StreamSubscription<bool>? _connectionSub;
 
@@ -110,7 +107,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
   void dispose() {
     _chatRoomsSub?.cancel();
     _newMessageSub?.cancel();
-    _monitorMsgSub?.cancel();
     _statusSub?.cancel();
     _connectionSub?.cancel();
     _scrollController.dispose();
@@ -203,32 +199,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
               .toList();
           _users = [..._users, ...dedupedNew];
           if (serverTotal != null) _totalUsers = serverTotal;
-        }
-
-        // Seed conversationMap with timestamps from the API so that
-        // _sortUsers('recent') works correctly before socket events arrive.
-        // 'lastMessage' stores the raw message content; 'lastMessagePreview'
-        // is the formatted display string.  Without message type info from the
-        // API both are set to the raw text — socket events will later supply
-        // properly type-formatted previews (e.g. "📷 Photo").
-        for (final u in newUsers) {
-          final uid = u['id']?.toString() ?? '';
-          if (uid.isEmpty) continue;
-          final rawTime = u['last_message_time'];
-          if (rawTime == null) continue;
-          final lastTime = AdminSocketService.parseTimestamp(rawTime);
-          if (lastTime == null) continue;
-          // Only update if we don't already have a fresher entry from a socket event.
-          final existingTs = conversationMap[uid]?['lastTimestamp'] as DateTime?;
-          if (existingTs == null || lastTime.isAfter(existingTs)) {
-            final rawMsg = u['chat_message']?.toString() ?? '';
-            conversationMap[uid] = {
-              'lastMessage':        rawMsg,
-              'lastMessagePreview': rawMsg,
-              'lastTimestamp':      lastTime,
-              'lastMessageType':    'text',
-            };
-          }
         }
 
         // Determine if more pages exist
@@ -358,63 +328,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
       if (idx == -1) {
         _fetchSingleUser(userId);
         // _fetchSingleUser calls _applyFilters() once the user is loaded.
-        return;
-      }
-      if (idx > 0) {
-        final user = _users.removeAt(idx);
-        _users.insert(0, user);
-      }
-
-      _applyFilters();
-    });
-
-    // Subscribe to send_message events broadcast to admin_room.
-    // These fire immediately (before the DB batch worker) for ALL messages,
-    // giving the sidebar an instant sort/preview update even when the admin
-    // has not joined a particular chat room.
-    _monitorMsgSub?.cancel();
-    _monitorMsgSub = _socketService.onMessageMonitor.listen((data) {
-      if (!mounted) return;
-      final senderIdStr   = data['senderId']?.toString()   ?? '';
-      final receiverIdStr = data['receiverId']?.toString() ?? '';
-
-      // Determine which non-admin user is involved in this message.
-      final String userId;
-      if (senderIdStr == senderId.toString()) {
-        // Admin sent the message — the other party is the receiver.
-        if (receiverIdStr.isEmpty || receiverIdStr == senderId.toString()) return;
-        userId = receiverIdStr;
-      } else {
-        // A user sent a message to admin.
-        if (senderIdStr.isEmpty) return;
-        userId = senderIdStr;
-      }
-
-      // Update conversationMap so this user sorts to the top under 'recent'.
-      // Prefer the server-supplied timestamp to avoid client clock-skew.
-      final preview = _messagePreviewFromSocket(data);
-      final DateTime msgTime =
-          AdminSocketService.parseTimestamp(data['timestamp']) ??
-          AdminSocketService.parseTimestamp(data['createdAt']) ??
-          DateTime.now();
-
-      // Only update if this event is strictly newer than what we already have,
-      // to avoid overwriting a fresher entry that arrived via onNewMessage first.
-      final existing = conversationMap[userId]?['lastTimestamp'] as DateTime?;
-      if (existing == null || msgTime.isAfter(existing)) {
-        conversationMap[userId] = {
-          'lastMessage':        data['message']?.toString()     ?? '',
-          'lastMessagePreview': preview,
-          'lastTimestamp':      msgTime,
-          'lastMessageType':    data['messageType']?.toString() ?? 'text',
-        };
-      }
-
-      // Move user to the front of the list for instant visual feedback.
-      final idx = _users.indexWhere((u) => u['id']?.toString() == userId);
-      if (idx == -1) {
-        // Unknown user — fetch their profile so they appear in the list.
-        _fetchSingleUser(userId);
         return;
       }
       if (idx > 0) {
@@ -1380,10 +1293,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                             () {
                               setState(() {
                                 _selectedChat = user;
-                                // Clear the unread badge immediately so the indicator
-                                // disappears as soon as the admin taps the conversation,
-                                // before the server's mark_read response arrives.
-                                _unreadCounts[user["id"].toString()] = 0;
                                 _updateSelectedChat();
                               });
                               // Persist the selected user so the chat reopens to the same conversation.
