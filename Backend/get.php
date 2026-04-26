@@ -82,9 +82,8 @@ $hasUnsentCol = $unsentCheck && $unsentCheck->num_rows > 0;
 // chat_room_id between admin (id=1) and any user (id > 1) is always "1_<userId>"
 // because string sort("1","N") = ["1","N"] for any N whose string > "1".
 // We use this to query chat_messages with the idx_chat_room_time index.
-$unsentFilter  = $hasUnsentCol ? 'AND  cm.is_unsent  = 0' : '';
+$unsentFilter = $hasUnsentCol ? 'AND  cm.is_unsent  = 0' : '';
 $unsentFilter2 = $hasUnsentCol ? 'AND  cm2.is_unsent = 0' : '';
-$unsentFilter3 = $hasUnsentCol ? 'AND  cm3.is_unsent = 0' : '';
 
 $mainSQL = "
     SELECT
@@ -112,15 +111,7 @@ $mainSQL = "
               $unsentFilter2
             ORDER  BY cm2.created_at DESC
             LIMIT  1
-        ) AS last_message_at,
-        (
-            SELECT cm3.sender_id
-            FROM   chat_messages cm3
-            WHERE  cm3.chat_room_id = CONCAT('1_', u.id)
-              $unsentFilter3
-            ORDER  BY cm3.created_at DESC
-            LIMIT  1
-        ) AS last_sender_id
+        ) AS last_message_at
     FROM  users u
     $whereSQL
     ORDER BY
@@ -195,31 +186,19 @@ while ($user = $result->fetch_assoc()) {
         }
     }
 
-    // Format last_message_time as ISO-8601 UTC so Flutter can parse it reliably.
-    $lastMsgAt = $user['last_message_at'] ?? null;
-    $lastMsgTimeIso = null;
-    if ($lastMsgAt) {
-        // MySQL session is set to Asia/Kathmandu (+05:45); convert explicitly to UTC.
-        $dt = new DateTime($lastMsgAt, new DateTimeZone('Asia/Kathmandu'));
-        $dt->setTimezone(new DateTimeZone('UTC'));
-        $lastMsgTimeIso = $dt->format('Y-m-d\TH:i:s\Z');
-    }
-
     $responseData[] = [
-        'id'                => (string)$userId,
-        'name'              => trim(($user['firstName'] ?? '') . ' ' . ($user['lastName'] ?? '')),
-        'gender'            => $gender,
-        'usertype'          => $user['usertype'] ?? '',
-        'profile_picture'   => $profile_picture,
-        'chat_message'      => $user['chat_message'] ?? '',
-        'last_message_time' => $lastMsgTimeIso,
-        'last_sender_id'    => $user['last_sender_id'] !== null ? (string)$user['last_sender_id'] : null,
-        'matches'           => $matchesCount,
-        'last_seen'         => $last_seen,
-        'last_seen_text'    => $last_seen_text,
-        'is_paid'           => $is_paid,
-        'is_online'         => $is_online,
-        'is_verified'       => !empty($user['isVerified']),
+        'id'              => (string)$userId,
+        'name'            => trim(($user['firstName'] ?? '') . ' ' . ($user['lastName'] ?? '')),
+        'gender'          => $gender,
+        'usertype'        => $user['usertype'] ?? '',
+        'profile_picture' => $profile_picture,
+        'chat_message'    => $user['chat_message'] ?? '',
+        'matches'         => $matchesCount,
+        'last_seen'       => $last_seen,
+        'last_seen_text'  => $last_seen_text,
+        'is_paid'         => $is_paid,
+        'is_online'       => $is_online,
+        'is_verified'     => !empty($user['isVerified']),
     ];
 }
 
