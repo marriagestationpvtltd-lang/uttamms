@@ -626,7 +626,17 @@ class SocketService {
   Future<Map<String, dynamic>> getMessages(String chatRoomId,
       {int page = 1, int limit = 20}) {
     final completer = Completer<Map<String, dynamic>>();
-    _socket?.emitWithAck(
+    // Fail fast when the socket is not available so callers see an immediate
+    // error instead of hanging for the full kRequestTimeout (15 s).
+    if (_socket == null || !_socket!.connected) {
+      Future.microtask(() {
+        if (!completer.isCompleted) {
+          completer.completeError(Exception('Socket not connected'));
+        }
+      });
+      return completer.future;
+    }
+    _socket!.emitWithAck(
       'get_messages',
       {'chatRoomId': chatRoomId, 'page': page, 'limit': limit},
       ack: (response) {
@@ -670,8 +680,10 @@ class SocketService {
 
   /// Fetch the user's chat room list (request-response via Socket.IO ack).
   Future<List<dynamic>> getChatRooms(String userId) async {
+    // Return empty list immediately when socket is not connected.
+    if (_socket == null || !_socket!.connected) return [];
     final completer = Completer<List<dynamic>>();
-    _socket?.emitWithAck(
+    _socket!.emitWithAck(
       'get_chat_rooms',
       {'userId': userId},
       ack: (response) {
@@ -791,6 +803,7 @@ class SocketService {
     _newMessageCtrl.close();
     _messageEditedCtrl.close();
     _messageDeletedCtrl.close();
+    _messageUnsentCtrl.close();
     _messageLikedCtrl.close();
     _messageReactionCtrl.close();
     _typingStartCtrl.close();
