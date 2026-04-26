@@ -758,6 +758,13 @@ class _ChatSidebarState extends State<ChatSidebar> {
       }
     }
 
+    // If a chat is currently open the admin has already seen those messages,
+    // so ensure the server data never re-adds an unread badge for it.
+    final String? openUserId = _selectedChat?['id']?.toString();
+    if (openUserId != null && openUserId.isNotEmpty) {
+      unreadCounts[openUserId] = 0;
+    }
+
     setState(() {
       conversationMap = tempMap;
       _unreadCounts = unreadCounts;
