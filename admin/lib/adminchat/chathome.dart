@@ -6022,9 +6022,10 @@ class _ChatWindowState extends State<ChatWindow> {
         );
       }
     } catch (e) {
+      debugPrint('Failed to send image(s): $e');
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text("Failed to send image(s): $e")));
+            .showSnackBar(const SnackBar(content: Text("Failed to send images. Please try again.")));
       }
     }
   }

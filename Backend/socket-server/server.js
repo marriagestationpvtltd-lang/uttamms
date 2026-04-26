@@ -268,12 +268,30 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage, limits: { fileSize: 25 * 1024 * 1024 } }); // 25 MB
 
+// Allowed MIME types per upload category
+const ALLOWED_IMAGE_MIMES = new Set([
+  'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
+]);
+const ALLOWED_VOICE_MIMES = new Set([
+  'audio/mpeg', 'audio/mp4', 'audio/webm', 'audio/ogg', 'audio/wav', 'audio/aac',
+  'audio/x-m4a', 'application/octet-stream',
+]);
+
+/** Build a public URL for an uploaded file. */
+function buildFileUrl(req, subDir, filename) {
+  return `${req.protocol}://${req.get('host')}/uploads/${subDir}/${filename}`;
+}
+
 // POST /upload?type=image|voice
 app.post('/upload', upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const subDir = req.query.type === 'voice' ? 'voice_messages' : 'chat_images';
-  const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${subDir}/${req.file.filename}`;
-  res.json({ url: fileUrl });
+  const isVoice = req.query.type === 'voice';
+  const subDir = isVoice ? 'voice_messages' : 'chat_images';
+  const allowed = isVoice ? ALLOWED_VOICE_MIMES : ALLOWED_IMAGE_MIMES;
+  if (!allowed.has(req.file.mimetype)) {
+    return res.status(400).json({ error: 'File type not allowed' });
+  }
+  res.json({ url: buildFileUrl(req, subDir, req.file.filename) });
 });
 
 // POST /upload-multiple?type=image
@@ -284,9 +302,11 @@ app.post('/upload-multiple', upload.array('files', 10), (req, res) => {
     return res.status(400).json({ error: 'No files uploaded' });
   }
   const subDir = 'chat_images';
-  const urls = req.files.map(f =>
-    `${req.protocol}://${req.get('host')}/uploads/${subDir}/${f.filename}`
-  );
+  const invalidFile = req.files.find(f => !ALLOWED_IMAGE_MIMES.has(f.mimetype));
+  if (invalidFile) {
+    return res.status(400).json({ error: 'One or more files have a disallowed type' });
+  }
+  const urls = req.files.map(f => buildFileUrl(req, subDir, f.filename));
   res.json({ urls });
 });
 
