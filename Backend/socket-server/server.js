@@ -1569,8 +1569,8 @@ io.on('connection', (socket) => {
       if (!authenticatedUserId) return; // require authentication
       const uid = authenticatedUserId;
 
-      // For "delete for everyone", only the sender may do so
-      if (deleteForEveryone) {
+      // For "delete for everyone", only the sender (or admin) may do so
+      if (deleteForEveryone && uid !== '1') {
         const senderId = await getMessageSender(messageId, chatRoomId);
         if (!senderId || senderId !== uid) return;
       }
@@ -1684,12 +1684,12 @@ io.on('connection', (socket) => {
       const uid = (userId || authenticatedUserId || '').toString();
       if (!uid) return;
 
-      // Only allow the sender to unsend
+      // Only allow the sender (or admin) to unsend
       const [[msg]] = await pool.query(
         'SELECT sender_id FROM chat_messages WHERE message_id = ? AND chat_room_id = ? LIMIT 1',
         [messageId, chatRoomId],
       );
-      if (!msg || msg.sender_id?.toString() !== uid) return;
+      if (!msg || (msg.sender_id?.toString() !== uid && uid !== '1')) return;
 
       await pool.query(
         `UPDATE chat_messages
