@@ -1082,6 +1082,25 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ── payment_updated ───────────────────────────────────────────────────────
+  // Emitted by the payment handler (PHP webhook or admin panel) to notify the
+  // admin chat list that a user's payment/subscription status has changed.
+  // Payload: { userId, usertype, is_paid }
+  // The event is broadcast to admin_room so all admin sessions update instantly.
+  socket.on('payment_updated', (data) => {
+    const { userId, usertype = '', is_paid = false } = data || {};
+    if (!userId) return;
+
+    const payload = {
+      userId:   userId.toString(),
+      usertype: usertype,
+      is_paid:  Boolean(is_paid),
+      timestamp: new Date().toISOString(),
+    };
+    console.log(`💳 payment_updated: userId=${userId} usertype=${usertype} is_paid=${is_paid}`);
+    io.to('admin_room').emit('payment_updated', payload);
+  });
+
   // ── set_active_chat ───────────────────────────────────────────────────────
   socket.on('set_active_chat', async ({ userId, chatRoomId, isActive }) => {
     const uid = (userId || authenticatedUserId || '').toString();
@@ -1155,6 +1174,10 @@ io.on('connection', (socket) => {
     // Emit only the client-facing fields (omit worker-only metadata).
     const { user1Name: _u1n, user2Name: _u2n, user1Image: _u1i, user2Image: _u2i, _retries, ...clientMsg } = msgDoc;
     io.to(chatRoomId).emit('new_message', clientMsg);
+    // Also emit to each participant's personal room so their chat-list screen
+    // receives the event instantly even when they have not joined the chat room.
+    io.to(`user:${senderId}`).emit('new_message', clientMsg);
+    io.to(`user:${receiverId}`).emit('new_message', clientMsg);
 
     // ── Real-time admin monitoring ────────────────────────────────────────
     // Emit a dedicated send_message event to admin_room for ALL message types
