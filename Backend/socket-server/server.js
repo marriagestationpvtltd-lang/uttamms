@@ -277,7 +277,7 @@ app.post('/upload', upload.single('file'), (req, res) => {
 });
 
 // POST /upload-multiple?type=image
-// Accepts up to 10 image files under the field name 'files[]' and returns
+// Accepts up to 10 image files under the field name 'files' and returns
 // an array of public URLs so the admin can send image_gallery messages.
 app.post('/upload-multiple', upload.array('files', 10), (req, res) => {
   if (!req.files || req.files.length === 0) {

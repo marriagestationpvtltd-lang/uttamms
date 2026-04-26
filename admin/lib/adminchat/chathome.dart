@@ -5667,7 +5667,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               right: -4,
                               child: GestureDetector(
                                 onTap: () => setState(() {
-                                  _selectedImages = List<PlatformFile>.from(_selectedImages)..removeAt(index);
+                                  _selectedImages.removeAt(index);
                                 }),
                                 child: Container(
                                   width: 20,
