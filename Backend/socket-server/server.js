@@ -10,6 +10,8 @@ const multer    = require('multer');
 const path      = require('path');
 const fs        = require('fs');
 const { v4: uuidv4 } = require('uuid');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const Redis     = require('ioredis');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuration
@@ -20,6 +22,12 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s =>
 // Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
+
+// Set REDIS_ENABLED=false in .env to run in single-instance / dev mode without Redis.
+const REDIS_ENABLED = (process.env.REDIS_ENABLED ?? 'true') !== 'false';
+const REDIS_HOST    = process.env.REDIS_HOST     || '127.0.0.1';
+const REDIS_PORT    = parseInt(process.env.REDIS_PORT || '6379', 10);
+const REDIS_PASSWORD = process.env.REDIS_PASSWORD || undefined;
 
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
@@ -252,6 +260,44 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Redis adapter (multi-instance / cluster mode)
+// Enabled when REDIS_ENABLED=true (the default).
+// When running multiple PM2 workers via ecosystem.config.js, the Redis adapter
+// synchronises Socket.IO rooms and events across all worker processes so that
+// a message emitted by worker A is automatically delivered to sockets connected
+// to workers B, C, D, etc.
+// ──────────────────────────────────────────────────────────────────────────────
+if (REDIS_ENABLED) {
+  const redisOpts = {
+    host:            REDIS_HOST,
+    port:            REDIS_PORT,
+    password:        REDIS_PASSWORD,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    lazyConnect:     true,
+  };
+
+  const pubClient = new Redis(redisOpts);
+  const subClient = pubClient.duplicate();
+
+  // Connect both clients before attaching the adapter.
+  Promise.all([pubClient.connect(), subClient.connect()])
+    .then(() => {
+      io.adapter(createAdapter(pubClient, subClient));
+      console.log(`✅ Socket.IO Redis adapter connected (${REDIS_HOST}:${REDIS_PORT})`);
+    })
+    .catch(err => {
+      console.error('❌ Redis adapter connection failed:', err.message);
+      console.warn('⚠️  Running without Redis adapter — multi-instance state will NOT be shared');
+    });
+
+  pubClient.on('error', err => console.error('Redis pub error:', err.message));
+  subClient.on('error', err => console.error('Redis sub error:', err.message));
+} else {
+  console.log('ℹ️  Redis adapter disabled (REDIS_ENABLED=false) — single-instance mode');
+}
 
 // ──────────────────────────────────────────────────────────────────────────────
 // File upload (multer)
