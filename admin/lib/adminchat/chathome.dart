@@ -1770,7 +1770,8 @@ class _ChatWindowState extends State<ChatWindow> {
   }
 
   bool _canMutateMessage(Map<String, dynamic> data, bool isSentByMe) {
-    return isSentByMe && data['deleted'] != true && data['unsent'] != true;
+    // Admin can delete/unsend any message (not just their own).
+    return data['deleted'] != true && data['unsent'] != true;
   }
 
   Future<void> _syncReplySnapshots(
@@ -3599,21 +3600,26 @@ class _ChatWindowState extends State<ChatWindow> {
                     child: CachedNetworkImage(
                       imageUrl: imageUrl,
                       width: MediaQuery.of(context).size.width * 0.24,
+                      height: MediaQuery.of(context).size.width * 0.24,
                       memCacheWidth: (MediaQuery.of(context).size.width * 0.24).toInt(),
+                      memCacheHeight: (MediaQuery.of(context).size.width * 0.24).toInt(),
                       fit: BoxFit.cover,
-                      placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: kPrimary)),
-                      errorWidget: (context, url, error) {
-                        return Column(
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (context, url) => Container(
+                        color: Colors.grey.shade200,
+                        child: const Center(child: CircularProgressIndicator(color: kPrimary, strokeWidth: 2)),
+                      ),
+                      errorWidget: (context, url, error) => Container(
+                        color: Colors.grey.shade200,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Text('Error loading image'),
-                            Text('Details: $error', style: const TextStyle(fontSize: 10)),
-                            ElevatedButton(
-                              onPressed: () => setState(() {}),
-                              child: const Text("Retry"),
-                            ),
+                            Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 32),
+                            const SizedBox(height: 6),
+                            Text('File not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
                           ],
-                        );
-                      },
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -3630,6 +3636,7 @@ class _ChatWindowState extends State<ChatWindow> {
         messageId: messageId,
         replyPayload: replyPayload,
         onForward: () => _forwardImage(imageUrl, 'image'),
+        onCopy: () => _copyToClipboard(imageUrl),
       );
     }
 
@@ -3680,6 +3687,7 @@ class _ChatWindowState extends State<ChatWindow> {
         messageId: messageId,
         replyPayload: replyPayload,
         onForward: () => _forwardImage(message, 'image_gallery'),
+        onCopy: () => _copyToClipboard(galleryUrls.join('\n')),
       );
     }
 
@@ -4682,6 +4690,7 @@ class _ChatWindowState extends State<ChatWindow> {
       canMutate: canMutate,
       messageId: messageId,
       replyPayload: replyPayload,
+      onCopy: (deleted || unsent) ? null : () => _copyToClipboard(message),
     );
   }
 
@@ -4693,6 +4702,7 @@ class _ChatWindowState extends State<ChatWindow> {
     required String? messageId,
     required Map<String, dynamic>? replyPayload,
     VoidCallback? onForward,
+    VoidCallback? onCopy,
   }) {
     if (messageId == null || replyPayload == null) {
       return Align(
@@ -4719,6 +4729,7 @@ class _ChatWindowState extends State<ChatWindow> {
       onDelete: canMutate ? () => _deleteMessage(messageId) : null,
       onUnsend: canMutate ? () => _unsendMessage(messageId) : null,
       onForward: onForward,
+      onCopy: onCopy,
     );
   }
 
@@ -4834,12 +4845,28 @@ class _ChatWindowState extends State<ChatWindow> {
                       imageUrl: imageUrl!,
                       width: 50,
                       height: 54,
+                      memCacheWidth: 50,
+                      memCacheHeight: 54,
                       fit: BoxFit.cover,
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (_, __) => Container(
+                        width: 50,
+                        height: 54,
+                        color: Colors.grey.shade200,
+                        child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                      ),
                       errorWidget: (_, __, ___) => Container(
                         width: 50,
                         height: 54,
-                        color: Colors.grey.shade300,
-                        child: Icon(Icons.image, color: Colors.grey.shade500, size: 24),
+                        color: Colors.grey.shade200,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 18),
+                            const SizedBox(height: 2),
+                            Text('Not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 8)),
+                          ],
+                        ),
                       ),
                     ),
                   )
@@ -4876,13 +4903,23 @@ class _ChatWindowState extends State<ChatWindow> {
       Widget img = CachedNetworkImage(
         imageUrl: url,
         fit: BoxFit.cover,
+        memCacheWidth: gridWidth.toInt(),
+        memCacheHeight: gridWidth.toInt(),
+        fadeInDuration: const Duration(milliseconds: 150),
         placeholder: (ctx, url) => Container(
           color: Colors.grey.shade200,
           child: const Center(child: CircularProgressIndicator(color: adminPrimary, strokeWidth: 2)),
         ),
         errorWidget: (_, __, ___) => Container(
-          color: Colors.grey.shade300,
-          child: Icon(Icons.broken_image, color: Colors.grey.shade500),
+          color: Colors.grey.shade200,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 28),
+              const SizedBox(height: 4),
+              Text('File not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+            ],
+          ),
         ),
       );
       return GestureDetector(
@@ -6179,6 +6216,9 @@ class _ChatWindowState extends State<ChatWindow> {
         ? replyPayload['imageUrl']?.toString()
         : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
     final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
+    final copyInfo = _resolveCopyInfo(replyPayload);
+    final String? copyText = copyInfo.copyText;
+    final bool canCopy = copyInfo.canCopy;
 
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
     final String currentRoomId =
@@ -6326,6 +6366,16 @@ class _ChatWindowState extends State<ChatWindow> {
                               _forwardImage(imagePayload!, msgType ?? 'image');
                             },
                           ),
+                        if (canCopy)
+                          _adminOverlayMenuItem(
+                            Icons.copy_rounded,
+                            "Copy",
+                            const Color(0xFF475569),
+                            () {
+                              if (mounted) setState(() => _showMsgActionOverlay = false);
+                              _copyToClipboard(copyText!);
+                            },
+                          ),
                         if (_overlayIsSentByMe && _overlayCanEdit)
                           _adminOverlayMenuItem(
                             Icons.edit,
@@ -6337,7 +6387,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                   messageId, replyPayload['message']?.toString() ?? '');
                             },
                           ),
-                        if (_overlayIsSentByMe && _overlayCanMutate) ...[
+                        if (_overlayCanMutate) ...[
                           _adminOverlayMenuItem(
                             Icons.delete,
                             "Delete",
@@ -6400,6 +6450,10 @@ class _ChatWindowState extends State<ChatWindow> {
         ? replyPayload['imageUrl']?.toString()
         : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
     final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
+    final copyInfo = _resolveCopyInfo(replyPayload);
+    final String? copyText = copyInfo.copyText;
+    final bool canCopy = copyInfo.canCopy;
+    final bool copyIsImage = copyInfo.isImage;
 
     // Get the current chat room ID
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
@@ -6483,6 +6537,15 @@ class _ChatWindowState extends State<ChatWindow> {
                   _forwardImage(imagePayload!, msgType ?? 'image');
                 },
               ),
+            if (canCopy)
+              ListTile(
+                leading: const Icon(Icons.copy_rounded, size: 20, color: Color(0xFF475569)),
+                title: Text(copyIsImage ? "Copy Link" : "Copy", style: const TextStyle(fontSize: 14)),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _copyToClipboard(copyText!);
+                },
+              ),
             if (isSentByMe && canEdit) ...[
               ListTile(
                 leading: const Icon(Icons.edit, size: 20, color: Color(0xFF0EA5E9)),
@@ -6493,7 +6556,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 },
               ),
             ],
-            if (isSentByMe && canMutate) ...[
+            if (canMutate) ...[
               ListTile(
                 leading: const Icon(Icons.delete, size: 20, color: Color(0xFFEF4444)),
                 title: const Text("Delete", style: TextStyle(fontSize: 14)),
@@ -6528,6 +6591,37 @@ class _ChatWindowState extends State<ChatWindow> {
     String senderName,
   ) {
     _startReply(messageId, originalMessage, senderid, senderName);
+  }
+
+  Future<void> _copyToClipboard(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Copied to clipboard'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+    }
+  }
+
+  /// Returns the copyable text and whether the copy action is available for a
+  /// given message payload. Used by both the overlay and the bottom sheet.
+  ({String? copyText, bool canCopy, bool isImage}) _resolveCopyInfo(
+      Map<String, dynamic> replyPayload) {
+    final String? msgType = replyPayload['type']?.toString();
+    final bool isImageMsg = msgType == 'image' || msgType == 'image_gallery';
+    final String? imagePayload = msgType == 'image'
+        ? replyPayload['imageUrl']?.toString()
+        : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
+    final String? copyText = isImageMsg
+        ? imagePayload
+        : ((msgType == null || msgType == 'text') ? replyPayload['message']?.toString() : null);
+    final bool canCopy = copyText != null &&
+        copyText.isNotEmpty &&
+        replyPayload['deleted'] != true &&
+        replyPayload['unsent'] != true;
+    return (copyText: copyText, canCopy: canCopy, isImage: isImageMsg);
   }
 
   void _deleteMessage(String messageId) {
@@ -6900,6 +6994,7 @@ class _HoverableMessageBubble extends StatefulWidget {
     this.onDelete,
     this.onUnsend,
     this.onForward,
+    this.onCopy,
     this.canEdit = false,
     this.canDelete = false,
     this.canUnsend = false,
@@ -6912,6 +7007,7 @@ class _HoverableMessageBubble extends StatefulWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onUnsend;
   final VoidCallback? onForward;
+  final VoidCallback? onCopy;
   final bool canEdit;
   final bool canDelete;
   final bool canUnsend;
@@ -6960,6 +7056,7 @@ class _HoverableMessageBubbleState extends State<_HoverableMessageBubble>
       onDelete: widget.onDelete,
       onUnsend: widget.onUnsend,
       onForward: widget.onForward,
+      onCopy: widget.onCopy,
       canEdit: widget.canEdit,
       canDelete: widget.canDelete,
       canUnsend: widget.canUnsend,
@@ -7004,6 +7101,7 @@ class _MessageActionMenu extends StatelessWidget {
     this.onDelete,
     this.onUnsend,
     this.onForward,
+    this.onCopy,
     this.canEdit = false,
     this.canDelete = false,
     this.canUnsend = false,
@@ -7014,6 +7112,7 @@ class _MessageActionMenu extends StatelessWidget {
   final VoidCallback? onDelete;
   final VoidCallback? onUnsend;
   final VoidCallback? onForward;
+  final VoidCallback? onCopy;
   final bool canEdit;
   final bool canDelete;
   final bool canUnsend;
@@ -7053,10 +7152,15 @@ class _MessageActionMenu extends StatelessWidget {
           case _MsgAction.forward:
             onForward?.call();
             break;
+          case _MsgAction.copy:
+            onCopy?.call();
+            break;
         }
       },
       itemBuilder: (context) => [
         _menuItem(_MsgAction.reply, Icons.reply_rounded, 'Reply', kPrimary),
+        if (onCopy != null)
+          _menuItem(_MsgAction.copy, Icons.copy_rounded, 'Copy', const Color(0xFF475569)),
         if (onForward != null)
           _menuItem(_MsgAction.forward, Icons.forward_rounded, 'Forward', const Color(0xFF10B981)),
         if (canEdit)
@@ -7089,7 +7193,7 @@ class _MessageActionMenu extends StatelessWidget {
   }
 }
 
-enum _MsgAction { reply, edit, delete, unsend, forward }
+enum _MsgAction { reply, edit, delete, unsend, forward, copy }
 
 // ---------------------------------------------------------------------------
 // Data class grouping chat messages by calendar date.
@@ -7554,10 +7658,17 @@ class _ZoomablePageImageState extends State<_ZoomablePageImage> {
         child: CachedNetworkImage(
           imageUrl: widget.url,
           fit: BoxFit.contain,
-          errorWidget: (_, __, ___) => const Icon(
-            Icons.broken_image,
-            color: Colors.white54,
-            size: 64,
+          fadeInDuration: const Duration(milliseconds: 150),
+          placeholder: (_, __) => const Center(
+            child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
+          ),
+          errorWidget: (_, __, ___) => Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
+              const SizedBox(height: 8),
+              const Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
+            ],
           ),
         ),
       ),
@@ -7769,10 +7880,23 @@ class _AdminUserProfileSheet extends StatelessWidget {
                               CachedNetworkImage(
                                 imageUrl: sharedPhotos[i].url,
                                 fit: BoxFit.cover,
-                                errorWidget: (_, __, ___) => const Icon(
-                                  Icons.photo,
-                                  color: Colors.grey,
-                                  size: 30,
+                                memCacheWidth: 80,
+                                memCacheHeight: 80,
+                                fadeInDuration: const Duration(milliseconds: 150),
+                                placeholder: (_, __) => Container(
+                                  color: Colors.grey.shade200,
+                                  child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                                ),
+                                errorWidget: (_, __, ___) => Container(
+                                  color: Colors.grey.shade200,
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 22),
+                                      const SizedBox(height: 2),
+                                      Text('Not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 9)),
+                                    ],
+                                  ),
                                 ),
                               ),
                               if (isLastVisible)
@@ -8059,10 +8183,17 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                     child: CachedNetworkImage(
                       imageUrl: _photos[i].url,
                       fit: BoxFit.contain,
-                      errorWidget: (_, __, ___) => const Icon(
-                        Icons.broken_image,
-                        color: Colors.white54,
-                        size: 64,
+                      fadeInDuration: const Duration(milliseconds: 150),
+                      placeholder: (_, __) => const Center(
+                        child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
+                      ),
+                      errorWidget: (_, __, ___) => Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
+                          const SizedBox(height: 8),
+                          const Text('File not found', style: TextStyle(color: Colors.white54, fontSize: 14)),
+                        ],
                       ),
                     ),
                   ),
@@ -8192,10 +8323,16 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                           child: CachedNetworkImage(
                             imageUrl: _photos[i].url,
                             fit: BoxFit.cover,
-                            errorWidget: (_, __, ___) => const Icon(
-                              Icons.broken_image,
-                              color: Colors.white54,
-                              size: 24,
+                            memCacheWidth: _thumbSize.toInt(),
+                            memCacheHeight: _thumbSize.toInt(),
+                            fadeInDuration: const Duration(milliseconds: 150),
+                            placeholder: (_, __) => Container(
+                              color: Colors.white10,
+                              child: const Center(child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 1.5)),
+                            ),
+                            errorWidget: (_, __, ___) => Container(
+                              color: Colors.white10,
+                              child: const Icon(Icons.image_not_supported_outlined, color: Colors.white38, size: 20),
                             ),
                           ),
                         ),
@@ -8309,10 +8446,23 @@ class _AdminGalleryGridPageState extends State<_AdminGalleryGridPage> {
                       child: CachedNetworkImage(
                         imageUrl: widget.photos[i].url,
                         fit: BoxFit.cover,
-                        errorWidget: (_, __, ___) => Icon(
-                          Icons.broken_image,
-                          color: Colors.grey[400],
-                          size: 40,
+                        memCacheWidth: 200,
+                        memCacheHeight: 200,
+                        fadeInDuration: const Duration(milliseconds: 150),
+                        placeholder: (_, __) => Container(
+                          color: Colors.grey.shade200,
+                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                        ),
+                        errorWidget: (_, __, ___) => Container(
+                          color: Colors.grey.shade200,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.image_not_supported_outlined, color: Colors.grey.shade500, size: 32),
+                              const SizedBox(height: 4),
+                              Text('File not found', style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+                            ],
+                          ),
                         ),
                       ),
                     ),
