@@ -106,6 +106,10 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _suppressNextAutoScroll = false;
   bool _isInitialLoad = true;
   int? _prevUserId;
+  // Cursor-based load-more: holds the oldest message timestamp returned by the
+  // server so the next page request can use WHERE created_at < cursor instead
+  // of a slow OFFSET scan.
+  String? _nextCursor;
 
   // Scroll lock during message loading to prevent screen shaking
   bool _scrollLocked = true;
@@ -1398,6 +1402,7 @@ class _ChatWindowState extends State<ChatWindow> {
         _messages = [];
         _filteredMessages = [];
         _currentPage = 1;
+        _nextCursor = null;
         _hasMoreMessages = true;
         _isInitialLoad = true;
         _scrollLocked = true;
@@ -1452,6 +1457,8 @@ class _ChatWindowState extends State<ChatWindow> {
           })
           .toList();
       final hasMore = result['hasMore'] == true;
+      // Store cursor for efficient subsequent page loads.
+      final newCursor = result['nextCursor']?.toString();
 
       setState(() {
         if (reset) {
@@ -1464,6 +1471,7 @@ class _ChatWindowState extends State<ChatWindow> {
         _hasMoreMessages = hasMore;
         _isLoadingMore = false;
         _isInitialLoad = false;
+        if (newCursor != null) _nextCursor = newCursor;
       });
 
       if (reset) {
@@ -2040,16 +2048,29 @@ class _ChatWindowState extends State<ChatWindow> {
     final double oldMaxExtent = _scrollController.hasClients
         ? _scrollController.position.maxScrollExtent
         : 0;
-    _currentPage++;
-    _socketService
-        .getMessages(roomId, page: _currentPage, limit: _pageSize)
-        .then((result) {
+
+    // Use cursor-based pagination when a cursor is available (avoids slow OFFSET
+    // scans on large histories).  Fall back to page-based for older servers.
+    final Future<Map<String, dynamic>> fetchFuture = (_nextCursor != null)
+        ? _socketService.getMessagesWithCursor(
+            roomId,
+            beforeTimestamp: _nextCursor!,
+            limit: _pageSize,
+          )
+        : _socketService.getMessages(
+            roomId,
+            page: ++_currentPage,
+            limit: _pageSize,
+          );
+
+    fetchFuture.then((result) {
       if (!mounted) return;
       final msgs = (result['messages'] as List? ?? [])
           .map((m) =>
               _socketMsgToAdminData(Map<String, dynamic>.from(m as Map)))
           .toList();
       final hasMore = result['hasMore'] == true;
+      final newCursor = result['nextCursor']?.toString();
       final existingIds = _messages.map((m) => m['messageId']).toSet();
       final newMsgs =
           msgs.where((m) => !existingIds.contains(m['messageId'])).toList();
@@ -2058,6 +2079,7 @@ class _ChatWindowState extends State<ChatWindow> {
         _hasMoreMessages = hasMore;
         _isLoadingMore = false;
         _suppressNextAutoScroll = false;
+        if (newCursor != null) _nextCursor = newCursor;
       });
       // Restore scroll position so the user stays at the same message.
       // Shift by the height added at the top (newMaxExtent - oldMaxExtent).
@@ -2070,7 +2092,7 @@ class _ChatWindowState extends State<ChatWindow> {
         }
       });
     }).catchError((e) {
-      _currentPage--;
+      if (_nextCursor == null) _currentPage--;
       if (mounted) setState(() { _isLoadingMore = false; _suppressNextAutoScroll = false; });
     });
   }
@@ -2512,6 +2534,7 @@ class _ChatWindowState extends State<ChatWindow> {
     if (userChanged) {
       _cachedReceiverId = chatProvider.id;
       _hasMoreMessages = true;
+      _nextCursor = null;
       _suppressNextAutoScroll = false;
       _messageKeys.clear();
       _messageIndexMap.clear();
