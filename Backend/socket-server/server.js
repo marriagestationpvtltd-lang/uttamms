@@ -934,17 +934,125 @@ async function getChatRooms(userId) {
       ORDER BY cr.last_message_time DESC`,
     [userId, userId],
   );
-  return rooms.map(r => ({
-    chatRoomId:          r.id,
-    participants:        JSON.parse(r.participants),
-    participantNames:    JSON.parse(r.participant_names),
-    participantImages:   JSON.parse(r.participant_images),
-    lastMessage:         r.last_message,
-    lastMessageType:     r.last_message_type,
-    lastMessageTime:     r.last_message_time,
-    lastMessageSenderId: r.last_message_sender_id,
-    unreadCount:         r.unread_count,
-  }));
+
+  if (rooms.length === 0) return [];
+
+  // Collect all unique other-participant IDs across all rooms
+  const otherParticipantIds = new Set();
+  for (const r of rooms) {
+    const participants = JSON.parse(r.participants);
+    for (const pid of participants) {
+      if (pid.toString() !== userId.toString()) {
+        otherParticipantIds.add(pid.toString());
+      }
+    }
+  }
+
+  const userInfoMap = {};
+
+  if (otherParticipantIds.size > 0) {
+    const pidArray = Array.from(otherParticipantIds);
+    const placeholders = pidArray.map(() => '?').join(',');
+
+    // Batch-fetch user profile info (privacy, paid status, verified status)
+    const [userRows] = await pool.query(
+      `SELECT id, privacy, usertype, isVerified FROM users WHERE id IN (${placeholders})`,
+      pidArray,
+    );
+    for (const u of userRows) {
+      userInfoMap[u.id.toString()] = {
+        privacy:    u.privacy    || 'public',
+        usertype:   u.usertype   || 'free',
+        isVerified: u.isVerified === 1,
+        isOnline:   false,
+        lastSeen:   null,
+      };
+    }
+
+    // Batch-fetch online / last-seen status
+    const [onlineRows] = await pool.query(
+      `SELECT user_id, is_online, last_seen FROM user_online_status WHERE user_id IN (${placeholders})`,
+      pidArray,
+    );
+    for (const o of onlineRows) {
+      const uid = o.user_id.toString();
+      if (userInfoMap[uid]) {
+        userInfoMap[uid].isOnline = o.is_online === 1;
+        userInfoMap[uid].lastSeen = o.last_seen ? o.last_seen.toISOString() : null;
+      }
+    }
+
+    // Batch-fetch photo-request status for (userId ↔ each other participant)
+    const [photoRows] = await pool.query(
+      `SELECT
+         CASE WHEN sender_id = ? THEN receiver_id ELSE sender_id END AS other_id,
+         status
+       FROM proposals
+       WHERE request_type = 'Photo'
+         AND (
+           (sender_id = ? AND receiver_id IN (${placeholders}))
+           OR (receiver_id = ? AND sender_id IN (${placeholders}))
+         )
+       ORDER BY id DESC`,
+      [userId, userId, ...pidArray, userId, ...pidArray],
+    );
+    // Keep only the most recent request per other participant
+    const photoRequestMap = {};
+    for (const pr of photoRows) {
+      const otherId = pr.other_id.toString();
+      if (!photoRequestMap[otherId]) {
+        photoRequestMap[otherId] = pr.status || 'pending';
+      }
+    }
+    // Attach photo-request status to userInfoMap
+    for (const pid of pidArray) {
+      if (userInfoMap[pid]) {
+        userInfoMap[pid].photoRequest = photoRequestMap[pid] || 'not_sent';
+      }
+    }
+  }
+
+  return rooms.map(r => {
+    const participants = JSON.parse(r.participants);
+
+    const participantPrivacy         = {};
+    const participantPhotoRequests   = {};
+    const participantPaidStatus      = {};
+    const participantVerifiedStatus  = {};
+    const participantOnlineStatus    = {};
+    const participantLastSeen        = {};
+
+    for (const pid of participants) {
+      const pidStr = pid.toString();
+      const info = userInfoMap[pidStr];
+      if (info) {
+        participantPrivacy[pidStr]        = info.privacy;
+        participantPhotoRequests[pidStr]  = info.photoRequest || 'not_sent';
+        participantPaidStatus[pidStr]     = info.usertype;
+        participantVerifiedStatus[pidStr] = info.isVerified ? 1 : 0;
+        participantOnlineStatus[pidStr]   = info.isOnline;
+        participantLastSeen[pidStr]       = info.lastSeen;
+      }
+    }
+
+    return {
+      chatRoomId:                r.id,
+      participants:              participants,
+      participantNames:          JSON.parse(r.participant_names),
+      participantImages:         JSON.parse(r.participant_images),
+      participantPrivacy,
+      participantPhotoRequests,
+      participantPaidStatus,
+      participantVerifiedStatus,
+      participantOnlineStatus,
+      participantLastSeen,
+      lastMessage:               r.last_message,
+      lastMessageType:           r.last_message_type,
+      lastMessageTime:           r.last_message_time,
+      lastMessageSenderId:       r.last_message_sender_id,
+      unreadCount:               r.unread_count,
+    };
+  });
 }
 
 async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
