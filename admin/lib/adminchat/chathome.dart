@@ -5328,16 +5328,28 @@ class _ChatWindowState extends State<ChatWindow> {
 
       final voiceUrl = await _uploadVoiceMessage(path);
       final String messageId = const Uuid().v4();
+      final String roomId = AdminSocketService.chatRoomId(receiverId);
 
-      _socketService.sendMessage(
-        chatRoomId: AdminSocketService.chatRoomId(receiverId),
-        receiverId: receiverId,
-        message: voiceUrl,
-        messageType: 'voice',
-        messageId: messageId,
-        receiverName: chatProvider.namee,
-        receiverImage: chatProvider.profilePicture,
-      );
+      if (_socketService.isConnected) {
+        _socketService.sendMessage(
+          chatRoomId: roomId,
+          receiverId: receiverId,
+          message: voiceUrl,
+          messageType: 'voice',
+          messageId: messageId,
+          receiverName: chatProvider.namee,
+          receiverImage: chatProvider.profilePicture,
+        );
+      } else {
+        await _sendMessageViaHttp(
+          roomId: roomId,
+          receiverId: receiverId,
+          message: voiceUrl,
+          messageType: 'voice',
+          messageId: messageId,
+          chatProvider: chatProvider,
+        );
+      }
 
       await NotificationService.sendChatNotification(
         recipientUserId: receiverId,
@@ -5999,10 +6011,7 @@ class _ChatWindowState extends State<ChatWindow> {
     String receiverId,
   ) async {
     try {
-      final connected = await _socketService.ensureConnected();
-      if (!connected) throw Exception('Socket not connected');
-
-      // Upload all images, collecting URLs
+      // Upload all images, collecting URLs (upload doesn't require socket)
       final List<String> urls = [];
       for (final file in images) {
         final url = await _uploadChatImage(
@@ -6015,18 +6024,31 @@ class _ChatWindowState extends State<ChatWindow> {
 
       if (!mounted) return;
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      final String roomId = AdminSocketService.chatRoomId(receiverId);
+      final bool connected = _socketService.isConnected;
 
       if (urls.length == 1) {
-        // Single image — use existing 'image' type for backward compatibility
-        _socketService.sendMessage(
-          chatRoomId: AdminSocketService.chatRoomId(receiverId),
-          receiverId: receiverId,
-          message: urls.first,
-          messageType: 'image',
-          messageId: 'image_${DateTime.now().millisecondsSinceEpoch}_$senderId',
-          receiverName: chatProvider.namee,
-          receiverImage: chatProvider.profilePicture,
-        );
+        final msgId = 'image_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+        if (connected) {
+          _socketService.sendMessage(
+            chatRoomId: roomId,
+            receiverId: receiverId,
+            message: urls.first,
+            messageType: 'image',
+            messageId: msgId,
+            receiverName: chatProvider.namee,
+            receiverImage: chatProvider.profilePicture,
+          );
+        } else {
+          await _sendMessageViaHttp(
+            roomId: roomId,
+            receiverId: receiverId,
+            message: urls.first,
+            messageType: 'image',
+            messageId: msgId,
+            chatProvider: chatProvider,
+          );
+        }
 
         await NotificationService.sendChatNotification(
           recipientUserId: receiverId,
@@ -6039,16 +6061,27 @@ class _ChatWindowState extends State<ChatWindow> {
           },
         );
       } else {
-        // Multiple images — use 'image_gallery' type with JSON array
-        _socketService.sendMessage(
-          chatRoomId: AdminSocketService.chatRoomId(receiverId),
-          receiverId: receiverId,
-          message: jsonEncode(urls),
-          messageType: 'image_gallery',
-          messageId: 'gallery_${DateTime.now().millisecondsSinceEpoch}_$senderId',
-          receiverName: chatProvider.namee,
-          receiverImage: chatProvider.profilePicture,
-        );
+        final msgId = 'gallery_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+        if (connected) {
+          _socketService.sendMessage(
+            chatRoomId: roomId,
+            receiverId: receiverId,
+            message: jsonEncode(urls),
+            messageType: 'image_gallery',
+            messageId: msgId,
+            receiverName: chatProvider.namee,
+            receiverImage: chatProvider.profilePicture,
+          );
+        } else {
+          await _sendMessageViaHttp(
+            roomId: roomId,
+            receiverId: receiverId,
+            message: jsonEncode(urls),
+            messageType: 'image_gallery',
+            messageId: msgId,
+            chatProvider: chatProvider,
+          );
+        }
 
         await NotificationService.sendChatNotification(
           recipientUserId: receiverId,
@@ -6193,19 +6226,33 @@ class _ChatWindowState extends State<ChatWindow> {
     // Clear typing indicator immediately on send.
     _clearAdminTypingStatus();
 
+    final String msgId = 'msg_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+    final String roomId = AdminSocketService.chatRoomId(receiverId);
+
     try {
-      final connected = await _socketService.ensureConnected();
-      if (!connected) throw Exception('Socket not connected');
-      _socketService.sendMessage(
-        chatRoomId: AdminSocketService.chatRoomId(receiverId),
-        receiverId: receiverId,
-        message: messageText,
-        messageType: 'text',
-        messageId: 'msg_${DateTime.now().millisecondsSinceEpoch}_$senderId',
-        repliedTo: replySnapshot,
-        receiverName: chatProvider.namee,
-        receiverImage: chatProvider.profilePicture,
-      );
+      if (_socketService.isConnected) {
+        _socketService.sendMessage(
+          chatRoomId: roomId,
+          receiverId: receiverId,
+          message: messageText,
+          messageType: 'text',
+          messageId: msgId,
+          repliedTo: replySnapshot,
+          receiverName: chatProvider.namee,
+          receiverImage: chatProvider.profilePicture,
+        );
+      } else {
+        // Socket unavailable — fall back to HTTP so the message is never lost
+        await _sendMessageViaHttp(
+          roomId: roomId,
+          receiverId: receiverId,
+          message: messageText,
+          messageType: 'text',
+          messageId: msgId,
+          repliedTo: replySnapshot,
+          chatProvider: chatProvider,
+        );
+      }
 
       await NotificationService.sendChatNotification(
         recipientUserId: receiverId,
@@ -6228,8 +6275,40 @@ class _ChatWindowState extends State<ChatWindow> {
         _textBeforeVoice = messageText;
       }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to send message")),
+        const SnackBar(content: Text("Failed to send message. Please try again.")),
       );
+    }
+  }
+
+  /// Sends a message via the HTTP fallback endpoint when the socket is unavailable.
+  Future<void> _sendMessageViaHttp({
+    required String roomId,
+    required String receiverId,
+    required String message,
+    required String messageType,
+    required String messageId,
+    Map<String, dynamic>? repliedTo,
+    required ChatProvider chatProvider,
+  }) async {
+    final response = await http.post(
+      Uri.parse(kAdminSocketUrl).replace(path: '/api/send-message'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'chatRoomId': roomId,
+        'senderId': senderId.toString(),
+        'receiverId': receiverId,
+        'message': message,
+        'messageType': messageType,
+        'messageId': messageId,
+        if (repliedTo != null) 'repliedTo': repliedTo,
+        'user1Name': 'Admin',
+        'user2Name': chatProvider.namee ?? '',
+        'user1Image': '',
+        'user2Image': chatProvider.profilePicture ?? '',
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('HTTP fallback failed: ${response.statusCode}');
     }
   }
 

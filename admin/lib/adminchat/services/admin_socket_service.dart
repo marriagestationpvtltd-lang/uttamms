@@ -29,7 +29,11 @@ class AdminSocketService {
 
   IO.Socket? _socket;
 
-  // ── Stream controllers ────────────────────────────────────────────────────
+  // ── Heartbeat ──────────────────────────────────────────────────────────────
+  // Emits a 'ping' event every 10 s so the server can update last_seen and
+  // the stale-user cleanup job won't incorrectly mark the admin as offline.
+  Timer? _heartbeatTimer;
+  static const Duration _heartbeatInterval = Duration(seconds: 10);
 
   final _newMessageCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageEditedCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -133,9 +137,12 @@ class AdminSocketService {
       _socket!.emit('authenticate', {'userId': kAdminUserId});
       // Join the admin_activity room to receive real-time activity events
       _socket!.emit('admin_join');
+      // Start heartbeat so the server keeps the admin's online status accurate
+      _startHeartbeat();
     });
 
     _socket!.onDisconnect((_) {
+      _stopHeartbeat();
       _connectionCtrl.add(false);
     });
 
@@ -260,10 +267,12 @@ class AdminSocketService {
   }
 
   void disconnect() {
+    _stopHeartbeat();
     _socket?.disconnect();
   }
 
   void dispose() {
+    _stopHeartbeat();
     disconnect();
     _socket?.dispose();
     _socket = null;
@@ -661,6 +670,22 @@ class AdminSocketService {
       'rejectedById': rejectedById,
       if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
     });
+  }
+
+  // ── Heartbeat helpers ─────────────────────────────────────────────────────
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      if (_socket?.connected == true) {
+        _socket!.emit('ping');
+      }
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────

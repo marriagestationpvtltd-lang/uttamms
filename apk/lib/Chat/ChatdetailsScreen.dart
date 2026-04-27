@@ -8,6 +8,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:ms2026/Chat/screen_state_manager.dart';
@@ -1083,21 +1084,33 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-      // Send via Socket.IO
-      _socketService.sendMessage(
-        chatRoomId:        widget.chatRoomId,
-        senderId:          widget.currentUserId,
-        receiverId:        widget.receiverId,
-        message:           messageText,
-        messageType:       'text',
-        messageId:         messageId,
-        repliedTo:         messageData['repliedTo'] as Map<String, dynamic>?,
-        isReceiverViewing: receiverViewingThisChat,
-        user1Name:         widget.currentUserName,
-        user2Name:         widget.receiverName,
-        user1Image:        widget.currentUserImage,
-        user2Image:        widget.receiverImage,
-      );
+      // Send via Socket.IO; fall back to HTTP if socket is unavailable
+      if (_socketService.isConnected) {
+        _socketService.sendMessage(
+          chatRoomId:        widget.chatRoomId,
+          senderId:          widget.currentUserId,
+          receiverId:        widget.receiverId,
+          message:           messageText,
+          messageType:       'text',
+          messageId:         messageId,
+          repliedTo:         messageData['repliedTo'] as Map<String, dynamic>?,
+          isReceiverViewing: receiverViewingThisChat,
+          user1Name:         widget.currentUserName,
+          user2Name:         widget.receiverName,
+          user1Image:        widget.currentUserImage,
+          user2Image:        widget.receiverImage,
+        );
+      } else {
+        await _sendMessageViaHttp(
+          chatRoomId:   widget.chatRoomId,
+          senderId:     widget.currentUserId,
+          receiverId:   widget.receiverId,
+          message:      messageText,
+          messageType:  'text',
+          messageId:    messageId,
+          repliedTo:    messageData['repliedTo'] as Map<String, dynamic>?,
+        );
+      }
 
       if (!receiverViewingThisChat) {
         // Send notification after message is saved
@@ -1122,6 +1135,38 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   bool _isSendingImage = false;
+
+  /// HTTP fallback for sending messages when the socket is unavailable.
+  Future<void> _sendMessageViaHttp({
+    required String chatRoomId,
+    required String senderId,
+    required String receiverId,
+    required String message,
+    required String messageType,
+    required String messageId,
+    Map<String, dynamic>? repliedTo,
+  }) async {
+    final response = await http.post(
+      Uri.parse(kSocketServerUrl).replace(path: '/api/send-message'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'chatRoomId': chatRoomId,
+        'senderId': senderId,
+        'receiverId': receiverId,
+        'message': message,
+        'messageType': messageType,
+        'messageId': messageId,
+        if (repliedTo != null) 'repliedTo': repliedTo,
+        'user1Name': widget.currentUserName,
+        'user2Name': widget.receiverName,
+        'user1Image': widget.currentUserImage,
+        'user2Image': widget.receiverImage,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('HTTP fallback failed: ${response.statusCode}');
+    }
+  }
 
   Future<void> _pickAndSendImages() async {
     if (_isEitherBlocked || _isSendingImage) return;
@@ -1187,19 +1232,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           _messagesCacheVersion++;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-        _socketService.sendMessage(
-          chatRoomId:        widget.chatRoomId,
-          senderId:          widget.currentUserId,
-          receiverId:        widget.receiverId,
-          message:           validUrls.first,
-          messageType:       'image',
-          messageId:         messageId,
-          isReceiverViewing: receiverViewingThisChat,
-          user1Name:         widget.currentUserName,
-          user2Name:         widget.receiverName,
-          user1Image:        widget.currentUserImage,
-          user2Image:        widget.receiverImage,
-        );
+        if (_socketService.isConnected) {
+          _socketService.sendMessage(
+            chatRoomId:        widget.chatRoomId,
+            senderId:          widget.currentUserId,
+            receiverId:        widget.receiverId,
+            message:           validUrls.first,
+            messageType:       'image',
+            messageId:         messageId,
+            isReceiverViewing: receiverViewingThisChat,
+            user1Name:         widget.currentUserName,
+            user2Name:         widget.receiverName,
+            user1Image:        widget.currentUserImage,
+            user2Image:        widget.receiverImage,
+          );
+        } else {
+          await _sendMessageViaHttp(
+            chatRoomId:  widget.chatRoomId,
+            senderId:    widget.currentUserId,
+            receiverId:  widget.receiverId,
+            message:     validUrls.first,
+            messageType: 'image',
+            messageId:   messageId,
+          );
+        }
       } else {
         // Multiple images — optimistic UI then send
         final messageId = _uuid.v4();
@@ -1219,19 +1275,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
           _messagesCacheVersion++;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-        _socketService.sendMessage(
-          chatRoomId:        widget.chatRoomId,
-          senderId:          widget.currentUserId,
-          receiverId:        widget.receiverId,
-          message:           jsonEncode(validUrls),
-          messageType:       'image_gallery',
-          messageId:         messageId,
-          isReceiverViewing: receiverViewingThisChat,
-          user1Name:         widget.currentUserName,
-          user2Name:         widget.receiverName,
-          user1Image:        widget.currentUserImage,
-          user2Image:        widget.receiverImage,
-        );
+        if (_socketService.isConnected) {
+          _socketService.sendMessage(
+            chatRoomId:        widget.chatRoomId,
+            senderId:          widget.currentUserId,
+            receiverId:        widget.receiverId,
+            message:           jsonEncode(validUrls),
+            messageType:       'image_gallery',
+            messageId:         messageId,
+            isReceiverViewing: receiverViewingThisChat,
+            user1Name:         widget.currentUserName,
+            user2Name:         widget.receiverName,
+            user1Image:        widget.currentUserImage,
+            user2Image:        widget.receiverImage,
+          );
+        } else {
+          await _sendMessageViaHttp(
+            chatRoomId:  widget.chatRoomId,
+            senderId:    widget.currentUserId,
+            receiverId:  widget.receiverId,
+            message:     jsonEncode(validUrls),
+            messageType: 'image_gallery',
+            messageId:   messageId,
+          );
+        }
       }
 
       if (!receiverViewingThisChat) {
@@ -1381,19 +1448,30 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       });
       WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
 
-      _socketService.sendMessage(
-        chatRoomId:        widget.chatRoomId,
-        senderId:          widget.currentUserId,
-        receiverId:        widget.receiverId,
-        message:           voiceUrl,
-        messageType:       'voice',
-        messageId:         messageId,
-        isReceiverViewing: receiverViewingThisChat,
-        user1Name:         widget.currentUserName,
-        user2Name:         widget.receiverName,
-        user1Image:        widget.currentUserImage,
-        user2Image:        widget.receiverImage,
-      );
+      if (_socketService.isConnected) {
+        _socketService.sendMessage(
+          chatRoomId:        widget.chatRoomId,
+          senderId:          widget.currentUserId,
+          receiverId:        widget.receiverId,
+          message:           voiceUrl,
+          messageType:       'voice',
+          messageId:         messageId,
+          isReceiverViewing: receiverViewingThisChat,
+          user1Name:         widget.currentUserName,
+          user2Name:         widget.receiverName,
+          user1Image:        widget.currentUserImage,
+          user2Image:        widget.receiverImage,
+        );
+      } else {
+        await _sendMessageViaHttp(
+          chatRoomId:  widget.chatRoomId,
+          senderId:    widget.currentUserId,
+          receiverId:  widget.receiverId,
+          message:     voiceUrl,
+          messageType: 'voice',
+          messageId:   messageId,
+        );
+      }
 
       if (!receiverViewingThisChat) {
         await NotificationService.sendChatNotification(
