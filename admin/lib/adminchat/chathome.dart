@@ -6088,14 +6088,16 @@ class _ChatWindowState extends State<ChatWindow> {
         throw Exception('Missing image bytes');
       }
       final effectiveName = fileName ?? 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final mimeString = _mimeTypeFromFilename(effectiveName);
+      final mimeString = fileName != null
+          ? _mimeTypeFromFilename(effectiveName)
+          : 'image/jpeg';
       final mimeParts = mimeString.split('/');
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
           imageBytes,
           filename: effectiveName,
-          contentType: MediaType(mimeParts[0], mimeParts.length > 1 ? mimeParts[1] : 'jpeg'),
+          contentType: MediaType(mimeParts[0], mimeParts[1]),
         ),
       );
     } else {
