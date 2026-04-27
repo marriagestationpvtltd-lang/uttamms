@@ -2033,4 +2033,14 @@ setInterval(() => {
 // ──────────────────────────────────────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`🚀 Socket.IO server running on port ${PORT}`);
+  if (!PUBLIC_URL) {
+    console.warn(
+      '⚠️  WARNING: PUBLIC_URL is not set in .env. Image URLs will be derived from request ' +
+      'headers (req.protocol + req.get("host")). Set PUBLIC_URL=https://your-domain.com in ' +
+      '.env to guarantee correct HTTPS image URLs regardless of proxy configuration. ' +
+      'Missing PUBLIC_URL can cause uploaded images to return non-public URLs.'
+    );
+  } else {
+    console.log(`🌐 PUBLIC_URL: ${PUBLIC_URL}`);
+  }
 });
