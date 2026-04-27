@@ -88,6 +88,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<Map<String, dynamic>> _socketChatRooms = [];
   bool _chatRoomsInitialized = false;
   StreamSubscription? _chatRoomsUpdateSubscription;
+  StreamSubscription? _newMessageSubscription;
 
   // Online status for chat participants
   final Map<String, bool> _onlineStatuses = {};
@@ -117,6 +118,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     _adminChatSubscription?.cancel();
     _onlineStatusSubscription?.cancel();
     _chatRoomsUpdateSubscription?.cancel();
+    _newMessageSubscription?.cancel();
     _adminStatusSubscription?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
@@ -486,6 +488,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         // Persist fresh data for next launch
         _saveChatRoomsToCache(parsedRooms);
         _startChatRoomsUpdateListener();
+        _startNewMessageListener();
         _startOnlineStatusListeners();
       });
     });
@@ -516,6 +519,53 @@ class _ChatListScreenState extends State<ChatListScreen>
       });
       // Keep cache up-to-date with real-time changes
       _saveChatRoomsToCache(parsedRooms);
+    });
+  }
+
+  /// Subscribe to new_message events so the chat list moves the relevant
+  /// conversation to the top instantly without waiting for chat_rooms_update.
+  void _startNewMessageListener() {
+    _newMessageSubscription?.cancel();
+    _newMessageSubscription = SocketService().onNewMessage.listen((data) {
+      if (!mounted) return;
+      final chatRoomId = data['chatRoomId']?.toString() ?? '';
+      if (chatRoomId.isEmpty) return;
+
+      final String message = data['message']?.toString() ?? '';
+      final String messageType = data['messageType']?.toString() ?? 'text';
+      final String senderId = data['senderId']?.toString() ?? '';
+      final dynamic timestamp = data['timestamp'];
+
+      final idx = _socketChatRooms
+          .indexWhere((r) => r['chatRoomId']?.toString() == chatRoomId);
+      if (idx == -1) return;
+
+      final room = Map<String, dynamic>.from(_socketChatRooms[idx]);
+      room['lastMessage'] = message;
+      room['lastMessageType'] = messageType;
+      room['lastMessageTime'] = timestamp;
+      room['lastMessageSenderId'] = senderId;
+
+      setState(() {
+        _socketChatRooms.removeAt(idx);
+        _socketChatRooms.insert(0, room);
+      });
+
+      // Keep the pinned admin card in sync when the admin room receives a message.
+      if (_isAdminRoom(room)) {
+        final String preview = _formatConversationPreview(
+          rawMessage: message,
+          messageType: messageType,
+          compactMediaLabels: true,
+        );
+        DateTime? latestTime;
+        if (timestamp is String) latestTime = DateTime.tryParse(timestamp);
+        setState(() {
+          _adminLastMessage = preview;
+          _adminLastMessageTime = latestTime;
+          if (senderId != userId) _adminUnreadCount += 1;
+        });
+      }
     });
   }
 
