@@ -6230,8 +6230,7 @@ class _ChatWindowState extends State<ChatWindow> {
     final String roomId = AdminSocketService.chatRoomId(receiverId);
 
     try {
-      final connected = await _socketService.ensureConnected();
-      if (connected) {
+      if (_socketService.isConnected) {
         _socketService.sendMessage(
           chatRoomId: roomId,
           receiverId: receiverId,
