@@ -1987,6 +1987,22 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── ping (client heartbeat) ───────────────────────────────────────────────
+  // Clients emit 'ping' every 10 s to keep their online status fresh.
+  // We update last_seen so the stale-user cleanup job can detect silent
+  // disconnects (e.g. app crash, network loss) where no 'disconnect' fires.
+  socket.on('ping', async () => {
+    if (!authenticatedUserId) return;
+    try {
+      await pool.query(
+        `UPDATE user_online_status SET last_seen = UTC_TIMESTAMP() WHERE user_id = ?`,
+        [authenticatedUserId],
+      );
+    } catch (err) {
+      console.error('ping handler error:', err.message);
+    }
+  });
+
   // ── disconnect ────────────────────────────────────────────────────────────
   socket.on('disconnect', async () => {
     console.log(`🔌 Socket disconnected: ${socket.id}`);
@@ -2118,6 +2134,123 @@ setInterval(async () => {
     }
   }
 }, BATCH_INTERVAL);
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Stale online-user cleanup — runs every 60 s
+// Users who connected but never sent a heartbeat ping (or whose last ping was
+// more than STALE_THRESHOLD_S seconds ago) are marked offline.  This recovers
+// from silent disconnects (app crash / network drop) where the TCP FIN never
+// reaches the server and the 'disconnect' event never fires.
+// The threshold is set to 3× the client heartbeat interval (10 s) + buffer.
+// ──────────────────────────────────────────────────────────────────────────────
+const STALE_THRESHOLD_S = 90; // seconds without a heartbeat ping before marking offline
+setInterval(async () => {
+  try {
+    const [result] = await pool.query(
+      `UPDATE user_online_status
+          SET is_online = 0
+        WHERE is_online = 1
+          AND last_seen < UTC_TIMESTAMP() - INTERVAL ? SECOND`,
+      [STALE_THRESHOLD_S],
+    );
+    if (result.affectedRows > 0) {
+      console.log(`🧹 Stale cleanup: marked ${result.affectedRows} user(s) offline`);
+      // Broadcast offline status for each affected user so clients update in real-time.
+      const [staleRows] = await pool.query(
+        `SELECT user_id, last_seen FROM user_online_status
+          WHERE is_online = 0
+            AND last_seen < UTC_TIMESTAMP() - INTERVAL ? SECOND
+            AND last_seen > UTC_TIMESTAMP() - INTERVAL ? SECOND`,
+        [STALE_THRESHOLD_S, STALE_THRESHOLD_S + 65], // rows updated in last interval
+      );
+      for (const row of staleRows) {
+        io.emit('user_status_change', {
+          userId:   row.user_id.toString(),
+          isOnline: false,
+          lastSeen: row.last_seen ? row.last_seen.toISOString() : new Date().toISOString(),
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Stale user cleanup error:', err.message);
+  }
+}, 60000);
+
+// ──────────────────────────────────────────────────────────────────────────────
+// HTTP fallback — POST /api/send-message
+// Clients call this when the socket is unavailable (reconnecting after a
+// network outage) so that no messages are lost.  The endpoint saves the
+// message to the DB directly and broadcasts it to the chat room via Socket.IO
+// exactly like the 'send_message' socket event does.
+// ──────────────────────────────────────────────────────────────────────────────
+app.post('/api/send-message', async (req, res) => {
+  try {
+    const {
+      chatRoomId, senderId, receiverId, message, messageType,
+      messageId, repliedTo, user1Name = '', user2Name = '',
+      user1Image = '', user2Image = '',
+    } = req.body || {};
+
+    // Basic validation
+    if (!chatRoomId || !senderId || !receiverId || !messageId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    const safeType = ['text', 'image', 'image_gallery', 'voice', 'profile_card', 'report', 'call'].includes(messageType)
+      ? messageType : 'text';
+
+    // Ensure chat room exists
+    await ensureChatRoom({
+      chatRoomId,
+      user1Id:    senderId,   user2Id:    receiverId,
+      user1Name,              user2Name,
+      user1Image,             user2Image,
+    });
+
+    // Save message
+    await pool.query(
+      `INSERT IGNORE INTO chat_messages
+         (message_id, chat_room_id, sender_id, receiver_id, message, message_type,
+          is_read, is_delivered, replied_to, created_at, liked)
+       VALUES (?,?,?,?,?,?,0,0,?,UTC_TIMESTAMP(),0)`,
+      [
+        messageId, chatRoomId, senderId, receiverId,
+        message || '', safeType,
+        repliedTo ? JSON.stringify(repliedTo) : null,
+      ],
+    );
+
+    // Update chat room last message
+    await updateChatRoomLastMessage({
+      chatRoomId, message, messageType: safeType,
+      senderId, receiverId, isReceiverViewing: false,
+    });
+
+    const timestamp = new Date().toISOString();
+    const payload = {
+      messageId, chatRoomId, senderId, receiverId,
+      message: message || '', messageType: safeType,
+      timestamp, isRead: false, isDelivered: false,
+      repliedTo: repliedTo || null,
+      senderName: user1Name, receiverName: user2Name,
+    };
+
+    // Broadcast to chat room so online participants receive it immediately
+    io.to(chatRoomId).emit('new_message', payload);
+
+    // Update chat room lists for both participants
+    for (const uid of [senderId.toString(), receiverId.toString()]) {
+      try {
+        const rooms = await getChatRooms(uid);
+        io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
+      } catch (_) {}
+    }
+
+    res.json({ success: true, messageId, timestamp });
+  } catch (err) {
+    console.error('POST /api/send-message error:', err.message);
+    res.status(500).json({ error: 'Failed to send message' });
+  }
+});
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Monitoring — log key stats every 10 s

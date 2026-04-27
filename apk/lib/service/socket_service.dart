@@ -29,6 +29,12 @@ class SocketService {
   /// Default timeout for Socket.IO request-response (ack) calls.
   static const Duration kRequestTimeout = Duration(seconds: 15);
 
+  // ── Heartbeat ──────────────────────────────────────────────────────────────
+  // Emits a 'ping' event every 10 s to keep the user's online status accurate
+  // and prevent the server stale-user cleanup from marking them as offline.
+  Timer? _heartbeatTimer;
+  static const Duration _heartbeatInterval = Duration(seconds: 10);
+
   // ── Stream controllers ────────────────────────────────────────────────────
 
   final _newMessageCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -158,10 +164,13 @@ class SocketService {
       // Also emit the legacy 'authenticate' event for backward compatibility
       // with server versions that do not use the handshake.auth middleware.
       _socket!.emit('authenticate', {'userId': userId});
+      // Start heartbeat to keep online status accurate on server
+      _startHeartbeat();
     });
 
     _socket!.onDisconnect((_) {
       print('⚡ Socket disconnected');
+      _stopHeartbeat();
       _connectionCtrl.add(false);
     });
 
@@ -312,6 +321,7 @@ class SocketService {
   }
 
   void disconnect() {
+    _stopHeartbeat();
     _socket?.disconnect();
     _socket = null;
     _connectedUserId = null;
@@ -620,6 +630,22 @@ class SocketService {
     });
   }
 
+  // ── Heartbeat helpers ─────────────────────────────────────────────────────
+
+  void _startHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(_heartbeatInterval, (_) {
+      if (_socket?.connected == true) {
+        _socket!.emit('ping');
+      }
+    });
+  }
+
+  void _stopHeartbeat() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+  }
+
   // ── Request-response helpers ──────────────────────────────────────────────
 
   /// Fetch a page of messages (request-response via Socket.IO ack).
@@ -787,6 +813,7 @@ class SocketService {
   }
 
   void dispose() {
+    _stopHeartbeat();
     disconnect();
     _newMessageCtrl.close();
     _messageEditedCtrl.close();
