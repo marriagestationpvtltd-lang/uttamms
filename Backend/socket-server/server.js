@@ -1001,7 +1001,7 @@ async function getChatRooms(userId) {
     for (const pr of photoRows) {
       const otherId = pr.other_id.toString();
       if (!photoRequestMap[otherId]) {
-        photoRequestMap[otherId] = pr.status === 'accepted' ? 'accepted' : 'pending';
+        photoRequestMap[otherId] = pr.status || 'pending';
       }
     }
     // Attach photo-request status to userInfoMap

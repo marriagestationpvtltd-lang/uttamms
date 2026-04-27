@@ -2457,8 +2457,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           final bool otherIsPaid =
               participantPaidStatus[otherParticipantId] == 'paid';
           final bool otherIsVerified =
-              participantVerifiedStatus[otherParticipantId] == 1 ||
-              participantVerifiedStatus[otherParticipantId] == true;
+              participantVerifiedStatus[otherParticipantId] == 1;
 
           return InkWell(
             onTap: () async {
