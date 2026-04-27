@@ -487,6 +487,8 @@ class _ChatListScreenState extends State<ChatListScreen>
         });
         // Persist fresh data for next launch
         _saveChatRoomsToCache(parsedRooms);
+        // Seed initial online status from room data before real-time events arrive
+        _updateOnlineStatusesFromRooms(parsedRooms);
         _startChatRoomsUpdateListener();
         _startNewMessageListener();
         _startOnlineStatusListeners();
@@ -519,6 +521,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       });
       // Keep cache up-to-date with real-time changes
       _saveChatRoomsToCache(parsedRooms);
+      // Update online status from refreshed room data
+      _updateOnlineStatusesFromRooms(parsedRooms);
     });
   }
 
@@ -591,6 +595,34 @@ class _ChatListScreenState extends State<ChatListScreen>
       final bool online = data['isOnline'] == true;
       setState(() { _adminOnline = online; });
     });
+  }
+
+  /// Seed [_onlineStatuses] and [_lastSeenTimes] from the `participantOnlineStatus`
+  /// and `participantLastSeen` maps that the server now embeds in each room.
+  /// This gives accurate initial indicators before any real-time events arrive.
+  void _updateOnlineStatusesFromRooms(List<Map<String, dynamic>> rooms) {
+    final Map<String, bool> updates = {};
+    final Map<String, DateTime?> lastSeenUpdates = {};
+    for (final room in rooms) {
+      final onlineMap = room['participantOnlineStatus'];
+      final lastSeenMap = room['participantLastSeen'];
+      if (onlineMap is Map) {
+        onlineMap.forEach((k, v) {
+          updates[k.toString()] = v == true;
+        });
+      }
+      if (lastSeenMap is Map) {
+        lastSeenMap.forEach((k, v) {
+          lastSeenUpdates[k.toString()] = SocketService.parseTimestamp(v);
+        });
+      }
+    }
+    if (updates.isNotEmpty || lastSeenUpdates.isNotEmpty) {
+      setState(() {
+        _onlineStatuses.addAll(updates);
+        _lastSeenTimes.addAll(lastSeenUpdates);
+      });
+    }
   }
 
   /// Listen to Socket.IO user-status events and update per-participant maps.
@@ -2417,6 +2449,17 @@ class _ChatListScreenState extends State<ChatListScreen>
           final String? otherParticipantPhotoRequest =
               participantPhotoRequests[otherParticipantId];
 
+          // Extract paid/verified status for the other participant
+          final participantPaidStatus =
+              Map<String, String>.from(data['participantPaidStatus'] ?? {});
+          final participantVerifiedStatus =
+              Map<String, dynamic>.from(data['participantVerifiedStatus'] ?? {});
+          final bool otherIsPaid =
+              participantPaidStatus[otherParticipantId] == 'paid';
+          final bool otherIsVerified =
+              participantVerifiedStatus[otherParticipantId] == 1 ||
+              participantVerifiedStatus[otherParticipantId] == true;
+
           return InkWell(
             onTap: () async {
               if (_isAdminRoom(data)) {
@@ -2560,16 +2603,52 @@ class _ChatListScreenState extends State<ChatListScreen>
                         Row(
                           children: [
                             Expanded(
-                              child: Text(
-                                otherPersonName,
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: unreadForMe > 0
-                                      ? FontWeight.w700
-                                      : FontWeight.w600,
-                                  color: const Color(0xFF0F172A),
-                                ),
-                                overflow: TextOverflow.ellipsis,
+                              child: Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      otherPersonName,
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: unreadForMe > 0
+                                            ? FontWeight.w700
+                                            : FontWeight.w600,
+                                        color: const Color(0xFF0F172A),
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  // Verified badge
+                                  if (otherIsVerified) ...[
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.verified,
+                                        size: 14, color: Color(0xFF1DA1F2)),
+                                  ],
+                                  // Paid badge
+                                  if (otherIsPaid) ...[
+                                    const SizedBox(width: 4),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 5, vertical: 1),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFD700)
+                                            .withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(
+                                            color: const Color(0xFFB8860B),
+                                            width: 0.5),
+                                      ),
+                                      child: const Text(
+                                        'Paid',
+                                        style: TextStyle(
+                                          fontSize: 10,
+                                          color: Color(0xFFB8860B),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                             ),
                             if (formattedTime.isNotEmpty)
