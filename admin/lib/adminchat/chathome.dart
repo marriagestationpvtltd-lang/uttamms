@@ -12,6 +12,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -5412,6 +5413,7 @@ class _ChatWindowState extends State<ChatWindow> {
         'file',
         bytes,
         filename: 'voice_${DateTime.now().millisecondsSinceEpoch}.webm',
+        contentType: MediaType('audio', 'webm'),
       ));
       final streamed = await req.send();
       final body = await streamed.stream.bytesToString();
@@ -5960,6 +5962,7 @@ class _ChatWindowState extends State<ChatWindow> {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: true,
+        withData: kIsWeb,
       );
       if (result != null && result.files.isNotEmpty) {
         setState(() {
@@ -6084,11 +6087,15 @@ class _ChatWindowState extends State<ChatWindow> {
       if (imageBytes == null) {
         throw Exception('Missing image bytes');
       }
+      final effectiveName = fileName ?? 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final mimeString = _mimeTypeFromFilename(effectiveName);
+      final mimeParts = mimeString.split('/');
       request.files.add(
         http.MultipartFile.fromBytes(
           'file',
           imageBytes,
-          filename: fileName ?? 'chat_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          filename: effectiveName,
+          contentType: MediaType(mimeParts[0], mimeParts.length > 1 ? mimeParts[1] : 'jpeg'),
         ),
       );
     } else {
@@ -6116,6 +6123,25 @@ class _ChatWindowState extends State<ChatWindow> {
     if (text.isEmpty) return 1;
     return text.split('\n').length;
   }
+
+  /// Returns a MIME type string for the given filename based on its extension.
+  /// Falls back to 'image/jpeg' for unknown or missing extensions.
+  static String _mimeTypeFromFilename(String filename) {
+    final ext = filename.contains('.')
+        ? filename.split('.').last.toLowerCase()
+        : '';
+    switch (ext) {
+      case 'png':   return 'image/png';
+      case 'gif':   return 'image/gif';
+      case 'webp':  return 'image/webp';
+      case 'bmp':   return 'image/bmp';
+      case 'svg':   return 'image/svg+xml';
+      case 'heic':  return 'image/heic';
+      case 'heif':  return 'image/heif';
+      default:      return 'image/jpeg';
+    }
+  }
+
 
   Future<void> _sendMessage() async {
     final chatProvider = Provider.of<ChatProvider>(context, listen: false);
