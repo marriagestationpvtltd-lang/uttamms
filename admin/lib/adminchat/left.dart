@@ -236,6 +236,13 @@ class _ChatSidebarState extends State<ChatSidebar> {
               'lastMessageType':    'text',
             };
           }
+          // Seed unread counts from the API response so badges show before
+          // the socket's getChatRooms() response arrives.
+          final apiUnread = (u['unread_count'] as num?)?.toInt() ?? 0;
+          if (apiUnread > 0) {
+            // Only set if the socket hasn't already provided a value.
+            _unreadCounts[uid] ??= apiUnread;
+          }
         }
 
         // Determine if more pages exist
