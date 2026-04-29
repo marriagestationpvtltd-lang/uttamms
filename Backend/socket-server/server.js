@@ -14,7 +14,7 @@ const { v4: uuidv4 } = require('uuid');
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
-const PORT        = process.env.PORT || 3001;
+const PORT        = process.env.PORT || 3000;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
 // Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
