@@ -517,9 +517,10 @@ class _GroupCallScreenState extends State<GroupCallScreen>
     final excludeIds = _participants.map((p) => p.userId).toSet();
     final users = await _fetchUsers(excludeIds: excludeIds);
     if (!mounted) return;
-    final selected = await showDialog<Map<String, String>>(
+    final selected = await showModalBottomSheet<Map<String, String>>(
       context: context,
-      barrierDismissible: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => _AddUserModal(users: users),
     );
     if (selected == null || (selected['id'] ?? '').isEmpty) return;
@@ -1424,24 +1425,39 @@ class _AddUserModalState extends State<_AddUserModal> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
+    final screenHeight = MediaQuery.of(context).size.height;
 
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 580),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+      ),
+      constraints: BoxConstraints(
+        maxHeight: screenHeight * 0.85,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+            // ── Drag handle ──────────────────────────────────────────────────
+            Container(
+              margin: const EdgeInsets.only(top: 12, bottom: 8),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
             // ── Header ──────────────────────────────────────────────────────
             Container(
-              padding: const EdgeInsets.fromLTRB(20, 20, 8, 16),
+              padding: const EdgeInsets.fromLTRB(20, 12, 8, 16),
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
                   colors: [_kPrimary, _kViolet],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
+                borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
               ),
               child: Row(
                 children: [
@@ -1529,6 +1545,7 @@ class _AddUserModalState extends State<_AddUserModal> {
                       ),
                     )
                   : ListView.separated(
+                      shrinkWrap: true,
                       itemCount: filtered.length,
                       separatorBuilder: (_, __) =>
                           const Divider(height: 1, indent: 72),
@@ -1618,6 +1635,8 @@ class _AddUserModalState extends State<_AddUserModal> {
                       },
                     ),
             ),
+            // ── Safe area padding at the bottom ──────────────────────────────
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
           ],
         ),
       ),
