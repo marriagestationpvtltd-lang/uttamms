@@ -18,16 +18,46 @@ const PORT        = process.env.PORT || 3000;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
 
-// When ALLOWED_ORIGINS contains '*', use a reflective function instead of the
-// literal wildcard string.  Browsers reject responses that combine
-// "Access-Control-Allow-Origin: *" with "Access-Control-Allow-Credentials: true",
-// so we reflect the request origin (allow every caller) while still setting
-// credentials: true.
-// ⚠️  WARNING: Using '*' accepts connections from ANY origin.  Set ALLOWED_ORIGINS
-// to an explicit comma-separated list of trusted domains in production.
-const corsOriginOption = ALLOWED_ORIGINS.includes('*')
-  ? (_origin, callback) => callback(null, true)
-  : ALLOWED_ORIGINS;
+/**
+ * Build a CORS origin checker that supports:
+ *  - '*'  → allow every origin
+ *  - Exact strings (e.g. 'https://example.com')
+ *  - Bare localhost / 127.0.0.1 entries without a port
+ *    (e.g. 'http://localhost') → matches any port on that host,
+ *    which is useful during local Flutter web / browser development
+ *    where the dev server picks an arbitrary port.
+ *
+ * Usage: pass the returned value as the `origin` option in both
+ * express cors() and the Socket.IO cors config.
+ */
+function buildOriginChecker(allowedOrigins) {
+  if (allowedOrigins.includes('*')) return '*';
+
+  // Pre-compute which bare-localhost patterns are present so we can do a
+  // fast regex match on incoming request origins.
+  const localhostPrefixes = allowedOrigins
+    .filter(o => /^https?:\/\/(localhost|127\.0\.0\.1)$/.test(o))
+    .map(o => {
+      // e.g. 'http://localhost' → /^http:\/\/localhost(:\d+)?$/
+      const escaped = o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`^${escaped}(:\\d+)?$`);
+    });
+
+  return function (origin, callback) {
+    // Non-browser clients (e.g. mobile / curl) send no Origin header — allow.
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+
+    for (const re of localhostPrefixes) {
+      if (re.test(origin)) return callback(null, true);
+    }
+
+    callback(new Error(`CORS: origin '${origin}' is not allowed`));
+  };
+}
+
+const originChecker = buildOriginChecker(ALLOWED_ORIGINS);
 // Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
 // Recommended for production so image URLs are always correct regardless of
 // how reverse-proxy headers are forwarded.
@@ -403,7 +433,7 @@ app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
-    origin: corsOriginOption,
+    origin: originChecker,
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -418,7 +448,7 @@ const io     = new Server(server, {
 });
 
 app.use(cors({
-  origin: corsOriginOption,
+  origin: originChecker,
   methods: ['GET', 'POST', 'OPTIONS'],
   credentials: true,
 }));
