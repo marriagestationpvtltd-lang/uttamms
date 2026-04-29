@@ -42,7 +42,6 @@ import 'package:adminmrz/users/userdetails/userdetailprovider.dart';
 import 'package:adminmrz/users/userdetails/userdetailservice.dart';
 import 'package:adminmrz/users/userprovider.dart';
 import 'package:uuid/uuid.dart';
-import 'package:adminmrz/utils/image_compression.dart';
 
 class ChatWindow extends StatefulWidget {
   final String name;
@@ -296,24 +295,23 @@ class _ChatWindowState extends State<ChatWindow> {
 
     if (msgType == 'image') {
       // Use the URL from message, falling back to the first entry in images[].
-      final raw = rawMessage.isNotEmpty
+      imageUrl = rawMessage.isNotEmpty
           ? rawMessage
           : (apiImages != null && apiImages.isNotEmpty
               ? apiImages.first?.toString()
               : null);
-      imageUrl = raw != null ? _normalizeUploadUrl(raw) : null;
       displayMessage = 'Image';
     } else if (msgType == 'image_gallery') {
       // Prefer the `images` array from the API if available; otherwise keep
       // the raw JSON string so `_buildChatBubble` can decode it itself.
       if (apiImages != null && apiImages.isNotEmpty) {
         displayMessage = jsonEncode(
-          apiImages.whereType<String>().map(_normalizeUploadUrl).toList(),
+          apiImages.whereType<String>().toList(),
         );
       }
       // displayMessage stays as the raw JSON string if apiImages is absent.
     } else if (msgType == 'voice') {
-      imageUrl = _normalizeUploadUrl(rawMessage); // reuse imageUrl field to carry voice URL
+      imageUrl = rawMessage; // reuse imageUrl field to carry voice URL
       displayMessage = '🎤 Voice message';
     } else if (msgType == 'profile_card') {
       try {
@@ -5587,7 +5585,7 @@ class _ChatWindowState extends State<ChatWindow> {
       if (url == null || url.isEmpty) {
         throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
       }
-      return _normalizeUploadUrl(url);
+      return url;
     } else {
       final req = http.MultipartRequest(
         'POST',
@@ -5607,7 +5605,7 @@ class _ChatWindowState extends State<ChatWindow> {
       if (url == null || url.isEmpty) {
         throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
       }
-      return _normalizeUploadUrl(url);
+      return url;
     }
   }
 
@@ -6161,15 +6159,12 @@ class _ChatWindowState extends State<ChatWindow> {
     String receiverId,
   ) async {
     try {
-      // Compress and upload all images in parallel for speed
+      // Upload all images, collecting URLs (upload doesn't require socket)
       final List<String> urls = [];
       for (final file in images) {
-        // Compress image before uploading
-        final compressedBytes = await AdminImageCompression.compressImageForSending(file);
-
         final url = await _uploadChatImage(
-          image: null, // Always use bytes after compression
-          imageBytes: compressedBytes,
+          image: (!kIsWeb && file.path != null) ? File(file.path!) : null,
+          imageBytes: kIsWeb ? file.bytes : null,
           fileName: file.name,
         );
         urls.add(url);
@@ -6304,75 +6299,7 @@ class _ChatWindowState extends State<ChatWindow> {
     if (url == null || url.isEmpty) {
       throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
     }
-    // Normalize to always use the known socket server base URL.
-    // If PUBLIC_URL is not configured on the server the returned URL may be an
-    // internal address (e.g. http://127.0.0.1:3001/...) that is unreachable
-    // from clients.  Re-anchoring to kAdminSocketUrl makes images loadable
-    // regardless of the server's proxy configuration.
-    return _normalizeUploadUrl(url);
-  }
-
-  /// Ensures [url] uses [kAdminSocketUrl] as its base when the path starts
-  /// with `/uploads/`.  The scheme and host are replaced with the known server
-  /// while the path, query parameters, and fragment are preserved.
-  ///
-  /// Also repairs common URL malformations that can be stored in historical
-  /// messages, such as doubled-protocol prefixes:
-  ///   - `https://https://host/path` → `https://host/path`
-  ///   - `https://https//host/path`  → `https://host/path`
-  ///   - `http://http://host/path`   → `http://host/path`
-  ///
-  /// Returns [url] unchanged for any other URL shape.
-  ///
-  /// Also fixes double-protocol malformations that may have been stored in the
-  /// database before the server-side sanitization was added (e.g.
-  /// 'https://https://host/...' or 'https://https//host/...').
-  static String _normalizeUploadUrl(String url) {
-    // Fix any malformed protocol prefix first.
-    String fixed = url;
-    String prev;
-    do {
-      prev = fixed;
-      // 'https://https://...' or 'https://http://...' → 'https://...'
-      fixed = fixed.replaceFirstMapped(
-        RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
-        (m) => '${m[1]}://',
-      );
-      // 'https://https//...' or 'https://http//...' → 'https://...'
-      fixed = fixed.replaceFirstMapped(
-        RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
-        (m) => '${m[1]}://',
-      );
-      // 'https//...' → 'https://...'
-      fixed = fixed.replaceFirstMapped(
-        RegExp(r'^(https?)//', caseSensitive: false),
-        (m) => '${m[1]}://',
-      );
-      // 'https/host...' (single slash, no colon) → 'https://host...'
-      fixed = fixed.replaceFirstMapped(
-        RegExp(r'^(https?)/([^/])', caseSensitive: false),
-        (m) => '${m[1]}://${m[2]}',
-      );
-    } while (fixed != prev);
-
-    try {
-      final parsed = Uri.parse(fixed);
-      if (parsed.path.startsWith('/uploads/')) {
-        final base = Uri.parse(kAdminSocketUrl);
-        return Uri(
-          scheme: base.scheme,
-          host: base.host,
-          port: base.hasPort ? base.port : null,
-          path: parsed.path,
-          queryParameters: parsed.hasQuery ? parsed.queryParameters : null,
-          fragment: parsed.hasFragment ? parsed.fragment : null,
-        ).toString();
-      }
-      // Return the (potentially de-duplicated) fixed URL even when no
-      // /uploads/ re-anchoring is needed.
-      return fixed;
-    } catch (_) {}
-    return fixed;
+    return url;
   }
 
   int _estimateLineCount(String text) {

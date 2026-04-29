@@ -13,13 +13,3 @@ AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .phps .phar
 
 # Disable directory listings
 Options -Indexes
-
-# Allow cross-origin requests for static assets (images, audio, etc.)
-# so that Flutter web and other browser-based clients can load them.
-<IfModule mod_headers.c>
-    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|ico|mp3|ogg|wav|mp4|pdf)$">
-        Header set Access-Control-Allow-Origin "*"
-        Header set Access-Control-Allow-Methods "GET, OPTIONS"
-        Header set Access-Control-Allow-Headers "Origin, Accept, Content-Type"
-    </FilesMatch>
-</IfModule>

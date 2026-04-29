@@ -126,12 +126,8 @@ class AdminSocketService {
     _socket = IO.io(
       kAdminSocketUrl,
       IO.OptionBuilder()
-          // Use polling first so the Socket.IO handshake (EIO=4) completes as
-          // a regular HTTPS request, then upgrade to WebSocket.  This is more
-          // resilient than WebSocket-only because a failed WS upgrade no longer
-          // kills the connection — it falls back to polling automatically.
-          .setTransports(['polling', 'websocket'])
-          .setReconnectionDelay(1000)
+          .setTransports(['websocket', 'polling'])
+          .setReconnectionDelay(2000)
           .setReconnectionDelayMax(10000)
           .setReconnectionAttempts(kAdminSocketReconnectAttempts)
           .enableReconnection()
