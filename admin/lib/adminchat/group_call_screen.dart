@@ -1639,7 +1639,6 @@ class _AddUserModalState extends State<_AddUserModal> {
             SizedBox(height: MediaQuery.of(context).padding.bottom + 8),
           ],
         ),
-      ),
     );
   }
 }
