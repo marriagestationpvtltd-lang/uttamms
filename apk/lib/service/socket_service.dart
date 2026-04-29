@@ -224,6 +224,12 @@ class SocketService {
       if (rooms is List) _chatRoomsUpdateCtrl.add(rooms);
     });
 
+    _socket!.on('chat_list_update', (data) {
+      final map = _toMap(data);
+      final rooms = map['chatRooms'];
+      if (rooms is List) _chatRoomsUpdateCtrl.add(rooms);
+    });
+
     // ── Call signaling events ────────────────────────────────────────────────
     _socket!.on('incoming_call', (data) {
       final map = _toMap(data);
