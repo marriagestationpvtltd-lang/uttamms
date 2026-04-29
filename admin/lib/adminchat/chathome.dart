@@ -28,7 +28,6 @@ import 'widgets/typing_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:html' as html;
 import 'dart:js' as js;
-import 'dart:js_util' show allowInterop;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
@@ -95,7 +94,6 @@ class _ChatWindowState extends State<ChatWindow> {
 
   // Pagination
   static const int _pageSize = 20;
-  static const double _autoScrollThreshold = 120;
   static const int kIncomingCallTimeoutSeconds = 30;
   int _currentPage = 1;
   bool _isLoadingMore = false;
@@ -374,12 +372,12 @@ class _ChatWindowState extends State<ChatWindow> {
       'edited': msg['isEdited'] == true,
       'replyto': repliedTo,
       'timestamp': msg['timestamp']?.toString(),
-      if (imageUrl != null) 'imageUrl': imageUrl,
-      if (callType != null) 'callType': callType,
-      if (callStatus != null) 'callStatus': callStatus,
+      ?'imageUrl': imageUrl,
+      ?'callType': callType,
+      ?'callStatus': callStatus,
       'callDuration': callDuration,
-      if (profileData != null) 'profileData': profileData,
-      if (reportData != null) 'reportData': reportData,
+      ?'profileData': profileData,
+      ?'reportData': reportData,
     };
   }
 
@@ -857,13 +855,13 @@ class _ChatWindowState extends State<ChatWindow> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 12, vertical: 6),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.06),
+                        color: Colors.white.withValues(alpha: 0.06),
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
                         'Respond within $kIncomingCallTimeoutSeconds seconds',
                         style: TextStyle(
-                          color: Colors.white.withOpacity(0.62),
+                          color: Colors.white.withValues(alpha: 0.62),
                           fontSize: 12,
                         ),
                       ),
@@ -951,7 +949,7 @@ class _ChatWindowState extends State<ChatWindow> {
         Text(
           '$label: ',
           style: TextStyle(
-            color: Colors.white.withOpacity(0.55),
+            color: Colors.white.withValues(alpha: 0.55),
             fontSize: 12,
           ),
         ),
@@ -1066,7 +1064,7 @@ class _ChatWindowState extends State<ChatWindow> {
           color: Colors.transparent,
           child: ValueListenableBuilder<Map<String, String?>>(
             valueListenable: bannerDetailsNotifier,
-            builder: (_, details, __) {
+            builder: (_, details, _) {
               final usertype = details['usertype'];
               final memberId = details['memberId'];
               final occupation = details['occupation'];
@@ -1081,7 +1079,7 @@ class _ChatWindowState extends State<ChatWindow> {
                       color: const Color(0xFF374151)),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.4),
+                      color: Colors.black.withValues(alpha: 0.4),
                       blurRadius: 16,
                       offset: const Offset(0, 6),
                     ),
@@ -1172,7 +1170,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                 ? 'Incoming video call (call waiting)'
                                 : 'Incoming call (call waiting)',
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.6),
+                              color: Colors.white.withValues(alpha: 0.6),
                               fontSize: 12,
                             ),
                           ),
@@ -1184,7 +1182,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               'ID: $memberId',
                               style: TextStyle(
                                 color: const Color(0xFFA78BFA)
-                                    .withOpacity(0.9),
+                                    .withValues(alpha: 0.9),
                                 fontSize: 11,
                               ),
                             ),
@@ -1196,7 +1194,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: const Color(0xFF67E8F9)
-                                    .withOpacity(0.9),
+                                    .withValues(alpha: 0.9),
                                 fontSize: 11,
                               ),
                             ),
@@ -1311,7 +1309,7 @@ class _ChatWindowState extends State<ChatWindow> {
     _callOverlayEntry = OverlayEntry(
       builder: (ctx) => ValueListenableBuilder<bool>(
         valueListenable: isMinimizedNotifier,
-        builder: (_, isMin, __) {
+        builder: (_, isMin, _) {
           final callWidget = isVideo
               ? VideoCallScreen(
                   currentUserId: kAdminUserId,
@@ -1546,7 +1544,7 @@ class _ChatWindowState extends State<ChatWindow> {
 
     try {
       final response = await http.get(
-          Uri.parse('${kAdminApiBaseUrl}/get_match_details.php?user_id=${chatProvider.id}')
+          Uri.parse('$kAdminApiBaseUrl/get_match_details.php?user_id=${chatProvider.id}')
       );
 
       if (response.statusCode == 200) {
@@ -1650,7 +1648,7 @@ class _ChatWindowState extends State<ChatWindow> {
         _typingAudioPlayer.stop();
       });
     } catch (e) {
-      print('Error playing typing sound: $e');
+      debugPrint('Error playing typing sound: $e');
     }
   }
 
@@ -1664,7 +1662,7 @@ class _ChatWindowState extends State<ChatWindow> {
       final String roomId =
           AdminSocketService.chatRoomId(receiverId);
       final String msgId =
-          'call_${DateTime.now().millisecondsSinceEpoch}_${senderId}';
+          'call_${DateTime.now().millisecondsSinceEpoch}_$senderId';
       _socketService.sendMessage(
         chatRoomId: roomId,
         receiverId: receiverId,
@@ -1863,7 +1861,7 @@ class _ChatWindowState extends State<ChatWindow> {
     _webSpeechRecognition!['interimResults'] = true;
     _webSpeechRecognition!['lang'] = _selectedLanguage;
 
-    _webSpeechRecognition!['onresult'] = allowInterop((dynamic event) {
+    _webSpeechRecognition!['onresult'] = js.allowInterop((dynamic event) {
       final eventObj = js.JsObject.fromBrowserObject(event);
       final results = eventObj['results'];
       if (results == null) return;
@@ -1908,7 +1906,7 @@ class _ChatWindowState extends State<ChatWindow> {
       });
     });
 
-    _webSpeechRecognition!['onend'] = allowInterop((dynamic _) {
+    _webSpeechRecognition!['onend'] = js.allowInterop((dynamic _) {
       // With continuous=true the browser may still fire onend after silence.
       // Restart automatically unless the user explicitly stopped listening.
       if (!_userStoppedListening && _isListening && mounted) {
@@ -1922,7 +1920,7 @@ class _ChatWindowState extends State<ChatWindow> {
       }
     });
 
-    _webSpeechRecognition!['onerror'] = allowInterop((dynamic event) {
+    _webSpeechRecognition!['onerror'] = js.allowInterop((dynamic event) {
       if (!mounted) return;
       final error =
           js.JsObject.fromBrowserObject(event)['error'] as String? ?? '';
@@ -1965,6 +1963,7 @@ class _ChatWindowState extends State<ChatWindow> {
     try {
       await _recorder.openRecorder();
     } catch (e) {
+      // Recorder unavailable on this platform; voice recording will be disabled.
     }
   }
 
@@ -2143,6 +2142,7 @@ class _ChatWindowState extends State<ChatWindow> {
     for (int attempt = 0; attempt < _kMaxContextFindAttempts; attempt++) {
       // Wait for the post-scroll frame so the lazily built target row can mount.
       await SchedulerBinding.instance.endOfFrame;
+      if (!mounted) return;
       final BuildContext? targetContext = _messageKeys[messageId]?.currentContext;
       if (targetContext == null) {
         await Future.delayed(_kContextFindDelay);
@@ -2350,7 +2350,7 @@ class _ChatWindowState extends State<ChatWindow> {
       _callOverlayEntry = OverlayEntry(
         builder: (ctx) => ValueListenableBuilder<bool>(
           valueListenable: isMinimizedNotifier,
-          builder: (_, isMin, __) {
+          builder: (_, isMin, _) {
             final groupCallWidget = GroupCallScreen(
               adminId: kAdminUserId,
               adminName: 'Admin',
@@ -2399,7 +2399,7 @@ class _ChatWindowState extends State<ChatWindow> {
     _callOverlayEntry = OverlayEntry(
       builder: (ctx) => ValueListenableBuilder<bool>(
         valueListenable: isMinimizedNotifier,
-        builder: (_, isMin, __) {
+        builder: (_, isMin, _) {
           final callWidget = isVideo
               ? VideoCallScreen(
                   currentUserId: '1',
@@ -2470,7 +2470,7 @@ class _ChatWindowState extends State<ChatWindow> {
               borderRadius: BorderRadius.circular(40),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.35),
+                  color: Colors.black.withValues(alpha: 0.35),
                   blurRadius: 16,
                   offset: const Offset(0, 4),
                 ),
@@ -2520,7 +2520,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   child: Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.15),
+                      color: Colors.white.withValues(alpha: 0.15),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.open_in_full, color: Colors.white, size: 14),
@@ -2648,7 +2648,7 @@ class _ChatWindowState extends State<ChatWindow> {
       Future.microtask(_clearAdminTypingStatus);
       // Auto-focus the message input so the admin can type immediately.
       Future.microtask(() {
-        if (mounted) FocusScope.of(context).requestFocus(_messageFocusNode);
+        if (mounted) _messageFocusNode.requestFocus();
       });
       // Leave previous room and join new one, then reload messages.
       if (chatProvider.id != null) {
@@ -2810,7 +2810,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF7B61FF).withOpacity(0.12),
+                      color: const Color(0xFF7B61FF).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
@@ -3146,7 +3146,7 @@ class _ChatWindowState extends State<ChatWindow> {
                           border: Border.all(color: c.border, width: 0.5),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withOpacity(0.08),
+                              color: Colors.black.withValues(alpha: 0.08),
                               blurRadius: 4,
                               offset: const Offset(0, 2),
                             ),
@@ -3186,7 +3186,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   ),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
+                      color: Colors.black.withValues(alpha: 0.08),
                       blurRadius: 4,
                       offset: const Offset(0, 2),
                     ),
@@ -3359,7 +3359,7 @@ class _ChatWindowState extends State<ChatWindow> {
       builder: (context) {
         return AlertDialog(
           title: Text('Select Match Profile', style: TextStyle(fontSize: 16)),
-          content: Container(
+          content: SizedBox(
             width: double.maxFinite,
             height: 300,
             child: Consumer<ChatProvider>(
@@ -3629,7 +3629,7 @@ class _ChatWindowState extends State<ChatWindow> {
               crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (replyPreview != null) replyPreview,
+                ?replyPreview,
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                   margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
@@ -3672,7 +3672,7 @@ class _ChatWindowState extends State<ChatWindow> {
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-            if (replyPreview != null) replyPreview,
+            ?replyPreview,
             if (statusMessage != null)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -3697,7 +3697,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 1))],
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 4, offset: const Offset(0, 1))],
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
@@ -3767,12 +3767,12 @@ class _ChatWindowState extends State<ChatWindow> {
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-            if (replyPreview != null) replyPreview,
+            ?replyPreview,
             Container(
               margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(12),
-                boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 4, offset: const Offset(0, 1))],
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.08), blurRadius: 4, offset: const Offset(0, 1))],
               ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
@@ -3812,7 +3812,7 @@ class _ChatWindowState extends State<ChatWindow> {
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-            if (replyPreview != null) replyPreview,
+            ?replyPreview,
             if (statusMessage != null)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -3841,7 +3841,7 @@ class _ChatWindowState extends State<ChatWindow> {
                     color: isSentByMe ? kPrimary : Colors.white,
                     borderRadius: BorderRadius.circular(16),
                     boxShadow: [
-                      BoxShadow(color: Colors.black.withOpacity(0.07), blurRadius: 4, offset: const Offset(0, 1)),
+                      BoxShadow(color: Colors.black.withValues(alpha: 0.07), blurRadius: 4, offset: const Offset(0, 1)),
                     ],
                   ),
                   child: Row(
@@ -3850,7 +3850,7 @@ class _ChatWindowState extends State<ChatWindow> {
                         width: 32,
                         height: 32,
                         decoration: BoxDecoration(
-                          color: isSentByMe ? Colors.white.withOpacity(0.22) : kPrimary.withOpacity(0.12),
+                          color: isSentByMe ? Colors.white.withValues(alpha: 0.22) : kPrimary.withValues(alpha: 0.12),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -3870,7 +3870,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               child: LinearProgressIndicator(
                                 value: progressValue,
                                 minHeight: 3,
-                                backgroundColor: Colors.grey.withOpacity(0.25),
+                                backgroundColor: Colors.grey.withValues(alpha: 0.25),
                                 valueColor: AlwaysStoppedAnimation<Color>(
                                   isSentByMe ? Colors.white : kPrimary,
                                 ),
@@ -3939,7 +3939,7 @@ class _ChatWindowState extends State<ChatWindow> {
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-            if (replyPreview != null) replyPreview,
+            ?replyPreview,
             if (statusMessage != null)
               Container(
                 width: MediaQuery.of(context).size.width * 0.22,
@@ -3967,8 +3967,8 @@ class _ChatWindowState extends State<ChatWindow> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: kCardBorder, width: 1),
                   boxShadow: [
-                    BoxShadow(color: const Color(0xFF7B61FF).withOpacity(0.08), blurRadius: 16, offset: const Offset(0, 4)),
-                    BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2)),
+                    BoxShadow(color: const Color(0xFF7B61FF).withValues(alpha: 0.08), blurRadius: 16, offset: const Offset(0, 4)),
+                    BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 6, offset: const Offset(0, 2)),
                   ],
                 ),
                 child: Column(
@@ -3998,7 +3998,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                 height: 60,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: Colors.white.withOpacity(0.06),
+                                  color: Colors.white.withValues(alpha: 0.06),
                                 ),
                               ),
                             ),
@@ -4010,7 +4010,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                 height: 40,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: Colors.white.withOpacity(0.06),
+                                  color: Colors.white.withValues(alpha: 0.06),
                                 ),
                               ),
                             ),
@@ -4020,7 +4020,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               child: Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.18),
+                                  color: Colors.white.withValues(alpha: 0.18),
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 child: Row(
@@ -4081,7 +4081,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
                                     border: Border.all(color: Colors.white, width: 2.5),
-                                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 8, offset: const Offset(0, 3))],
+                                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 8, offset: const Offset(0, 3))],
                                   ),
                                   child: ClipOval(
                                     child: profileData['profileImage'] != null &&
@@ -4089,7 +4089,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                         ? CachedNetworkImage(
                                             imageUrl: profileData['profileImage'],
                                             fit: BoxFit.cover,
-                                            errorWidget: (_, __, ___) => Container(
+                                            errorWidget: (_, _, ___) => Container(
                                               color: const Color(0xFFF8BBD9),
                                               child: const Icon(Icons.person_rounded, size: 28, color: Color(0xFF7B61FF)),
                                             ),
@@ -4124,9 +4124,9 @@ class _ChatWindowState extends State<ChatWindow> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
-                                color: matchColor.withOpacity(0.1),
+                                color: matchColor.withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(20),
-                                border: Border.all(color: matchColor.withOpacity(0.35), width: 1),
+                                border: Border.all(color: matchColor.withValues(alpha: 0.35), width: 1),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -4153,9 +4153,9 @@ class _ChatWindowState extends State<ChatWindow> {
                               margin: const EdgeInsets.only(bottom: 4),
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                               decoration: BoxDecoration(
-                                color: kCardPrimary.withOpacity(0.07),
+                                color: kCardPrimary.withValues(alpha: 0.07),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: kCardPrimary.withOpacity(0.25), width: 0.8),
+                                border: Border.all(color: kCardPrimary.withValues(alpha: 0.25), width: 0.8),
                               ),
                               child: Row(
                                 children: [
@@ -4233,7 +4233,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                       colors: [Color(0xFF7B61FF), Color(0xFF5B41CF)],
                                     ),
                                     borderRadius: BorderRadius.circular(8),
-                                    boxShadow: [BoxShadow(color: const Color(0xFF7B61FF).withOpacity(0.3), blurRadius: 6, offset: const Offset(0, 2))],
+                                    boxShadow: [BoxShadow(color: const Color(0xFF7B61FF).withValues(alpha: 0.3), blurRadius: 6, offset: const Offset(0, 2))],
                                   ),
                                   child: const Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -4345,7 +4345,7 @@ class _ChatWindowState extends State<ChatWindow> {
         crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (replyPreview != null) replyPreview,
+          ?replyPreview,
           if (statusMessage != null)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -4373,7 +4373,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 border: Border.all(color: const Color(0xFFFFCDD2), width: 1.2),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.red.withOpacity(0.10),
+                    color: Colors.red.withValues(alpha: 0.10),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -4415,7 +4415,7 @@ class _ChatWindowState extends State<ChatWindow> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.25),
+                            color: Colors.white.withValues(alpha: 0.25),
                             borderRadius: BorderRadius.circular(20),
                           ),
                           child: const Row(
@@ -4765,12 +4765,12 @@ class _ChatWindowState extends State<ChatWindow> {
                     ),
               boxShadow: isSentByMe
                   ? null
-                  : [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 4, offset: const Offset(0, 1))],
+                  : [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 4, offset: const Offset(0, 1))],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (replyPreview != null) replyPreview,
+                ?replyPreview,
                 Text(
                   displayedMessage,
                   style: TextStyle(
@@ -4876,13 +4876,13 @@ class _ChatWindowState extends State<ChatWindow> {
           child: Ink(
             decoration: BoxDecoration(
               color: isSentByMe
-                  ? Colors.white.withOpacity(_kReplyPreviewSentBackgroundOpacity)
-                  : primaryColor.withOpacity(0.07),
+                  ? Colors.white.withValues(alpha: _kReplyPreviewSentBackgroundOpacity)
+                  : primaryColor.withValues(alpha: 0.07),
               borderRadius: BorderRadius.circular(10),
               border: Border(
                 left: BorderSide(
                   color: isSentByMe
-                      ? Colors.white.withOpacity(_kReplyPreviewSentBorderOpacity)
+                      ? Colors.white.withValues(alpha: _kReplyPreviewSentBorderOpacity)
                       : primaryColor,
                   width: 3,
                 ),
@@ -4915,7 +4915,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               fontSize: 10,
                               fontStyle: FontStyle.italic,
                               color: isSentByMe
-                                  ? Colors.white.withOpacity(_kReplyPreviewSentTextOpacity)
+                                  ? Colors.white.withValues(alpha: _kReplyPreviewSentTextOpacity)
                                   : mutedColor,
                             ),
                           ),
@@ -4928,7 +4928,7 @@ class _ChatWindowState extends State<ChatWindow> {
                           style: TextStyle(
                             fontSize: 11,
                             color: isSentByMe
-                                ? Colors.white.withOpacity(_kReplyPreviewSentTextOpacity)
+                                ? Colors.white.withValues(alpha: _kReplyPreviewSentTextOpacity)
                                 : mutedColor,
                           ),
                           maxLines: 2,
@@ -4953,13 +4953,13 @@ class _ChatWindowState extends State<ChatWindow> {
                       memCacheHeight: 54,
                       fit: BoxFit.cover,
                       fadeInDuration: const Duration(milliseconds: 150),
-                      placeholder: (_, __) => Container(
+                      placeholder: (_, _) => Container(
                         width: 50,
                         height: 54,
                         color: Colors.grey.shade200,
                         child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                       ),
-                      errorWidget: (_, __, ___) => Container(
+                      errorWidget: (_, _, ___) => Container(
                         width: 50,
                         height: 54,
                         color: Colors.grey.shade200,
@@ -4982,7 +4982,7 @@ class _ChatWindowState extends State<ChatWindow> {
                       Icons.subdirectory_arrow_left_rounded,
                       size: 16,
                       color: isSentByMe
-                          ? Colors.white.withOpacity(_kReplyPreviewSentIconOpacity)
+                          ? Colors.white.withValues(alpha: _kReplyPreviewSentIconOpacity)
                           : primaryColor,
                     ),
                   ),
@@ -5014,7 +5014,7 @@ class _ChatWindowState extends State<ChatWindow> {
           color: Colors.grey.shade200,
           child: const Center(child: CircularProgressIndicator(color: adminPrimary, strokeWidth: 2)),
         ),
-        errorWidget: (_, __, ___) => Container(
+        errorWidget: (_, _, ___) => Container(
           color: Colors.grey.shade200,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -5191,10 +5191,10 @@ class _ChatWindowState extends State<ChatWindow> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: kPrimary.withOpacity(0.3), width: 1),
+              border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
+                  color: Colors.black.withValues(alpha: 0.08),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -5261,7 +5261,7 @@ class _ChatWindowState extends State<ChatWindow> {
       crossAxisAlignment: isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (replyPreview != null) replyPreview,
+        ?replyPreview,
         Container(
           margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -5573,9 +5573,9 @@ class _ChatWindowState extends State<ChatWindow> {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: kPrimary.withOpacity(0.07),
+        color: kPrimary.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: kPrimary.withOpacity(0.25), width: 1),
+        border: Border.all(color: kPrimary.withValues(alpha: 0.25), width: 1),
       ),
       child: Row(
         children: [
@@ -5630,7 +5630,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 width: 44,
                 height: 44,
                 fit: BoxFit.cover,
-                errorWidget: (_, __, ___) =>
+                errorWidget: (_, _, ___) =>
                     Icon(Icons.image, size: 44, color: Colors.grey.shade400),
               ),
             ),
@@ -5664,9 +5664,9 @@ class _ChatWindowState extends State<ChatWindow> {
             height: 38,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              color: kPrimary.withOpacity(0.08),
+              color: kPrimary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: kPrimary.withOpacity(0.3), width: 1),
+              border: Border.all(color: kPrimary.withValues(alpha: 0.3), width: 1),
             ),
             child: Row(
               children: [
@@ -5676,7 +5676,7 @@ class _ChatWindowState extends State<ChatWindow> {
                   duration: const Duration(milliseconds: 600),
                   curve: Curves.easeInOut,
                   onEnd: () => setState(() {}),
-                  builder: (_, opacity, __) => Opacity(
+                  builder: (_, opacity, _) => Opacity(
                     opacity: opacity,
                     child: Container(
                       width: 8,
@@ -5767,7 +5767,7 @@ class _ChatWindowState extends State<ChatWindow> {
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: _selectedImages.length,
-                      separatorBuilder: (_, __) => const SizedBox(width: 6),
+                      separatorBuilder: (_, _) => const SizedBox(width: 6),
                       itemBuilder: (context, index) {
                         final file = _selectedImages[index];
                         ImageProvider? imgProvider;
@@ -6472,7 +6472,7 @@ class _ChatWindowState extends State<ChatWindow> {
         width: double.infinity,
         height: double.infinity,
         child: ColoredBox(
-          color: Colors.black.withOpacity(0.45),
+          color: Colors.black.withValues(alpha: 0.45),
           child: Stack(
             children: [
               // Emoji bar near the message
@@ -6490,7 +6490,7 @@ class _ChatWindowState extends State<ChatWindow> {
                         borderRadius: BorderRadius.circular(30),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.18),
+                            color: Colors.black.withValues(alpha: 0.18),
                             blurRadius: 16,
                             offset: const Offset(0, 4),
                           ),
@@ -6517,7 +6517,7 @@ class _ChatWindowState extends State<ChatWindow> {
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
                                 color: isSelected
-                                    ? const Color(0xFF7B61FF).withOpacity(0.15)
+                                    ? const Color(0xFF7B61FF).withValues(alpha: 0.15)
                                     : Colors.transparent,
                                 shape: BoxShape.circle,
                               ),
@@ -7036,7 +7036,7 @@ class _HighlightableMessageContainer extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 3),
       decoration: BoxDecoration(
         color: isHighlighted
-            ? colors.primaryLight.withOpacity(_kHighlightOpacity)
+            ? colors.primaryLight.withValues(alpha: _kHighlightOpacity)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(16),
       ),
@@ -7383,7 +7383,7 @@ class _AdminVoiceWaveformState extends State<_AdminVoiceWaveform>
               width: 2.5,
               height: h,
               decoration: BoxDecoration(
-                color: widget.color.withOpacity(0.75),
+                color: widget.color.withValues(alpha: 0.75),
                 borderRadius: BorderRadius.circular(2),
               ),
             );
@@ -7488,7 +7488,7 @@ class _AdminSwipeToReplyWrapperState extends State<_AdminSwipeToReplyWrapper>
         children: [
           AnimatedBuilder(
             animation: _anim,
-            builder: (_, __) => Transform.translate(
+            builder: (_, _) => Transform.translate(
               offset: Offset(offset * _anim.value, 0),
               child: widget.child,
             ),
@@ -7497,7 +7497,7 @@ class _AdminSwipeToReplyWrapperState extends State<_AdminSwipeToReplyWrapper>
             Positioned.fill(
               child: AnimatedBuilder(
                 animation: _anim,
-                builder: (_, __) {
+                builder: (_, _) {
                   final opacity =
                       (offset.abs() / 100.0).clamp(0.0, 1.0) * _anim.value;
                   return Row(
@@ -7509,13 +7509,13 @@ class _AdminSwipeToReplyWrapperState extends State<_AdminSwipeToReplyWrapper>
                         Padding(
                           padding: const EdgeInsets.only(left: 20),
                           child: Icon(Icons.reply,
-                              color: Colors.grey.withOpacity(opacity)),
+                              color: Colors.grey.withValues(alpha: opacity)),
                         ),
                       if (!widget.isMine)
                         Padding(
                           padding: const EdgeInsets.only(right: 20),
                           child: Icon(Icons.reply,
-                              color: Colors.grey.withOpacity(opacity)),
+                              color: Colors.grey.withValues(alpha: opacity)),
                         ),
                     ],
                   );
@@ -7719,10 +7719,10 @@ class _ZoomablePageImageState extends State<_ZoomablePageImage> {
           imageUrl: widget.url,
           fit: BoxFit.contain,
           fadeInDuration: const Duration(milliseconds: 150),
-          placeholder: (_, __) => const Center(
+          placeholder: (_, _) => const Center(
             child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
           ),
-          errorWidget: (_, __, ___) => Column(
+          errorWidget: (_, _, ___) => Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               const Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
@@ -7943,11 +7943,11 @@ class _AdminUserProfileSheet extends StatelessWidget {
                                 memCacheWidth: 80,
                                 memCacheHeight: 80,
                                 fadeInDuration: const Duration(milliseconds: 150),
-                                placeholder: (_, __) => Container(
+                                placeholder: (_, _) => Container(
                                   color: Colors.grey.shade200,
                                   child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                                 ),
-                                errorWidget: (_, __, ___) => Container(
+                                errorWidget: (_, _, ___) => Container(
                                   color: Colors.grey.shade200,
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
@@ -8244,10 +8244,10 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                       imageUrl: _photos[i].url,
                       fit: BoxFit.contain,
                       fadeInDuration: const Duration(milliseconds: 150),
-                      placeholder: (_, __) => const Center(
+                      placeholder: (_, _) => const Center(
                         child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2),
                       ),
-                      errorWidget: (_, __, ___) => Column(
+                      errorWidget: (_, _, ___) => Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           const Icon(Icons.image_not_supported_outlined, color: Colors.white54, size: 64),
@@ -8272,7 +8272,7 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                 margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: c.header.withOpacity(0.95),
+                  color: c.header.withValues(alpha: 0.95),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: c.border),
                 ),
@@ -8348,7 +8348,7 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
             left: 0,
             right: 0,
             child: Container(
-              color: Colors.black.withOpacity(0.75),
+              color: Colors.black.withValues(alpha: 0.75),
               padding: const EdgeInsets.symmetric(vertical: 10),
               child: SizedBox(
                 height: _thumbSize,
@@ -8386,11 +8386,11 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
                             memCacheWidth: _thumbSize.toInt(),
                             memCacheHeight: _thumbSize.toInt(),
                             fadeInDuration: const Duration(milliseconds: 150),
-                            placeholder: (_, __) => Container(
+                            placeholder: (_, _) => Container(
                               color: Colors.white10,
                               child: const Center(child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 1.5)),
                             ),
-                            errorWidget: (_, __, ___) => Container(
+                            errorWidget: (_, _, ___) => Container(
                               color: Colors.white10,
                               child: const Icon(Icons.image_not_supported_outlined, color: Colors.white38, size: 20),
                             ),
@@ -8509,11 +8509,11 @@ class _AdminGalleryGridPageState extends State<_AdminGalleryGridPage> {
                         memCacheWidth: 200,
                         memCacheHeight: 200,
                         fadeInDuration: const Duration(milliseconds: 150),
-                        placeholder: (_, __) => Container(
+                        placeholder: (_, _) => Container(
                           color: Colors.grey.shade200,
                           child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
                         ),
-                        errorWidget: (_, __, ___) => Container(
+                        errorWidget: (_, _, ___) => Container(
                           color: Colors.grey.shade200,
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -8679,7 +8679,7 @@ class _ActionTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: CircleAvatar(
         radius: 18,
-        backgroundColor: color.withOpacity(0.12),
+        backgroundColor: color.withValues(alpha: 0.12),
         child: Icon(icon, color: color, size: 18),
       ),
       title: Text(
@@ -8848,7 +8848,7 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                   : ListView.separated(
                       shrinkWrap: true,
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (_, _) =>
                           const Divider(height: 1, indent: 72),
                       itemBuilder: (ctx, idx) {
                         final user = filtered[idx];
@@ -8871,7 +8871,7 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                               CircleAvatar(
                                 radius: 24,
                                 backgroundColor:
-                                    const Color(0xFF6366F1).withOpacity(0.15),
+                                    const Color(0xFF6366F1).withValues(alpha: 0.15),
                                 backgroundImage: (photoUrl != null &&
                                         photoUrl.isNotEmpty)
                                     ? NetworkImage(photoUrl)
@@ -8923,7 +8923,7 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                 horizontal: 14, vertical: 7),
                             decoration: BoxDecoration(
                               color:
-                                  const Color(0xFF6366F1).withOpacity(0.12),
+                                  const Color(0xFF6366F1).withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: const Text(
@@ -9114,10 +9114,10 @@ class _GroupCallParticipantPickerState
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFF7B61FF).withOpacity(0.12),
+                        color: const Color(0xFF7B61FF).withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                            color: const Color(0xFF7B61FF).withOpacity(0.3)),
+                            color: const Color(0xFF7B61FF).withValues(alpha: 0.3)),
                       ),
                       child: Text(
                         '${_selectedIds.length} selected',
@@ -9162,7 +9162,7 @@ class _GroupCallParticipantPickerState
                   : ListView.separated(
                       shrinkWrap: true,
                       itemCount: filtered.length,
-                      separatorBuilder: (_, __) =>
+                      separatorBuilder: (_, _) =>
                           const Divider(height: 1, indent: 72),
                       itemBuilder: (ctx, idx) {
                         final user = filtered[idx];
@@ -9184,7 +9184,7 @@ class _GroupCallParticipantPickerState
                               CircleAvatar(
                                 radius: 22,
                                 backgroundColor:
-                                    const Color(0xFF7B61FF).withOpacity(0.15),
+                                    const Color(0xFF7B61FF).withValues(alpha: 0.15),
                                 backgroundImage:
                                     (photoUrl != null && photoUrl.isNotEmpty)
                                         ? NetworkImage(photoUrl)
