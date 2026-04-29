@@ -395,6 +395,12 @@ const io     = new Server(server, {
     origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
     methods: ['GET', 'POST'],
   },
+  // Allow both long-polling (initial handshake) and WebSocket (persistent).
+  // Clients connect via polling first, then the connection is automatically
+  // upgraded to WebSocket.  This is more reliable across proxies and firewalls
+  // than attempting a direct WebSocket upgrade without a prior HTTP handshake.
+  transports: ['polling', 'websocket'],
+  allowUpgrades: true,
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
