@@ -18,6 +18,9 @@ import 'dart:ui';
 
 import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/adminchat/services/pushservice.dart';
+import 'package:adminmrz/settings/call_settings_provider.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:provider/provider.dart';
 import 'package:adminmrz/adminchat/tokengenerator.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
@@ -133,6 +136,12 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   StreamSubscription<Map<String, dynamic>>? _participantLeftSub;
   StreamSubscription<Map<String, dynamic>>? _callEndedSub;
 
+  // ── Calling tone (plays until first participant joins) ────────────────────
+  late AudioPlayer _ringtonePlayer;
+  bool _isPlayingRingtone = false;
+  Timer? _ringtoneRepeatTimer;
+  StreamSubscription<PlayerState>? _ringtoneStateSubscription;
+
   // ── Animation controllers ──────────────────────────────────────────────────
   late AnimationController _fadeCtrls;
   late Animation<double>   _fadeAnim;
@@ -153,6 +162,16 @@ class _GroupCallScreenState extends State<GroupCallScreen>
     );
     _fadeAnim = CurvedAnimation(parent: _fadeCtrls, curve: Curves.easeInOut);
 
+    _ringtonePlayer = AudioPlayer();
+    _ringtonePlayer.setReleaseMode(ReleaseMode.stop);
+    _ringtoneStateSubscription = _ringtonePlayer.onPlayerStateChanged.listen((state) {
+      if (state == PlayerState.completed && _isPlayingRingtone && !_callActive && !_ending) {
+        // Repeat after a short gap for a realistic ringback tone experience.
+        _ringtoneRepeatTimer?.cancel();
+        _ringtoneRepeatTimer = Timer(const Duration(milliseconds: 800), _playRingtoneSingle);
+      }
+    });
+
     // Add admin (local) participant first.
     _participants.add(_GParticipant(
       userId: widget.adminId,
@@ -171,6 +190,36 @@ class _GroupCallScreenState extends State<GroupCallScreen>
 
     _startCall();
     _scheduleControlsHide();
+  }
+
+  // ─── Calling tone helpers ──────────────────────────────────────────────────
+
+  Future<void> _playRingtone() async {
+    if (_isPlayingRingtone || _callActive || _ending) return;
+    _isPlayingRingtone = true;
+    await _playRingtoneSingle();
+  }
+
+  Future<void> _playRingtoneSingle() async {
+    if (!_isPlayingRingtone || _callActive || _ending || !mounted) return;
+    try {
+      final settings = context.read<CallSettingsProvider>();
+      await _ringtonePlayer.stop();
+      if (settings.hasCustomTone) {
+        try {
+          await _ringtonePlayer.play(UrlSource(settings.customToneUrl));
+          return;
+        } catch (_) {}
+      }
+      await _ringtonePlayer.play(AssetSource(settings.selectedTone.asset));
+    } catch (_) {}
+  }
+
+  Future<void> _stopRingtone() async {
+    _ringtoneRepeatTimer?.cancel();
+    _ringtoneRepeatTimer = null;
+    _isPlayingRingtone = false;
+    try { await _ringtonePlayer.stop(); } catch (_) {}
   }
 
   // ─── First name helper ─────────────────────────────────────────────────────
@@ -217,6 +266,9 @@ class _GroupCallScreenState extends State<GroupCallScreen>
         uid: _localUid,
       );
 
+      // Start calling tone while waiting for first participant to join.
+      _playRingtone();
+
       // Invite all initial participants via socket + push.
       final socketReady = await _socket.ensureConnected();
       for (final p in widget.initialParticipants) {
@@ -234,15 +286,27 @@ class _GroupCallScreenState extends State<GroupCallScreen>
             callerUid: _localUid.toString(),
           );
         }
-        await NotificationService.sendVideoCallNotification(
-          recipientUserId: pId,
-          callerName: widget.adminName,
-          channelName: _channel,
-          callerId: widget.adminId,
-          callerUid: _localUid.toString(),
-          agoraAppId: AgoraTokenService.appId,
-          agoraCertificate: 'SERVER_ONLY',
-        );
+        // Use the correct notification type and include group-call fields.
+        if (widget.isVideo) {
+          await NotificationService.sendGroupVideoCallNotification(
+            recipientUserId: pId,
+            callerName: widget.adminName,
+            channelName: _channel,
+            callerId: widget.adminId,
+            callerUid: _localUid.toString(),
+            agoraAppId: AgoraTokenService.appId,
+            agoraCertificate: 'SERVER_ONLY',
+          );
+        } else {
+          await NotificationService.sendGroupCallNotification(
+            recipientUserId: pId,
+            callerName: widget.adminName,
+            channelName: _channel,
+            callerId: widget.adminId,
+            callerUid: _localUid.toString(),
+            agoraAppId: AgoraTokenService.appId,
+          );
+        }
       }
 
       // Subscribe to socket events.
@@ -383,6 +447,8 @@ class _GroupCallScreenState extends State<GroupCallScreen>
 
     if (!_callActive) {
       _callActive = true;
+      // First participant joined — stop the calling tone.
+      _stopRingtone();
       _engine.enableAudio();
       _engine.updateChannelMediaOptions(ChannelMediaOptions(
         publishMicrophoneTrack: !_micMuted,
@@ -548,15 +614,26 @@ class _GroupCallScreenState extends State<GroupCallScreen>
         callerUid: _localUid.toString(),
       );
     }
-    await NotificationService.sendVideoCallNotification(
-      recipientUserId: newId,
-      callerName: widget.adminName,
-      channelName: _channel,
-      callerId: widget.adminId,
-      callerUid: _localUid.toString(),
-      agoraAppId: AgoraTokenService.appId,
-      agoraCertificate: 'SERVER_ONLY',
-    );
+    if (widget.isVideo) {
+      await NotificationService.sendGroupVideoCallNotification(
+        recipientUserId: newId,
+        callerName: widget.adminName,
+        channelName: _channel,
+        callerId: widget.adminId,
+        callerUid: _localUid.toString(),
+        agoraAppId: AgoraTokenService.appId,
+        agoraCertificate: 'SERVER_ONLY',
+      );
+    } else {
+      await NotificationService.sendGroupCallNotification(
+        recipientUserId: newId,
+        callerName: widget.adminName,
+        channelName: _channel,
+        callerId: widget.adminId,
+        callerUid: _localUid.toString(),
+        agoraAppId: AgoraTokenService.appId,
+      );
+    }
   }
 
   static Future<List<Map<String, dynamic>>> _fetchUsers({
@@ -584,6 +661,10 @@ class _GroupCallScreenState extends State<GroupCallScreen>
             m['_isOnline']  = m['isOnline'] == 1 || m['isOnline'] == '1' || m['isOnline'] == true;
             m['_firstName'] = fn;
             m['_fullName']  = [fn, ln].where((s) => s.isNotEmpty).join(' ');
+            final lastSeenRaw = m['lastSeen']?.toString();
+            m['_lastSeen'] = (lastSeenRaw != null && lastSeenRaw.isNotEmpty)
+                ? DateTime.tryParse(lastSeenRaw)
+                : null;
             return m;
           })
           .toList();
@@ -592,6 +673,16 @@ class _GroupCallScreenState extends State<GroupCallScreen>
         final bo = b['_isOnline'] as bool;
         if (ao && !bo) return -1;
         if (!ao && bo) return 1;
+        final aLastSeen = a['_lastSeen'] as DateTime?;
+        final bLastSeen = b['_lastSeen'] as DateTime?;
+        if (aLastSeen != null && bLastSeen != null) {
+          final cmp = bLastSeen.compareTo(aLastSeen);
+          if (cmp != 0) return cmp;
+        } else if (aLastSeen != null) {
+          return -1;
+        } else if (bLastSeen != null) {
+          return 1;
+        }
         return (a['_firstName'] as String).compareTo(b['_firstName'] as String);
       });
       return users;
@@ -636,6 +727,7 @@ class _GroupCallScreenState extends State<GroupCallScreen>
     if (_ending) return;
     _ending = true;
     _callTimer?.cancel();
+    await _stopRingtone();
 
     await _participantAcceptedSub?.cancel();
     await _participantRejectedSub?.cancel();
@@ -1159,6 +1251,9 @@ class _GroupCallScreenState extends State<GroupCallScreen>
     _participantRejectedSub?.cancel();
     _participantLeftSub?.cancel();
     _callEndedSub?.cancel();
+    _ringtoneRepeatTimer?.cancel();
+    _ringtoneStateSubscription?.cancel();
+    _ringtonePlayer.dispose();
     super.dispose();
   }
 }
@@ -1413,6 +1508,16 @@ class _AddUserModalState extends State<_AddUserModal> {
       u['isOnline'] == 1 ||
       u['isOnline'] == '1';
 
+  String _lastSeenLabel(Map<String, dynamic> u) {
+    final lastSeen = u['_lastSeen'] as DateTime?;
+    if (lastSeen == null) return '';
+    final diff = DateTime.now().toUtc().difference(lastSeen.toUtc());
+    if (diff.inSeconds < 60) return 'Last seen just now';
+    if (diff.inMinutes < 60) return 'Last seen ${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return 'Last seen ${diff.inHours} hr ago';
+    return 'Last seen ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+  }
+
   List<Map<String, dynamic>> get _filtered {
     if (_query.isEmpty) return widget.users;
     final q = _query.toLowerCase();
@@ -1538,6 +1643,7 @@ class _AddUserModalState extends State<_AddUserModal> {
                         final name = _displayName(u);
                         final photo = u['profile_picture']?.toString();
                         final online = _isOnline(u);
+                        final lastSeenLabel = online ? '' : _lastSeenLabel(u);
                         final initial =
                             name.isNotEmpty ? name[0].toUpperCase() : '?';
 
@@ -1586,12 +1692,26 @@ class _AddUserModalState extends State<_AddUserModal> {
                             style: const TextStyle(
                                 fontWeight: FontWeight.w600, fontSize: 14),
                           ),
-                          subtitle: Text(
-                            online ? 'Online' : 'Offline',
-                            style: TextStyle(
-                              color: online ? _kEmerald : Colors.grey.shade400,
-                              fontSize: 12,
-                            ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                online ? 'Online' : 'Offline',
+                                style: TextStyle(
+                                  color: online ? _kEmerald : Colors.grey.shade400,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              if (!online && lastSeenLabel.isNotEmpty)
+                                Text(
+                                  lastSeenLabel,
+                                  style: TextStyle(
+                                    color: Colors.grey.shade500,
+                                    fontSize: 11,
+                                  ),
+                                ),
+                            ],
                           ),
                           trailing: Container(
                             padding: const EdgeInsets.symmetric(

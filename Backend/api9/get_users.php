@@ -29,28 +29,31 @@ try {
 
     $stmt = $pdo->prepare("
         SELECT
-            id,
-            firstName,
-            lastName,
-            email,
-            isVerified,
-            status,
-            privacy,
-            usertype,
-            lastLogin,
-            profile_picture,
-            isOnline,
-            isActive,
-            pageno,
-            gender
-        FROM users
-        ORDER BY id DESC
+            u.id,
+            u.firstName,
+            u.lastName,
+            u.email,
+            u.isVerified,
+            u.status,
+            u.privacy,
+            u.usertype,
+            u.lastLogin,
+            u.profile_picture,
+            u.isOnline,
+            u.isActive,
+            u.pageno,
+            u.gender,
+            COALESCE(uos.is_online, u.isOnline) AS isOnlineRealtime,
+            COALESCE(uos.last_seen, u.lastLogin) AS lastSeen
+        FROM users u
+        LEFT JOIN user_online_status uos ON u.id = uos.user_id
+        ORDER BY u.id DESC
     ");
 
     $stmt->execute();
     $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 🔥 ADD BASE URL TO PROFILE PICTURE
+    // 🔥 ADD BASE URL TO PROFILE PICTURE + normalise real-time online fields
     foreach ($users as &$user) {
         if (!empty($user['profile_picture'])) {
             $user['profile_picture'] =
@@ -58,6 +61,10 @@ try {
         } else {
             $user['profile_picture'] = null;
         }
+        // Prefer real-time online status over the legacy isOnline column
+        $user['isOnline'] = (int) $user['isOnlineRealtime'];
+        $user['lastSeen'] = $user['lastSeen'] ?? null;
+        unset($user['isOnlineRealtime']);
     }
 
     echo json_encode([

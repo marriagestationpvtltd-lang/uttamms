@@ -2257,10 +2257,15 @@ class _ChatWindowState extends State<ChatWindow> {
           .where((u) => excludeId == null || u['id']?.toString() != excludeId)
           .map((u) {
             final raw = Map<String, dynamic>.from(u as Map);
-            // Normalise the online flag to a bool for easy sorting.
+            // Prefer the real-time isOnline returned by the updated API.
             raw['_isOnline'] = raw['isOnline'] == 1 ||
                 raw['isOnline'] == '1' ||
                 raw['isOnline'] == true;
+            // Parse lastSeen from the API's lastSeen field (ISO-8601 string or null).
+            final lastSeenRaw = raw['lastSeen']?.toString();
+            raw['_lastSeen'] = (lastSeenRaw != null && lastSeenRaw.isNotEmpty)
+                ? DateTime.tryParse(lastSeenRaw)
+                : null;
             // Build a combined display name with both first and full names.
             final firstName = (raw['firstName'] ?? '').toString().trim();
             final lastName  = (raw['lastName']  ?? '').toString().trim();
@@ -2270,12 +2275,23 @@ class _ChatWindowState extends State<ChatWindow> {
           })
           .toList();
 
-      // Sort: online users first, then alphabetically by first name.
+      // Sort: online users first, then by lastSeen DESC, then alphabetically.
       users.sort((a, b) {
         final aOnline = a['_isOnline'] as bool;
         final bOnline = b['_isOnline'] as bool;
         if (aOnline && !bOnline) return -1;
         if (!aOnline && bOnline) return 1;
+        // Among users with the same online state, most-recently-seen first.
+        final aLastSeen = a['_lastSeen'] as DateTime?;
+        final bLastSeen = b['_lastSeen'] as DateTime?;
+        if (aLastSeen != null && bLastSeen != null) {
+          final cmp = bLastSeen.compareTo(aLastSeen);
+          if (cmp != 0) return cmp;
+        } else if (aLastSeen != null) {
+          return -1;
+        } else if (bLastSeen != null) {
+          return 1;
+        }
         return (a['_firstName'] as String).compareTo(b['_firstName'] as String);
       });
 
@@ -9216,6 +9232,17 @@ class _GroupCallParticipantPickerState
       u['isOnline'] == '1' ||
       u['isOnline'] == true;
 
+  /// Returns a human-readable last-seen label (e.g. "Last seen 5 min ago").
+  String _lastSeenLabel(Map<String, dynamic> u) {
+    final lastSeen = u['_lastSeen'] as DateTime?;
+    if (lastSeen == null) return '';
+    final diff = DateTime.now().toUtc().difference(lastSeen.toUtc());
+    if (diff.inSeconds < 60) return 'Last seen just now';
+    if (diff.inMinutes < 60) return 'Last seen ${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return 'Last seen ${diff.inHours} hr ago';
+    return 'Last seen ${diff.inDays} day${diff.inDays == 1 ? '' : 's'} ago';
+  }
+
   List<Map<String, dynamic>> get _filtered {
     final base = _query.isEmpty
         ? List<Map<String, dynamic>>.from(widget.allUsers)
@@ -9384,6 +9411,7 @@ class _GroupCallParticipantPickerState
                         final name = _displayName(user);
                         final photoUrl = user['profile_picture']?.toString();
                         final isOnline = _isOnline(user);
+                        final lastSeenLabel = isOnline ? '' : _lastSeenLabel(user);
                         final isSelected = _selectedIds.contains(userId);
                         final initial =
                             name.isNotEmpty ? name[0].toUpperCase() : '?';
@@ -9449,9 +9477,9 @@ class _GroupCallParticipantPickerState
                                         : Colors.grey.shade400,
                                     fontSize: 12),
                               ),
-                              if (userId.isNotEmpty)
+                              if (!isOnline && lastSeenLabel.isNotEmpty)
                                 Text(
-                                  'ID: $userId',
+                                  lastSeenLabel,
                                   style: TextStyle(
                                       color: Colors.grey.shade500,
                                       fontSize: 11),

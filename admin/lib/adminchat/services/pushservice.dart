@@ -291,6 +291,72 @@ class NotificationService {
     );
   }
 
+  /// Send a group audio-call invitation push notification.
+  /// Includes callerRole and isConferenceCall so the mobile IncomingCallScreen
+  /// handles it correctly (skips paid-plan check and uses conference accept/reject).
+  static Future<bool> sendGroupCallNotification({
+    required String recipientUserId,
+    required String callerName,
+    required String channelName,
+    required String callerId,
+    required String callerUid,
+    required String agoraAppId,
+  }) async {
+    return await sendNotification(
+      userId: recipientUserId,
+      title: '📞 Incoming Group Call',
+      body: '$callerName is inviting you to a group call',
+      data: {
+        'type': 'call',
+        'channelName': channelName,
+        'callerId': callerId,
+        'callerName': callerName,
+        'callerUid': callerUid,
+        'agoraAppId': agoraAppId,
+        'isVideoCall': 'false',
+        'callerRole': 'admin',
+        'isConferenceCall': 'true',
+        'timestamp': DateTime.now().toIso8601String(),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        'sound': 'default',
+      },
+    );
+  }
+
+  /// Send a group video-call invitation push notification.
+  /// Includes callerRole and isConferenceCall so the mobile IncomingVideoCallScreen
+  /// handles it correctly (skips paid-plan check and uses conference accept/reject).
+  static Future<bool> sendGroupVideoCallNotification({
+    required String recipientUserId,
+    required String callerName,
+    required String channelName,
+    required String callerId,
+    required String callerUid,
+    required String agoraAppId,
+    required String agoraCertificate,
+  }) async {
+    return await sendNotification(
+      userId: recipientUserId,
+      title: '📹 Incoming Group Video Call',
+      body: '$callerName is inviting you to a group video call',
+      data: {
+        'type': 'video_call',
+        'channelName': channelName,
+        'callerId': callerId,
+        'callerName': callerName,
+        'callerUid': callerUid,
+        'agoraAppId': agoraAppId,
+        'agoraCertificate': agoraCertificate,
+        'isVideoCall': 'true',
+        'callerRole': 'admin',
+        'isConferenceCall': 'true',
+        'timestamp': DateTime.now().toIso8601String(),
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+        'sound': 'default',
+      },
+    );
+  }
+
 // Send video call response (INCOMING - Accept/Reject)
   static Future<bool> sendVideoCallResponseNotification({
     required String callerId,
