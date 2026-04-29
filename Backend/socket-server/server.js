@@ -1704,6 +1704,7 @@ io.on('connection', (socket) => {
       // Refresh chat list for this user
       const rooms = await getChatRooms(userId);
       socket.emit('chat_rooms_update', { chatRooms: rooms });
+      socket.emit('chat_list_update', { chatRooms: rooms });
     } catch (err) {
       console.error('mark_read error:', err.message);
     }
@@ -2442,6 +2443,7 @@ setInterval(async () => {
     try {
       const rooms = await getChatRooms(uid);
       io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
+      io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
     } catch (err) {
       console.error(`Worker getChatRooms error [userId=${uid}]:`, err.message);
     }
@@ -2527,6 +2529,7 @@ app.post('/api/mark-chat-read', async (req, res) => {
     // Push refreshed chat list to this user
     const rooms = await getChatRooms(userId.toString());
     io.to(`user:${userId}`).emit('chat_rooms_update', { chatRooms: rooms });
+    io.to(`user:${userId}`).emit('chat_list_update', { chatRooms: rooms });
 
     res.json({ success: true });
   } catch (err) {
@@ -2594,6 +2597,7 @@ app.post('/api/notify-new-message', async (req, res) => {
       try {
         const rooms = await getChatRooms(uid);
         io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
+        io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
       } catch (e) {
         console.error(`notify-new-message: getChatRooms error [userId=${uid}]:`, e.message);
       }
@@ -2672,6 +2676,7 @@ app.post('/api/send-message', async (req, res) => {
       try {
         const rooms = await getChatRooms(uid);
         io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
+        io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
       } catch (_) {}
     }
 

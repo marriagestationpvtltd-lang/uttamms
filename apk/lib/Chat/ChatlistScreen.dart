@@ -550,9 +550,25 @@ class _ChatListScreenState extends State<ChatListScreen>
       room['lastMessageTime'] = timestamp;
       room['lastMessageSenderId'] = senderId;
 
+      // Increment unread count for messages received from the other participant.
+      if (senderId != userId) {
+        final int prevUnread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+        room['unreadCount'] = prevUnread + 1;
+      }
+
       setState(() {
         _socketChatRooms.removeAt(idx);
         _socketChatRooms.insert(0, room);
+        // Recompute totals so the header badge stays accurate.
+        int totalUnread = 0;
+        int unreadConvs = 0;
+        for (final r in _socketChatRooms) {
+          final int u = (r['unreadCount'] as num?)?.toInt() ?? 0;
+          totalUnread += u;
+          if (u > 0) unreadConvs++;
+        }
+        _totalUnreadCount = totalUnread;
+        _totalUnreadConversations = unreadConvs;
       });
 
       // Keep the pinned admin card in sync when the admin room receives a message.
@@ -645,6 +661,57 @@ class _ChatListScreenState extends State<ChatListScreen>
   String _formatTime(DateTime? time) {
     if (time == null) return '';
     return DateFormat('hh:mm a').format(time.toLocal());
+  }
+
+  /// Safely converts a dynamic map (typically from a socket event payload) to
+  /// Map<String, String>, tolerating null values and non-string entries.
+  /// This avoids [TypeError] exceptions that occur when [Map.from()] is called
+  /// on a map whose values are not already of type String.
+  Map<String, String> _safeStringMap(dynamic raw) {
+    if (raw is! Map) return {};
+    return Map<String, String>.fromEntries(
+      raw.entries.map((e) => MapEntry(e.key.toString(), e.value?.toString() ?? '')),
+    );
+  }
+
+  /// Safely converts a dynamic list (typically from a socket event payload) to
+  /// List<String>, converting each element via [toString()] to avoid
+  /// [TypeError] exceptions when integer participant IDs are present.
+  List<String> _safeStringList(dynamic raw) {
+    if (raw is! List) return [];
+    return raw.map((e) => e?.toString() ?? '').toList();
+  }
+
+  /// Fetch fresh chat rooms from the server and update state.
+  /// Called on demand (e.g. after returning from ChatDetailScreen).
+  Future<void> _refreshChatRooms() async {
+    if (userId.isEmpty || !mounted) return;
+    try {
+      final rooms = await SocketService().getChatRooms(userId);
+      if (!mounted) return;
+      final parsedRooms =
+          rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      int totalUnread = 0;
+      int unreadConvs = 0;
+      for (final room in parsedRooms) {
+        final int unread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+        totalUnread += unread;
+        if (unread > 0) unreadConvs++;
+      }
+      final nonAdminRooms =
+          parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+      setState(() {
+        _socketChatRooms = parsedRooms;
+        _cachedTotalRooms = nonAdminRooms.length;
+        _chatRoomsInitialized = true;
+        _totalUnreadCount = totalUnread;
+        _totalUnreadConversations = unreadConvs;
+      });
+      _saveChatRoomsToCache(parsedRooms);
+      _updateOnlineStatusesFromRooms(parsedRooms);
+    } catch (e) {
+      debugPrint('_refreshChatRooms error: $e');
+    }
   }
 
   /// Placeholder used to mask the tail of a message preview for non-premium users.
@@ -813,8 +880,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       List<Map<String, dynamic>> rooms) {
     if (_searchQuery.isEmpty) return rooms;
     return rooms.where((room) {
-      final participantNames =
-          Map<String, String>.from(room['participantNames'] ?? {});
+      final participantNames = _safeStringMap(room['participantNames']);
       final names = participantNames.values.join(' ').toLowerCase();
       final String lastMessage = room['lastMessage']?.toString() ?? '';
       final String messageType =
@@ -2357,16 +2423,11 @@ class _ChatListScreenState extends State<ChatListScreen>
 
           final data = displayedRooms[roomIndex];
 
-          final participants =
-              List<String>.from(data['participants'] ?? []);
-          final participantNames =
-              Map<String, String>.from(data['participantNames'] ?? {});
-          final participantImages =
-              Map<String, String>.from(data['participantImages'] ?? {});
-          final participantPrivacy =
-              Map<String, String>.from(data['participantPrivacy'] ?? {});
-          final participantPhotoRequests =
-              Map<String, String>.from(data['participantPhotoRequests'] ?? {});
+          final participants = _safeStringList(data['participants']);
+          final participantNames = _safeStringMap(data['participantNames']);
+          final participantImages = _safeStringMap(data['participantImages']);
+          final participantPrivacy = _safeStringMap(data['participantPrivacy']);
+          final participantPhotoRequests = _safeStringMap(data['participantPhotoRequests']);
           final int unreadForMe =
               (data['unreadCount'] as num?)?.toInt() ?? 0;
           final String lastMessage = data['lastMessage']?.toString() ?? '';
@@ -2517,7 +2578,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                       currentUserImage: resolveApiImageUrl(userimage),
                     ),
                   ),
-                );
+                ).then((_) => _refreshChatRooms());
               }
             },
             child: Container(
