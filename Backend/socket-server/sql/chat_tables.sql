@@ -1,10 +1,29 @@
 -- ============================================================
 -- Socket.IO Chat Migration: MySQL Schema
 -- Run this on your MySQL database before starting the server.
+--
+-- HOW TO IMPORT
+-- Option A (recommended) – MySQL CLI:
+--   mysql -u <user> -p <your_database> < chat_tables.sql
+--
+-- Option B – MySQL CLI interactive:
+--   mysql -u <user> -p
+--   USE <your_database>;
+--   SOURCE /path/to/chat_tables.sql
+--
+-- Option C – phpMyAdmin:
+--   1. Select your database in the left panel (NOT information_schema).
+--   2. Click "Import" and upload this file.
 -- ============================================================
 
 SET NAMES utf8mb4;
-SET FOREIGN_KEY_CHECKS = 0;
+-- Normalise session timezone so CURRENT_TIMESTAMP values are stored in UTC.
+-- Ensure your application layer also reads/writes datetimes in UTC.
+SET time_zone             = '+00:00';
+-- Prevent silent storage-engine substitution (e.g. MyISAM falling back when
+-- InnoDB is unavailable); the import will error instead of silently degrading.
+SET sql_mode              = 'NO_ENGINE_SUBSTITUTION';
+SET FOREIGN_KEY_CHECKS    = 0;
 
 -- Chat rooms between two users
 CREATE TABLE IF NOT EXISTS `chat_rooms` (
@@ -139,14 +158,12 @@ CREATE TABLE IF NOT EXISTS `blocks` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================
--- Verification: confirm all chat tables were created
+-- Verification: confirm all chat tables were created.
+-- SHOW TABLES works on all MySQL hosting, including restricted
+-- shared/cPanel environments that block information_schema.
 -- ============================================================
-SELECT table_name, engine, table_rows
-FROM   information_schema.TABLES
-WHERE  table_schema = DATABASE()
-  AND  table_name IN (
-    'chat_rooms', 'chat_unread_counts', 'chat_messages',
-    'user_online_status', 'call_history', 'group_calls',
-    'user_activities', 'blocks'
-  )
-ORDER BY table_name;
+SHOW TABLES LIKE 'chat\_%';
+SHOW TABLES LIKE 'user\_%';
+SHOW TABLES LIKE 'call\_%';
+SHOW TABLES LIKE 'group\_%';
+SHOW TABLES LIKE 'blocks';
