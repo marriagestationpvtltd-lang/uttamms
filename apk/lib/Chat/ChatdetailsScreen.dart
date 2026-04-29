@@ -42,6 +42,7 @@ import 'call_overlay_manager.dart';
 import '../constant/constant.dart';
 import '../utils/time_utils.dart';
 import '../utils/image_utils.dart';
+import '../utils/image_compression.dart';
 import '../utils/privacy_utils.dart';
 import 'widgets/typing_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -1174,7 +1175,8 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     final picker = ImagePicker();
     List<XFile> picked = [];
     try {
-      picked = await picker.pickMultiImage(imageQuality: 80);
+      // Note: Don't apply imageQuality here as we'll handle compression ourselves
+      picked = await picker.pickMultiImage();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1189,55 +1191,77 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     if (picked.isEmpty || !mounted) return;
 
     setState(() => _isSendingImage = true);
+
     try {
       final bool receiverViewingThisChat = _isReceiverViewingThisChat;
-      // Upload all images in parallel for speed
-      final List<String?> urls = await Future.wait(
-        picked.map((xfile) async {
-          try {
-            return await _socketService.uploadChatImage(
-              bytes: await xfile.readAsBytes(),
-              filename: xfile.name,
-              userId:    widget.currentUserId,
-              chatRoomId: widget.chatRoomId,
-            );
-          } catch (_) {
-            return null;
-          }
-        }),
-      );
-
-      if (!mounted) return;
-
-      final validUrls = urls.whereType<String>().toList();
-      if (validUrls.isEmpty) return;
-
       final timestamp = DateTime.now();
-      if (validUrls.length == 1) {
-        // Single image — optimistic UI then send
+
+      if (picked.length == 1) {
+        // Single image with instant preview (WhatsApp-like behavior)
+        final xfile = picked.first;
         final messageId = _uuid.v4();
+
+        // Step 1: Generate thumbnail immediately for instant preview
+        final thumbnail = await ImageCompressionUtils.generateThumbnail(xfile);
+        final localPreviewUrl = 'data:image/jpeg;base64,${base64Encode(thumbnail)}';
+
+        // Step 2: Show message with thumbnail IMMEDIATELY
         setState(() {
           _cachedMessages.add({
             'messageId': messageId,
             'senderId': widget.currentUserId,
             'receiverId': widget.receiverId,
-            'message': validUrls.first,
+            'message': localPreviewUrl,
             'messageType': 'image',
             'timestamp': timestamp,
-            'isRead': receiverViewingThisChat,
-            'isDelivered': receiverViewingThisChat,
+            'isRead': false,
+            'isDelivered': false,
             'isDeletedForSender': false,
             'isDeletedForReceiver': false,
+            'isUploading': true, // Flag to show upload progress
+            'localThumbnail': thumbnail, // Store for progressive loading
           });
           _messagesCacheVersion++;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+        // Step 3: Compress and upload in background
+        final compressed = await ImageCompressionUtils.compressImageForSending(xfile);
+        final uploadedUrl = await _socketService.uploadChatImage(
+          bytes: compressed,
+          filename: xfile.name,
+          userId: widget.currentUserId,
+          chatRoomId: widget.chatRoomId,
+        );
+
+        if (!mounted) return;
+
+        // Step 4: Update message with real URL and send via socket
+        setState(() {
+          final msgIndex = _cachedMessages.indexWhere((m) => m['messageId'] == messageId);
+          if (msgIndex != -1) {
+            _cachedMessages[msgIndex] = {
+              'messageId': messageId,
+              'senderId': widget.currentUserId,
+              'receiverId': widget.receiverId,
+              'message': uploadedUrl,
+              'messageType': 'image',
+              'timestamp': timestamp,
+              'isRead': receiverViewingThisChat,
+              'isDelivered': receiverViewingThisChat,
+              'isDeletedForSender': false,
+              'isDeletedForReceiver': false,
+            };
+            _messagesCacheVersion++;
+          }
+        });
+
         if (_socketService.isConnected) {
           _socketService.sendMessage(
             chatRoomId:        widget.chatRoomId,
             senderId:          widget.currentUserId,
             receiverId:        widget.receiverId,
-            message:           validUrls.first,
+            message:           uploadedUrl,
             messageType:       'image',
             messageId:         messageId,
             isReceiverViewing: receiverViewingThisChat,
@@ -1251,30 +1275,97 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             chatRoomId:  widget.chatRoomId,
             senderId:    widget.currentUserId,
             receiverId:  widget.receiverId,
-            message:     validUrls.first,
+            message:     uploadedUrl,
             messageType: 'image',
             messageId:   messageId,
           );
         }
+
+        if (!receiverViewingThisChat) {
+          await NotificationService.sendChatNotification(
+            recipientUserId: widget.receiverId.toString(),
+            senderName: widget.currentUserName,
+            senderId: widget.currentUserId.toString(),
+            message: '📷 Photo',
+          );
+        }
       } else {
-        // Multiple images — optimistic UI then send
+        // Multiple images with instant preview
         final messageId = _uuid.v4();
+
+        // Step 1: Generate thumbnails for instant preview
+        final thumbnails = await Future.wait(
+          picked.map((xfile) => ImageCompressionUtils.generateThumbnail(xfile)),
+        );
+        final localPreviewUrls = thumbnails.map((thumb) =>
+          'data:image/jpeg;base64,${base64Encode(thumb)}'
+        ).toList();
+
+        // Step 2: Show message with thumbnails IMMEDIATELY
         setState(() {
           _cachedMessages.add({
             'messageId': messageId,
             'senderId': widget.currentUserId,
             'receiverId': widget.receiverId,
-            'message': jsonEncode(validUrls),
+            'message': jsonEncode(localPreviewUrls),
             'messageType': 'image_gallery',
             'timestamp': timestamp,
-            'isRead': receiverViewingThisChat,
-            'isDelivered': receiverViewingThisChat,
+            'isRead': false,
+            'isDelivered': false,
             'isDeletedForSender': false,
             'isDeletedForReceiver': false,
+            'isUploading': true,
+            'localThumbnails': thumbnails,
           });
           _messagesCacheVersion++;
         });
         WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+        // Step 3: Compress and upload all images in parallel
+        final uploadResults = await Future.wait(
+          picked.map((xfile) async {
+            try {
+              final compressed = await ImageCompressionUtils.compressImageForSending(xfile);
+              return await _socketService.uploadChatImage(
+                bytes: compressed,
+                filename: xfile.name,
+                userId: widget.currentUserId,
+                chatRoomId: widget.chatRoomId,
+              );
+            } catch (e) {
+              debugPrint('Failed to upload image: $e');
+              return null;
+            }
+          }),
+        );
+
+        final validUrls = uploadResults.whereType<String>().toList();
+        if (validUrls.isEmpty) {
+          throw Exception('All image uploads failed');
+        }
+
+        if (!mounted) return;
+
+        // Step 4: Update message with real URLs and send
+        setState(() {
+          final msgIndex = _cachedMessages.indexWhere((m) => m['messageId'] == messageId);
+          if (msgIndex != -1) {
+            _cachedMessages[msgIndex] = {
+              'messageId': messageId,
+              'senderId': widget.currentUserId,
+              'receiverId': widget.receiverId,
+              'message': jsonEncode(validUrls),
+              'messageType': 'image_gallery',
+              'timestamp': timestamp,
+              'isRead': receiverViewingThisChat,
+              'isDelivered': receiverViewingThisChat,
+              'isDeletedForSender': false,
+              'isDeletedForReceiver': false,
+            };
+            _messagesCacheVersion++;
+          }
+        });
+
         if (_socketService.isConnected) {
           _socketService.sendMessage(
             chatRoomId:        widget.chatRoomId,
@@ -1299,15 +1390,15 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
             messageId:   messageId,
           );
         }
-      }
 
-      if (!receiverViewingThisChat) {
-        await NotificationService.sendChatNotification(
-          recipientUserId: widget.receiverId.toString(),
-          senderName: widget.currentUserName,
-          senderId: widget.currentUserId.toString(),
-          message: validUrls.length == 1 ? '📷 Photo' : '📷 ${validUrls.length} Photos',
-        );
+        if (!receiverViewingThisChat) {
+          await NotificationService.sendChatNotification(
+            recipientUserId: widget.receiverId.toString(),
+            senderName: widget.currentUserName,
+            senderId: widget.currentUserId.toString(),
+            message: '📷 ${validUrls.length} Photos',
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -2370,9 +2461,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       case 'image':
         final String imageUrl = _resolveText();
         final double imgWidth = MediaQuery.of(context).size.width * _kImageWidthFraction;
+        final bool isUploading = msg['isUploading'] == true;
+
         // Only blur if not mine AND photo request is not accepted - ignore privacy
         final bool shouldBlur = !isMine &&
             _photoRequestStatus.toLowerCase() != 'accepted';
+
+        // Check if this is a base64 data URL (local preview)
+        final bool isBase64 = imageUrl.startsWith('data:image/');
 
         if (shouldBlur) {
           return SizedBox(
@@ -2383,15 +2479,25 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               children: [
                 ImageFiltered(
                   imageFilter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                  child: CachedNetworkImage(
-                    imageUrl: imageUrl,
-                    width: imgWidth,
-                    height: imgWidth * _kImageAspectRatio,
-                    fit: BoxFit.cover,
-                    errorWidget: (context, url, error) => Container(
-                      color: Colors.grey[300],
-                    ),
-                  ),
+                  child: isBase64
+                      ? Image.memory(
+                          base64Decode(imageUrl.split(',')[1]),
+                          width: imgWidth,
+                          height: imgWidth * _kImageAspectRatio,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => Container(
+                            color: Colors.grey[300],
+                          ),
+                        )
+                      : CachedNetworkImage(
+                          imageUrl: imageUrl,
+                          width: imgWidth,
+                          height: imgWidth * _kImageAspectRatio,
+                          fit: BoxFit.cover,
+                          errorWidget: (context, url, error) => Container(
+                            color: Colors.grey[300],
+                          ),
+                        ),
                 ),
                 Container(
                   color: Colors.black.withOpacity(0.4),
@@ -2430,7 +2536,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         }
 
         return GestureDetector(
-          onTap: () {
+          onTap: isBase64 ? null : () {
             showDialog(
               context: context,
               builder: (context) => Dialog(
@@ -2460,26 +2566,71 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               ),
             );
           },
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: imgWidth,
-              minWidth: _kImageMinWidth,
-              maxHeight: _kImageMaxHeight,
-            ),
-            child: CachedNetworkImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.cover,
-              placeholder: (context, url) => SizedBox(
-                width: imgWidth,
-                height: imgWidth * _kImageAspectRatio,
-                child: const Center(child: CircularProgressIndicator()),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: imgWidth,
+                  minWidth: _kImageMinWidth,
+                  maxHeight: _kImageMaxHeight,
+                ),
+                child: isBase64
+                    ? Image.memory(
+                        base64Decode(imageUrl.split(',')[1]),
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => SizedBox(
+                          width: imgWidth,
+                          height: imgWidth * _kImageAspectRatio,
+                          child: Center(child: Icon(Icons.broken_image, color: Colors.grey.shade400)),
+                        ),
+                      )
+                    : CachedNetworkImage(
+                        imageUrl: imageUrl,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => SizedBox(
+                          width: imgWidth,
+                          height: imgWidth * _kImageAspectRatio,
+                          child: const Center(child: CircularProgressIndicator()),
+                        ),
+                        errorWidget: (context, url, error) => SizedBox(
+                          width: imgWidth,
+                          height: imgWidth * _kImageAspectRatio,
+                          child: Center(child: Icon(Icons.broken_image, color: Colors.grey.shade400)),
+                        ),
+                      ),
               ),
-              errorWidget: (context, url, error) => SizedBox(
-                width: imgWidth,
-                height: imgWidth * _kImageAspectRatio,
-                child: Center(child: Icon(Icons.broken_image, color: Colors.grey.shade400)),
-              ),
-            ),
+              if (isUploading)
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      ),
+                      SizedBox(width: 8),
+                      Text(
+                        'Uploading...',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         );
       case 'image_gallery':
@@ -3145,23 +3296,34 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
     Widget buildThumb(int index, {bool showOverlay = false, int extra = 0}) {
       final url = urls[index];
-      Widget img = CachedNetworkImage(
-        imageUrl: url,
-        fit: BoxFit.cover,
-        placeholder: (ctx, url) => Container(
-          color: Colors.grey.shade200,
-          child: const Center(
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-        ),
-        errorWidget: (_, __, ___) => Container(
-          color: Colors.grey.shade300,
-          child: Icon(Icons.broken_image, color: Colors.grey.shade500),
-        ),
-      );
+      final bool isBase64 = url.startsWith('data:image/');
+
+      Widget img = isBase64
+          ? Image.memory(
+              base64Decode(url.split(',')[1]),
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stackTrace) => Container(
+                color: Colors.grey.shade300,
+                child: Icon(Icons.broken_image, color: Colors.grey.shade500),
+              ),
+            )
+          : CachedNetworkImage(
+              imageUrl: url,
+              fit: BoxFit.cover,
+              placeholder: (ctx, url) => Container(
+                color: Colors.grey.shade200,
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ),
+              errorWidget: (_, __, ___) => Container(
+                color: Colors.grey.shade300,
+                child: Icon(Icons.broken_image, color: Colors.grey.shade500),
+              ),
+            );
 
       Widget tile = GestureDetector(
-        onTap: () => _openGalleryViewer(urls, index),
+        onTap: isBase64 ? null : () => _openGalleryViewer(urls, index),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(4),
           child: showOverlay
