@@ -2760,8 +2760,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     final url = data['imageUrl']?.toString();
     if (url != null && url.isNotEmpty) return url;
     final imgs = data['images'];
-    if (imgs is List && imgs.isNotEmpty) {
-      return imgs.first?.toString();
+    if (imgs is List) {
+      return imgs.whereType<String>().where((s) => s.isNotEmpty).firstOrNull;
     }
     return null;
   }

@@ -2363,7 +2363,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       if (imgs is List && imgs.isNotEmpty) {
         return imgs.first?.toString() ?? '';
       }
-      return text;
+      return '';
     }
 
     switch (messageType) {
