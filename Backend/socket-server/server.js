@@ -197,6 +197,25 @@ pool.getConnection()
     `);
     console.log('✅ call_history table ready');
 
+    // Create group_calls table if not present (idempotent).
+    // Tracks admin-initiated group call sessions with a dynamic participant list.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`group_calls\` (
+        \`id\`           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        \`channel_name\` VARCHAR(150) NOT NULL UNIQUE,
+        \`call_type\`    ENUM('audio','video') NOT NULL DEFAULT 'audio',
+        \`admin_id\`     VARCHAR(50)  NOT NULL DEFAULT '1',
+        \`participants\` JSON         NOT NULL,
+        \`status\`       ENUM('active','ended') NOT NULL DEFAULT 'active',
+        \`started_at\`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        \`ended_at\`     DATETIME     DEFAULT NULL,
+        INDEX \`idx_gc_channel\`  (\`channel_name\`),
+        INDEX \`idx_gc_admin\`    (\`admin_id\`),
+        INDEX \`idx_gc_started\`  (\`started_at\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log('✅ group_calls table ready');
+
     // Create user_activities table if not present (idempotent).
     await conn.query(`
       CREATE TABLE IF NOT EXISTS \`user_activities\` (
@@ -611,6 +630,60 @@ app.delete('/api/calls/user/:userId', async (req, res) => {
 });
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Group Call REST API
+// ──────────────────────────────────────────────────────────────────────────────
+
+// GET /api/group-calls?limit=50 — List recent group calls (admin use).
+app.get('/api/group-calls', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+    const [rows] = await pool.query(
+      `SELECT * FROM group_calls ORDER BY started_at DESC LIMIT ?`,
+      [limit],
+    );
+    const calls = rows.map(r => ({
+      id:           r.id,
+      channelName:  r.channel_name,
+      callType:     r.call_type,
+      adminId:      r.admin_id,
+      participants: (() => { try { return JSON.parse(r.participants); } catch (_) { return []; } })(),
+      status:       r.status,
+      startedAt:    r.started_at ? r.started_at.toISOString() : null,
+      endedAt:      r.ended_at   ? r.ended_at.toISOString()   : null,
+    }));
+    res.json({ success: true, calls });
+  } catch (err) {
+    console.error('GET /api/group-calls error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/group-calls/:channelName — Get a specific group call by channel name.
+app.get('/api/group-calls/:channelName', async (req, res) => {
+  try {
+    const { channelName } = req.params;
+    const [[row]] = await pool.query(
+      'SELECT * FROM group_calls WHERE channel_name = ? LIMIT 1',
+      [channelName],
+    );
+    if (!row) return res.status(404).json({ error: 'Group call not found' });
+    res.json({
+      success:      true,
+      channelName:  row.channel_name,
+      callType:     row.call_type,
+      adminId:      row.admin_id,
+      participants: (() => { try { return JSON.parse(row.participants); } catch (_) { return []; } })(),
+      status:       row.status,
+      startedAt:    row.started_at ? row.started_at.toISOString() : null,
+      endedAt:      row.ended_at   ? row.ended_at.toISOString()   : null,
+    });
+  } catch (err) {
+    console.error('GET /api/group-calls/:channelName error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Admin REST API — chat history
 // ──────────────────────────────────────────────────────────────────────────────
 
@@ -791,6 +864,11 @@ const PENDING_CALL_TTL_MS = 60000; // 60 seconds — matches FCM notification li
 // Used to detect busy state and reject new incoming calls automatically.
 const activeCallUsers = new Map();
 
+// Tracks all participants in each active group call channel.
+// channelName (string) → Set<userId (string)>
+// Allows broadcasting to ALL current participants when a new user is added.
+const groupCallParticipants = new Map();
+
 function _cleanExpiredPendingCalls() {
   const now = Date.now();
   for (const [channelName, call] of activePendingCalls) {
@@ -803,6 +881,49 @@ function _cleanExpiredPendingCalls() {
 // ──────────────────────────────────────────────────────────────────────────────
 // DB helpers
 // ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Upserts the group_calls row for a channel to persist the current participant
+ * set.  Uses INSERT … ON DUPLICATE KEY UPDATE so it works both for creation
+ * and incremental additions.  Errors are logged but never rethrown so a
+ * DB hiccup never crashes the call-signalling flow.
+ */
+async function persistGroupCallParticipants(channelName, callType, adminId) {
+  const participants = groupCallParticipants.get(channelName);
+  if (!participants) return;
+  const participantsJson = JSON.stringify(Array.from(participants));
+  const safeCallType = callType === 'video' ? 'video' : 'audio';
+  const safeAdminId = (adminId || '1').toString();
+  try {
+    await pool.query(
+      `INSERT INTO group_calls (channel_name, call_type, admin_id, participants, status)
+         VALUES (?, ?, ?, ?, 'active')
+       ON DUPLICATE KEY UPDATE
+         participants = VALUES(participants),
+         admin_id     = VALUES(admin_id),
+         call_type    = VALUES(call_type),
+         status       = 'active'`,
+      [channelName, safeCallType, safeAdminId, participantsJson],
+    );
+  } catch (err) {
+    console.error(`persistGroupCallParticipants error [${channelName}]:`, err.message);
+  }
+}
+
+/**
+ * Marks a group_calls row as ended.
+ */
+async function endGroupCall(channelName) {
+  try {
+    await pool.query(
+      `UPDATE group_calls SET status = 'ended', ended_at = UTC_TIMESTAMP()
+        WHERE channel_name = ? AND status = 'active'`,
+      [channelName],
+    );
+  } catch (err) {
+    console.error(`endGroupCall error [${channelName}]:`, err.message);
+  }
+}
 
 /**
  * Returns true if either user has blocked the other.
@@ -1895,9 +2016,18 @@ io.on('connection', (socket) => {
     // Admin (userId === '1') is always available — do not mark them as busy.
     const callerStr    = callerId.toString();
     const recipientStr = recipientId ? recipientId.toString() : undefined;
-    if (rest.channelName) {
-      if (callerStr !== '1') activeCallUsers.set(callerStr, rest.channelName);
-      if (recipientStr && recipientStr !== '1') activeCallUsers.set(recipientStr, rest.channelName);
+    const channelName  = rest.channelName;
+    if (channelName) {
+      if (callerStr !== '1') activeCallUsers.set(callerStr, channelName);
+      if (recipientStr && recipientStr !== '1') activeCallUsers.set(recipientStr, channelName);
+      // Seed group-call participant tracking with both parties.
+      if (!groupCallParticipants.has(channelName)) {
+        groupCallParticipants.set(channelName, new Set());
+      }
+      groupCallParticipants.get(channelName).add(callerStr);
+      if (recipientStr) groupCallParticipants.get(channelName).add(recipientStr);
+      // Persist initial participants to DB asynchronously.
+      persistGroupCallParticipants(channelName, rest.callType || 'audio', callerStr).catch(() => {});
     }
     io.to(`user:${callerStr}`).emit('call_accepted', {
       ...rest,
@@ -1947,19 +2077,33 @@ io.on('connection', (socket) => {
   // Either party emits this to notify the other the call has ended.
   socket.on('call_end', (data) => {
     const { callerId, recipientId, ...rest } = data || {};
-    if (rest.channelName) activePendingCalls.delete(rest.channelName);
+    const channelName = rest.channelName;
+    if (channelName) activePendingCalls.delete(channelName);
     // Remove both parties from the active-call tracking set
     if (callerId)    activeCallUsers.delete(callerId.toString());
     if (recipientId) activeCallUsers.delete(recipientId.toString());
-    if (callerId) {
-      io.to(`user:${callerId.toString()}`).emit('call_ended', {
-        ...rest, callerId, recipientId,
-      });
-    }
-    if (recipientId) {
-      io.to(`user:${recipientId.toString()}`).emit('call_ended', {
-        ...rest, callerId, recipientId,
-      });
+
+    // Notify all group-call participants (not just the 2 initial parties).
+    if (channelName && groupCallParticipants.has(channelName)) {
+      const allParticipants = groupCallParticipants.get(channelName);
+      for (const uid of allParticipants) {
+        activeCallUsers.delete(uid);
+        io.to(`user:${uid}`).emit('call_ended', { ...rest, callerId, recipientId });
+      }
+      // Persist ended status to DB then clean up in-memory map.
+      endGroupCall(channelName).catch(() => {});
+      groupCallParticipants.delete(channelName);
+    } else {
+      if (callerId) {
+        io.to(`user:${callerId.toString()}`).emit('call_ended', {
+          ...rest, callerId, recipientId,
+        });
+      }
+      if (recipientId) {
+        io.to(`user:${recipientId.toString()}`).emit('call_ended', {
+          ...rest, callerId, recipientId,
+        });
+      }
     }
   });
 
@@ -1991,36 +2135,45 @@ io.on('connection', (socket) => {
   });
 
   // ── add_participant_to_call ───────────────────────────────────────────────
-  // Admin emits this to add a third participant to an ongoing call (conference call).
-  // This notifies the new participant and all existing participants.
+  // Admin emits this to add a participant to an ongoing group call.
+  // Notifies the new participant AND all existing participants in the channel.
   socket.on('add_participant_to_call', (data) => {
     const { newParticipantId, channelName, callType, adminId, adminName, existingParticipantId, ...rest } = data || {};
     if (!newParticipantId || !channelName) return;
 
-    // Notify the new participant they're being added to a call
-    io.to(`user:${newParticipantId.toString()}`).emit('added_to_call', {
+    const newParticipantStr = newParticipantId.toString();
+    const adminStr = adminId ? adminId.toString() : undefined;
+
+    // Update in-memory group-call participant set for this channel.
+    if (!groupCallParticipants.has(channelName)) {
+      groupCallParticipants.set(channelName, new Set());
+      // If this is the first add_participant event for the channel, seed with
+      // the admin and the original recipient so we have a complete picture.
+      if (adminStr) groupCallParticipants.get(channelName).add(adminStr);
+      if (existingParticipantId) groupCallParticipants.get(channelName).add(existingParticipantId.toString());
+    }
+    groupCallParticipants.get(channelName).add(newParticipantStr);
+
+    // Persist updated participants list to DB asynchronously.
+    persistGroupCallParticipants(channelName, callType || 'audio', adminStr || '1').catch(() => {});
+
+    // Notify the new participant they're being added to a call.
+    io.to(`user:${newParticipantStr}`).emit('added_to_call', {
       channelName,
       callType: callType || 'audio',
-      adminId: adminId ? adminId.toString() : undefined,
+      adminId: adminStr,
       adminName,
       existingParticipantId: existingParticipantId ? existingParticipantId.toString() : undefined,
       ...rest,
     });
 
-    // Notify existing participants that a new user joined
-    if (existingParticipantId) {
-      io.to(`user:${existingParticipantId.toString()}`).emit('participant_added_to_call', {
-        newParticipantId: newParticipantId.toString(),
-        channelName,
-        callType: callType || 'audio',
-        ...rest,
-      });
-    }
-
-    // Notify admin (if different from sender)
-    if (adminId) {
-      io.to(`user:${adminId.toString()}`).emit('participant_added_to_call', {
-        newParticipantId: newParticipantId.toString(),
+    // Broadcast participant_added_to_call to ALL current participants so every
+    // member of the group call (not just one) knows who joined.
+    const currentParticipants = groupCallParticipants.get(channelName);
+    for (const uid of currentParticipants) {
+      if (uid === newParticipantStr) continue; // don't notify the joiner about themselves
+      io.to(`user:${uid}`).emit('participant_added_to_call', {
+        newParticipantId: newParticipantStr,
         channelName,
         callType: callType || 'audio',
         ...rest,
@@ -2034,22 +2187,45 @@ io.on('connection', (socket) => {
     const { adminId, existingParticipantId, channelName, acceptedById, ...rest } = data || {};
     if (!channelName) return;
 
-    // Notify admin that new participant accepted
-    if (adminId) {
-      io.to(`user:${adminId.toString()}`).emit('participant_accepted_call', {
-        acceptedById: acceptedById ? acceptedById.toString() : undefined,
-        channelName,
-        ...rest,
-      });
+    // Add the accepted participant to the group-call tracking set.
+    if (acceptedById && channelName) {
+      if (!groupCallParticipants.has(channelName)) {
+        groupCallParticipants.set(channelName, new Set());
+      }
+      groupCallParticipants.get(channelName).add(acceptedById.toString());
+      // Mark non-admin participant as busy.
+      if (acceptedById.toString() !== '1') {
+        activeCallUsers.set(acceptedById.toString(), channelName);
+      }
+      persistGroupCallParticipants(channelName, 'audio', adminId ? adminId.toString() : '1').catch(() => {});
     }
 
-    // Notify existing participant
-    if (existingParticipantId) {
-      io.to(`user:${existingParticipantId.toString()}`).emit('participant_accepted_call', {
-        acceptedById: acceptedById ? acceptedById.toString() : undefined,
-        channelName,
-        ...rest,
-      });
+    // Notify ALL current participants that the new member accepted.
+    const currentParticipants = groupCallParticipants.get(channelName);
+    if (currentParticipants) {
+      for (const uid of currentParticipants) {
+        io.to(`user:${uid}`).emit('participant_accepted_call', {
+          acceptedById: acceptedById ? acceptedById.toString() : undefined,
+          channelName,
+          ...rest,
+        });
+      }
+    } else {
+      // Fallback: notify admin and original participant only.
+      if (adminId) {
+        io.to(`user:${adminId.toString()}`).emit('participant_accepted_call', {
+          acceptedById: acceptedById ? acceptedById.toString() : undefined,
+          channelName,
+          ...rest,
+        });
+      }
+      if (existingParticipantId) {
+        io.to(`user:${existingParticipantId.toString()}`).emit('participant_accepted_call', {
+          acceptedById: acceptedById ? acceptedById.toString() : undefined,
+          channelName,
+          ...rest,
+        });
+      }
     }
   });
 
@@ -2059,22 +2235,68 @@ io.on('connection', (socket) => {
     const { adminId, existingParticipantId, channelName, rejectedById, ...rest } = data || {};
     if (!channelName) return;
 
-    // Notify admin that new participant rejected
-    if (adminId) {
-      io.to(`user:${adminId.toString()}`).emit('participant_rejected_call', {
-        rejectedById: rejectedById ? rejectedById.toString() : undefined,
-        channelName,
-        ...rest,
-      });
+    // Notify ALL current participants that the user rejected (so they can update their UI).
+    const currentParticipants = groupCallParticipants.get(channelName);
+    if (currentParticipants) {
+      for (const uid of currentParticipants) {
+        io.to(`user:${uid}`).emit('participant_rejected_call', {
+          rejectedById: rejectedById ? rejectedById.toString() : undefined,
+          channelName,
+          ...rest,
+        });
+      }
+    } else {
+      // Fallback: notify admin and original participant only.
+      if (adminId) {
+        io.to(`user:${adminId.toString()}`).emit('participant_rejected_call', {
+          rejectedById: rejectedById ? rejectedById.toString() : undefined,
+          channelName,
+          ...rest,
+        });
+      }
+      if (existingParticipantId) {
+        io.to(`user:${existingParticipantId.toString()}`).emit('participant_rejected_call', {
+          rejectedById: rejectedById ? rejectedById.toString() : undefined,
+          channelName,
+          ...rest,
+        });
+      }
     }
+  });
 
-    // Notify existing participant (optional)
-    if (existingParticipantId) {
-      io.to(`user:${existingParticipantId.toString()}`).emit('participant_rejected_call', {
-        rejectedById: rejectedById ? rejectedById.toString() : undefined,
-        channelName,
-        ...rest,
-      });
+  // ── leave_group_call ─────────────────────────────────────────────────────
+  // A participant emits this to voluntarily leave a group call.
+  // Notifies all remaining participants so they can remove the leaver from their UI.
+  socket.on('leave_group_call', (data) => {
+    const { channelName, userId, callerId, recipientId } = data || {};
+    if (!channelName) return;
+    const leaverId = (userId || authenticatedUserId || '').toString();
+    if (!leaverId) return;
+
+    // Remove from busy tracking.
+    activeCallUsers.delete(leaverId);
+
+    // Update the in-memory participant set.
+    if (groupCallParticipants.has(channelName)) {
+      groupCallParticipants.get(channelName).delete(leaverId);
+      const remaining = groupCallParticipants.get(channelName);
+
+      // Notify all remaining participants about the departure.
+      for (const uid of remaining) {
+        io.to(`user:${uid}`).emit('participant_left_call', {
+          channelName,
+          leftUserId: leaverId,
+        });
+      }
+
+      // Persist updated participants list.
+      persistGroupCallParticipants(channelName, 'audio', '1').catch(() => {});
+
+      // If no participants remain, end the group call in DB.
+      if (remaining.size === 0) {
+        endGroupCall(channelName).catch(() => {});
+        groupCallParticipants.delete(channelName);
+      }
     }
   });
 
