@@ -490,6 +490,19 @@ class _ChatListScreenState extends State<ChatListScreen>
         if (!mounted) return;
         final parsedRooms =
             rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+
+        // Guard: if the ack returned empty (either a genuine timeout/no-op
+        // because _socket was null, or a server-side error) but
+        // _startChatRoomsUpdateListener has already populated real data via a
+        // chat_rooms_update push, do not overwrite that data and do not
+        // persist an empty list to the cache.
+        if (parsedRooms.isEmpty && _socketChatRooms.isNotEmpty) {
+          if (!_chatRoomsInitialized) {
+            setState(() => _chatRoomsInitialized = true);
+          }
+          return;
+        }
+
         int totalUnread = 0;
         int unreadConvs = 0;
         for (final room in parsedRooms) {
@@ -534,6 +547,9 @@ class _ChatListScreenState extends State<ChatListScreen>
       setState(() {
         _socketChatRooms = parsedRooms;
         _cachedTotalRooms = nonAdminRooms.length;
+        // Mark initialised so the skeleton loader is removed as soon as the
+        // server pushes real data via this event — even before getChatRooms ack.
+        _chatRoomsInitialized = true;
         _totalUnreadCount = totalUnread;
         _totalUnreadConversations = unreadConvs;
       });
@@ -715,6 +731,15 @@ class _ChatListScreenState extends State<ChatListScreen>
       if (!mounted) return;
       final parsedRooms =
           rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+
+      // Guard: don't overwrite real data with an empty timeout response.
+      if (parsedRooms.isEmpty && _socketChatRooms.isNotEmpty) {
+        if (!_chatRoomsInitialized) {
+          setState(() => _chatRoomsInitialized = true);
+        }
+        return;
+      }
+
       int totalUnread = 0;
       int unreadConvs = 0;
       for (final room in parsedRooms) {
