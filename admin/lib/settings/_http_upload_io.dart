@@ -30,7 +30,6 @@ Future<http.StreamedResponse> uploadMultipartPost({
 }) async {
   // Build a dart:io HttpClient that will NOT auto-follow redirects.
   final innerClient = HttpClient()
-    ..followRedirects = false
     ..connectionTimeout = _connectionTimeout;
   final client = IOClient(innerClient);
 
@@ -95,7 +94,6 @@ Future<http.Response> sendJsonPost(
   Map<String, String>? extraHeaders,
 }) async {
   final innerClient = HttpClient()
-    ..followRedirects = false
     ..connectionTimeout = _connectionTimeout;
   final client = IOClient(innerClient);
 
