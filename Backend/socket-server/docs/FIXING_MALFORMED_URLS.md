@@ -40,15 +40,22 @@ If you have existing images with malformed URLs in your Firebase Firestore datab
 
 ```bash
 # First, do a dry run to see what would be fixed
-node scripts/fix-malformed-image-urls.js --dry-run
+npm run fix-urls:dry-run
 
 # Then apply the fixes
-node scripts/fix-malformed-image-urls.js
+npm run fix-urls
+```
+
+Alternatively, you can run the script directly:
+
+```bash
+node scripts/fix-malformed-image-urls.js --dry-run  # dry run
+node scripts/fix-malformed-image-urls.js            # apply fixes
 ```
 
 **Prerequisites:**
 - Place your Firebase service account key at `service-account-key.json` in the socket-server directory
-- Install dependencies: `npm install firebase-admin`
+- Install dependencies: `npm install` (this will install firebase-admin as an optional dependency)
 
 The script will:
 1. Scan all chat messages in all chat rooms
