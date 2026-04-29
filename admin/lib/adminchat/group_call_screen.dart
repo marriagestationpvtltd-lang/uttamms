@@ -421,9 +421,11 @@ class _GroupCallScreenState extends State<GroupCallScreen>
     int    bestVolume = kThreshold;
 
     for (final s in speakers) {
-      if (s.volume > bestVolume) {
-        bestVolume = s.volume;
-        bestUid    = s.uid;
+      final vol = s.volume;
+      final uid = s.uid;
+      if (vol != null && uid != null && vol > bestVolume) {
+        bestVolume = vol;
+        bestUid    = uid;
       }
     }
 
