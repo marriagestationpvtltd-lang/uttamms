@@ -1799,6 +1799,18 @@ io.on('connection', (socket) => {
         console.log(`📞 Re-delivered pending call to userId=${authenticatedUserId}, channel=${channelName}`);
       }
     }
+
+    // Push the user's current chat room list so the Chat tab is always
+    // up-to-date after a (re)connect, even if chat_rooms_update events
+    // were emitted while the socket was offline or not yet authenticated.
+    // Both 'chat_rooms_update' and its legacy alias 'chat_list_update' are
+    // emitted for backward compatibility with older app versions.
+    getChatRooms(authenticatedUserId).then(rooms => {
+      socket.emit('chat_rooms_update', { chatRooms: rooms });
+      socket.emit('chat_list_update', { chatRooms: rooms });
+    }).catch(err => {
+      console.error('authenticate: getChatRooms error:', err.message);
+    });
   });
 
   // ── join_room ─────────────────────────────────────────────────────────────

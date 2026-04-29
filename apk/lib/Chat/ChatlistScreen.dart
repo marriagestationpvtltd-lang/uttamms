@@ -90,6 +90,10 @@ class _ChatListScreenState extends State<ChatListScreen>
   StreamSubscription? _chatRoomsUpdateSubscription;
   StreamSubscription? _newMessageSubscription;
 
+  // Tracks when the chat rooms were last fetched to avoid redundant refreshes.
+  DateTime? _lastChatRoomsFetch;
+  static const Duration _minRefreshInterval = Duration(seconds: 30);
+
   // Online status for chat participants
   final Map<String, bool> _onlineStatuses = {};
   final Map<String, DateTime?> _lastSeenTimes = {};
@@ -134,6 +138,16 @@ class _ChatListScreenState extends State<ChatListScreen>
       OnlineStatusService().start();
       _startAdminStatusListener();
       _startOnlineStatusListeners();
+      // Re-fetch chat rooms so any conversations started while the app was
+      // in the background (or the socket was reconnecting) are shown.
+      // Throttled to avoid redundant fetches on rapid foreground/background cycles.
+      if (userId.isNotEmpty) {
+        final lastFetch = _lastChatRoomsFetch;
+        if (lastFetch == null ||
+            DateTime.now().difference(lastFetch) >= _minRefreshInterval) {
+          _refreshChatRooms();
+        }
+      }
     }
   }
 
@@ -463,6 +477,13 @@ class _ChatListScreenState extends State<ChatListScreen>
       });
     }
 
+    // Set up real-time listeners BEFORE the initial fetch so that any
+    // chat_rooms_update / new_message events emitted by the server while
+    // getChatRooms is in-flight are not silently dropped by the broadcast stream.
+    _startChatRoomsUpdateListener();
+    _startNewMessageListener();
+    _startOnlineStatusListeners();
+
     // Load from cache first so the list appears instantly without a spinner
     _loadChatRoomsFromCache().then((_) {
       socketService.getChatRooms(userId).then((rooms) {
@@ -489,9 +510,6 @@ class _ChatListScreenState extends State<ChatListScreen>
         _saveChatRoomsToCache(parsedRooms);
         // Seed initial online status from room data before real-time events arrive
         _updateOnlineStatusesFromRooms(parsedRooms);
-        _startChatRoomsUpdateListener();
-        _startNewMessageListener();
-        _startOnlineStatusListeners();
       });
     });
   }
@@ -542,7 +560,12 @@ class _ChatListScreenState extends State<ChatListScreen>
 
       final idx = _socketChatRooms
           .indexWhere((r) => r['chatRoomId']?.toString() == chatRoomId);
-      if (idx == -1) return;
+      if (idx == -1) {
+        // This is a new conversation not yet in the local list.
+        // Re-fetch the full room list so the new chat appears immediately.
+        _refreshChatRooms();
+        return;
+      }
 
       final room = Map<String, dynamic>.from(_socketChatRooms[idx]);
       room['lastMessage'] = message;
@@ -686,6 +709,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   /// Called on demand (e.g. after returning from ChatDetailScreen).
   Future<void> _refreshChatRooms() async {
     if (userId.isEmpty || !mounted) return;
+    _lastChatRoomsFetch = DateTime.now();
     try {
       final rooms = await SocketService().getChatRooms(userId);
       if (!mounted) return;
