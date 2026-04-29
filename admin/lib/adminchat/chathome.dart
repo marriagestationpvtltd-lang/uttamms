@@ -296,23 +296,24 @@ class _ChatWindowState extends State<ChatWindow> {
 
     if (msgType == 'image') {
       // Use the URL from message, falling back to the first entry in images[].
-      imageUrl = rawMessage.isNotEmpty
+      final raw = rawMessage.isNotEmpty
           ? rawMessage
           : (apiImages != null && apiImages.isNotEmpty
               ? apiImages.first?.toString()
               : null);
+      imageUrl = raw != null ? _normalizeUploadUrl(raw) : null;
       displayMessage = 'Image';
     } else if (msgType == 'image_gallery') {
       // Prefer the `images` array from the API if available; otherwise keep
       // the raw JSON string so `_buildChatBubble` can decode it itself.
       if (apiImages != null && apiImages.isNotEmpty) {
         displayMessage = jsonEncode(
-          apiImages.whereType<String>().toList(),
+          apiImages.whereType<String>().map(_normalizeUploadUrl).toList(),
         );
       }
       // displayMessage stays as the raw JSON string if apiImages is absent.
     } else if (msgType == 'voice') {
-      imageUrl = rawMessage; // reuse imageUrl field to carry voice URL
+      imageUrl = _normalizeUploadUrl(rawMessage); // reuse imageUrl field to carry voice URL
       displayMessage = '🎤 Voice message';
     } else if (msgType == 'profile_card') {
       try {
@@ -6314,10 +6315,29 @@ class _ChatWindowState extends State<ChatWindow> {
   /// Ensures [url] uses [kAdminSocketUrl] as its base when the path starts
   /// with `/uploads/`.  The scheme and host are replaced with the known server
   /// while the path, query parameters, and fragment are preserved.
+  ///
+  /// Also repairs common URL malformations that can be stored in historical
+  /// messages, such as doubled-protocol prefixes:
+  ///   - `https://https://host/path` → `https://host/path`
+  ///   - `https://https//host/path`  → `https://host/path`
+  ///   - `http://http://host/path`   → `http://host/path`
+  ///
   /// Returns [url] unchanged for any other URL shape.
   static String _normalizeUploadUrl(String url) {
+    if (url.isEmpty) return url;
     try {
-      final parsed = Uri.parse(url);
+      // Repair doubled-protocol prefixes before further processing.
+      // e.g. 'https://https://host/path' → 'https://host/path'
+      //      'https://https//host/path'  → 'https://host/path'
+      String fixed = url;
+      fixed = fixed.replaceFirst(
+          RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
+          r'$1://');
+      fixed = fixed.replaceFirst(
+          RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
+          r'$1://');
+
+      final parsed = Uri.parse(fixed);
       if (parsed.path.startsWith('/uploads/')) {
         final base = Uri.parse(kAdminSocketUrl);
         return Uri(
@@ -6329,6 +6349,9 @@ class _ChatWindowState extends State<ChatWindow> {
           fragment: parsed.hasFragment ? parsed.fragment : null,
         ).toString();
       }
+      // Return the (potentially de-duplicated) fixed URL even when no
+      // /uploads/ re-anchoring is needed.
+      return fixed;
     } catch (_) {}
     return url;
   }
