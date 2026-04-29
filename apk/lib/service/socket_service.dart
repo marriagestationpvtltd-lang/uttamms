@@ -807,9 +807,16 @@ class SocketService {
   /// it may return an internal address.  This helper replaces the scheme and
   /// host with the known client-side socket server URL while preserving the
   /// path, query parameters, and fragment of the original URL.
+  ///
+  /// Also fixes double-protocol malformations that may have been stored in the
+  /// database before the server-side sanitization was added (e.g.
+  /// 'https://https://host/...' or 'https://https//host/...').
   static String _normalizeUploadUrl(String url) {
+    // First fix any malformed protocol prefix so Uri.parse can decode the host
+    // and path correctly.
+    final fixed = _fixMalformedProtocol(url);
     try {
-      final parsed = Uri.parse(url);
+      final parsed = Uri.parse(fixed);
       if (parsed.path.startsWith('/uploads/')) {
         final base = Uri.parse(kSocketServerUrl);
         return Uri(
@@ -822,7 +829,42 @@ class SocketService {
         ).toString();
       }
     } catch (_) {}
-    return url;
+    return fixed;
+  }
+
+  /// Fixes common double-protocol URL malformations iteratively until the URL
+  /// stabilises.  Examples:
+  ///   'https://https://host/path' → 'https://host/path'
+  ///   'https://https//host/path'  → 'https://host/path'
+  ///   'https//host/path'          → 'https://host/path'
+  ///   'https/host/path'           → 'https://host/path'
+  static String _fixMalformedProtocol(String url) {
+    String s = url;
+    String prev;
+    do {
+      prev = s;
+      // 'https://https://...' or 'https://http://...' → 'https://...'
+      s = s.replaceFirstMapped(
+        RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https://https//...' or 'https://http//...' → 'https://...'
+      s = s.replaceFirstMapped(
+        RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https//...' → 'https://...'
+      s = s.replaceFirstMapped(
+        RegExp(r'^(https?)//', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https/host...' (single slash, no colon) → 'https://host...'
+      s = s.replaceFirstMapped(
+        RegExp(r'^(https?)/([^/])', caseSensitive: false),
+        (m) => '${m[1]}://${m[2]}',
+      );
+    } while (s != prev);
+    return s;
   }
 
   /// Returns a [MediaType] for [filename] based on its extension.
