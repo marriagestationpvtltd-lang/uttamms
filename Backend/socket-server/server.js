@@ -22,6 +22,37 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s =>
 // how reverse-proxy headers are forwarded.
 // Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
 const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+
+/**
+ * Sanitize a URL string to fix common double-protocol malformations that can
+ * appear when the server was misconfigured (e.g. PUBLIC_URL already contained
+ * the scheme and it was concatenated again).  Applies fixes iteratively until
+ * the URL stabilises so chained issues are resolved in one call.
+ *
+ * Examples fixed:
+ *   'https://https://host/path' → 'https://host/path'
+ *   'https://https//host/path'  → 'https://host/path'
+ *   'https://http//host/path'   → 'https://host/path'
+ *   'https//host/path'          → 'https://host/path'
+ *   'https/host/path'           → 'https://host/path'
+ */
+function sanitizeUrl(url) {
+  if (typeof url !== 'string' || !url) return url;
+  let s = url;
+  let previous;
+  do {
+    previous = s;
+    // 'https://https://...' or 'https://http://...' → 'https://...'
+    s = s.replace(/^(https?):\/\/(https?):\/\//i, '$1://');
+    // 'https://https//...' or 'https://http//...' → 'https://...'
+    s = s.replace(/^(https?):\/\/(https?)\/\//i, '$1://');
+    // 'https//...' → 'https://...'
+    s = s.replace(/^(https?)\/\//i, '$1://');
+    // 'https/host...' (single slash, no colon) → 'https://host...'
+    s = s.replace(/^(https?)\/([^/])/i, '$1://$2');
+  } while (s !== previous);
+  return s;
+}
 // Base URL of the PHP API, used to resolve relative profile-picture paths.
 // Defaults to the known production domain; override with API_BASE_URL env var.
 const API_BASE_URL = (process.env.API_BASE_URL || 'https://digitallami.com').replace(/\/$/, '');
@@ -410,22 +441,9 @@ const ALLOWED_VOICE_MIMES = new Set([
 function buildFileUrl(req, subDir, filename) {
   let base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
 
-  // Sanitize the base URL to fix common malformations.
-  // Keep applying fixes until no more changes occur (handles chained issues).
-  let previous;
-  do {
-    previous = base;
-    // Fix: 'https://https://...' -> 'https://...'
-    base = base.replace(/^(https?):\/\/(https?):\/\//i, '$1://');
-    // Fix: 'https://https//...' -> 'https://...' (one missing slash in second protocol)
-    base = base.replace(/^(https?):\/\/(https)\/\//i, '$1://');
-    // Fix: 'https://http//...' -> 'https://...' (one missing slash in second protocol)
-    base = base.replace(/^(https?):\/\/(http)\/\//i, '$1://');
-    // Fix: 'https//...' -> 'https://...' (missing colon between protocol and slashes)
-    base = base.replace(/^(https?)\/\//i, '$1://');
-    // Fix: 'https/...' -> 'https://...' (only one slash, no colon)
-    base = base.replace(/^(https?)\/([^/])/i, '$1://$2');
-  } while (base !== previous);
+  // Sanitize the base URL using the shared helper (handles all known
+  // double-protocol / missing-colon variants).
+  base = sanitizeUrl(base);
 
   // Remove trailing slash from base to avoid double slashes
   base = base.replace(/\/$/, '');
@@ -1160,26 +1178,41 @@ app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
       [...params, limit, offset],
     );
 
-    const messages = rows.map(r => ({
-      messageId:            r.messageId,
-      chatRoomId:           r.chatRoomId,
-      senderId:             r.senderId,
-      receiverId:           r.receiverId,
-      senderName:           (r.senderName || '').trim() || `User ${r.senderId}`,
-      receiverName:         (r.receiverName || '').trim() || `User ${r.receiverId}`,
-      message:              r.message,
-      messageType:          r.messageType,
-      images:               parseImageUrls(r.messageType, r.message),
-      isRead:               r.isRead === 1,
-      isDelivered:          r.isDelivered === 1,
-      isDeletedForSender:   r.isDeletedForSender === 1,
-      isDeletedForReceiver: r.isDeletedForReceiver === 1,
-      isEdited:             r.isEdited === 1,
-      isUnsent:             r.isUnsent === 1,
-      liked:                r.liked === 1,
-      repliedTo:            parseJsonField(r.repliedTo),
-      timestamp:            r.timestamp ? r.timestamp.toISOString() : null,
-    }));
+    const messages = rows.map(r => {
+      // Sanitize the message field for image types so the admin panel receives
+      // a valid URL even for rows stored with a double-protocol malformation.
+      let messageField = r.message;
+      if (r.messageType === 'image' && typeof messageField === 'string') {
+        messageField = sanitizeUrl(messageField);
+      } else if (r.messageType === 'image_gallery' && typeof messageField === 'string') {
+        try {
+          const urls = JSON.parse(messageField);
+          if (Array.isArray(urls)) {
+            messageField = JSON.stringify(urls.map(u => typeof u === 'string' ? sanitizeUrl(u) : u));
+          }
+        } catch (_) {}
+      }
+      return {
+        messageId:            r.messageId,
+        chatRoomId:           r.chatRoomId,
+        senderId:             r.senderId,
+        receiverId:           r.receiverId,
+        senderName:           (r.senderName || '').trim() || `User ${r.senderId}`,
+        receiverName:         (r.receiverName || '').trim() || `User ${r.receiverId}`,
+        message:              messageField,
+        messageType:          r.messageType,
+        images:               parseImageUrls(r.messageType, r.message),
+        isRead:               r.isRead === 1,
+        isDelivered:          r.isDelivered === 1,
+        isDeletedForSender:   r.isDeletedForSender === 1,
+        isDeletedForReceiver: r.isDeletedForReceiver === 1,
+        isEdited:             r.isEdited === 1,
+        isUnsent:             r.isUnsent === 1,
+        liked:                r.liked === 1,
+        repliedTo:            parseJsonField(r.repliedTo),
+        timestamp:            r.timestamp ? r.timestamp.toISOString() : null,
+      };
+    });
 
     res.json({
       success: true,
@@ -1721,17 +1754,17 @@ async function upsertOnlineStatus(userId, isOnline, activeChatRoomId = null) {
  */
 function parseImageUrls(messageType, message) {
   if (messageType === 'image') {
-    return (typeof message === 'string' && message.length > 0) ? [message] : [];
+    return (typeof message === 'string' && message.length > 0) ? [sanitizeUrl(message)] : [];
   }
   if (messageType === 'image_gallery') {
     try {
       const parsed = JSON.parse(message);
       if (Array.isArray(parsed)) {
-        return parsed.filter(u => typeof u === 'string' && u.length > 0);
+        return parsed.filter(u => typeof u === 'string' && u.length > 0).map(sanitizeUrl);
       }
     } catch (_) {}
     // Fallback: treat the raw value as a single URL
-    return (typeof message === 'string' && message.length > 0) ? [message] : [];
+    return (typeof message === 'string' && message.length > 0) ? [sanitizeUrl(message)] : [];
   }
   return [];
 }
@@ -1751,12 +1784,27 @@ function toMessageMap(row) {
   const messageType = row.message_type || 'text';
   const images = parseImageUrls(messageType, row.message);
 
+  // Sanitize the message field for image types so clients receive a valid URL
+  // even for old rows that were stored with a double-protocol malformation
+  // (e.g. 'https://https//...' or 'https//...').
+  let messageField = row.message;
+  if (messageType === 'image' && typeof messageField === 'string') {
+    messageField = sanitizeUrl(messageField);
+  } else if (messageType === 'image_gallery' && typeof messageField === 'string') {
+    try {
+      const urls = JSON.parse(messageField);
+      if (Array.isArray(urls)) {
+        messageField = JSON.stringify(urls.map(u => typeof u === 'string' ? sanitizeUrl(u) : u));
+      }
+    } catch (_) {}
+  }
+
   return {
     messageId:             row.message_id,
     chatRoomId:            row.chat_room_id,
     senderId:              row.sender_id,
     receiverId:            row.receiver_id,
-    message:               row.message,
+    message:               messageField,
     messageType,
     images,
     isRead:                row.is_read === 1,

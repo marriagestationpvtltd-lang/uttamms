@@ -6315,9 +6315,40 @@ class _ChatWindowState extends State<ChatWindow> {
   /// with `/uploads/`.  The scheme and host are replaced with the known server
   /// while the path, query parameters, and fragment are preserved.
   /// Returns [url] unchanged for any other URL shape.
+  ///
+  /// Also fixes double-protocol malformations that may have been stored in the
+  /// database before the server-side sanitization was added (e.g.
+  /// 'https://https://host/...' or 'https://https//host/...').
   static String _normalizeUploadUrl(String url) {
+    // Fix any malformed protocol prefix first.
+    String fixed = url;
+    String prev;
+    do {
+      prev = fixed;
+      // 'https://https://...' or 'https://http://...' → 'https://...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https://https//...' or 'https://http//...' → 'https://...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https//...' → 'https://...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?)//', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https/host...' (single slash, no colon) → 'https://host...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?)/([^/])', caseSensitive: false),
+        (m) => '${m[1]}://${m[2]}',
+      );
+    } while (fixed != prev);
+
     try {
-      final parsed = Uri.parse(url);
+      final parsed = Uri.parse(fixed);
       if (parsed.path.startsWith('/uploads/')) {
         final base = Uri.parse(kAdminSocketUrl);
         return Uri(
@@ -6330,7 +6361,7 @@ class _ChatWindowState extends State<ChatWindow> {
         ).toString();
       }
     } catch (_) {}
-    return url;
+    return fixed;
   }
 
   int _estimateLineCount(String text) {
