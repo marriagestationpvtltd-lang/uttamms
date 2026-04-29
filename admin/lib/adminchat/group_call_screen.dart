@@ -202,7 +202,7 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   // ─── Start call ────────────────────────────────────────────────────────────
   Future<void> _startCall() async {
     try {
-      _localUid = Random().nextInt(999_999) + 1;
+      _localUid = (DateTime.now().millisecondsSinceEpoch % 999_999) + 1;
 
       final firstPeer = widget.initialParticipants.isNotEmpty
           ? widget.initialParticipants.first['id'] ?? ''
@@ -486,16 +486,12 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   // ─── Admin actions ─────────────────────────────────────────────────────────
 
   void _muteParticipant(_GParticipant p) {
-    if (p.userId == widget.adminId) return; // can't remote-mute self here
-    // Emit a socket event so the server/app notifies the user.
-    _socket.emitAddParticipantToCall(
-      newParticipantId: p.userId,
-      channelName: _channel,
-      callType: widget.isVideo ? 'video' : 'audio',
-      adminId: widget.adminId,
-      adminName: widget.adminName,
-      newParticipantName: p.displayName,
-    );
+    if (p.userId == widget.adminId) return;
+    // Toggle the local mute indicator. In Agora group calls the admin cannot
+    // directly mute a remote participant's microphone — only the user's own
+    // client can do that. We track the state locally so the admin UI reflects
+    // the admin's intent and can inform the user out-of-band if a custom
+    // server-side "mute_request" event is wired up later.
     if (mounted) setState(() => p.micMuted = !p.micMuted);
   }
 
@@ -621,16 +617,12 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   }
 
   void _muteAll() {
+    // Track mute state locally for all remote participants.
+    // Agora does not allow the admin to remotely silence other clients' mics;
+    // this reflects the admin's intent in the UI. A server-side "mute_request"
+    // event can be wired up later to relay the action to the user apps.
     for (final p in _participants) {
       if (p.userId == widget.adminId) continue;
-      _socket.emitAddParticipantToCall(
-        newParticipantId: p.userId,
-        channelName: _channel,
-        callType: widget.isVideo ? 'video' : 'audio',
-        adminId: widget.adminId,
-        adminName: widget.adminName,
-        newParticipantName: p.displayName,
-      );
       p.micMuted = true;
     }
     if (mounted) setState(() {});
