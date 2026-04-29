@@ -90,6 +90,27 @@ try {
         VALUES (?, ?, ?, ?, '', 'text', UTC_TIMESTAMP(), '')
     ")->execute([$roomId, $participants, $names, $images]);
 
+    // If we have valid names or images, update any existing room that still has
+    // empty/missing values so the chat list displays correctly for old rooms.
+    $hasNames  = ($user1_name  !== '' || $user2_name  !== '');
+    $hasImages = ($user1_image !== '' || $user2_image !== '');
+    if ($hasNames) {
+        $pdo->prepare("
+            UPDATE chat_rooms
+               SET participant_names = ?
+             WHERE id = ?
+               AND (participant_names IS NULL OR JSON_LENGTH(participant_names) = 0 OR participant_names = '{}')
+        ")->execute([$names, $roomId]);
+    }
+    if ($hasImages) {
+        $pdo->prepare("
+            UPDATE chat_rooms
+               SET participant_images = ?
+             WHERE id = ?
+               AND (participant_images IS NULL OR JSON_LENGTH(participant_images) = 0 OR participant_images = '{}')
+        ")->execute([$images, $roomId]);
+    }
+
     // Initialise unread counters if not already present
     $pdo->prepare("
         INSERT IGNORE INTO chat_unread_counts (chat_room_id, user_id, unread_count)

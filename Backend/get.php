@@ -160,9 +160,10 @@ while ($user = $result->fetch_assoc()) {
 
     // Profile picture
     if (!empty($user['profile_picture'])) {
-        $profile_picture = (strpos($user['profile_picture'], 'http') === 0)
-            ? $user['profile_picture']
-            : $base_url . $user['profile_picture'];
+        $pic = $user['profile_picture'];
+        $profile_picture = (strpos($pic, 'http') === 0)
+            ? $pic
+            : $base_url . ltrim($pic, '/');
     } else {
         $profile_picture = $base_url . "default.png";
     }

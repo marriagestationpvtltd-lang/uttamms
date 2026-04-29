@@ -2384,8 +2384,8 @@ class _ChatListScreenState extends State<ChatListScreen>
           for (var participantId in participants) {
             if (participantId.trim() != userId.trim()) {
               otherParticipantId = participantId;
-              otherPersonName =
-                  participantNames[otherParticipantId] ?? 'Unknown';
+              final rawName = participantNames[otherParticipantId] ?? '';
+              otherPersonName = rawName.isNotEmpty ? rawName : 'Unknown';
               break;
             }
           }
