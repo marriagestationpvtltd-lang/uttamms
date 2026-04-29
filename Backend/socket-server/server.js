@@ -920,7 +920,7 @@ app.get('/api/call-join-list', async (req, res) => {
   try {
     const userId = (req.query.userId || '').toString().trim();
     const cursor = (req.query.cursor || '').toString().trim();
-    const limit = 15;
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit || '15', 10)), 100);
 
     if (!userId) {
       return res.status(400).json({ error: 'userId is required' });
@@ -932,12 +932,17 @@ app.get('/api/call-join-list', async (req, res) => {
       [userId]
     );
 
-    if (!currentUser) {
-      return res.status(404).json({ error: 'User not found' });
-    }
+    // When the requesting userId is not in the users table (e.g. admin user
+    // whose account lives in the admins table), fall back to returning ALL
+    // users sorted by online status without any gender filter.  This lets the
+    // admin initiate group calls and add any user to a call regardless of gender.
+    const useGenderFilter = !!currentUser;
 
-    // Determine opposite gender (male sees female, female sees male)
-    const oppositeGender = currentUser.gender === 'Male' ? 'Female' : 'Male';
+    // Determine opposite gender (male sees female, female sees male).
+    // Only applied when the requesting user is found in the users table.
+    const oppositeGender = useGenderFilter
+      ? (currentUser.gender === 'Male' ? 'Female' : 'Male')
+      : null;
 
     // Build query with cursor-based pagination
     let query = `
@@ -953,11 +958,16 @@ app.get('/api/call-join-list', async (req, res) => {
         COALESCE(uos.last_seen, u.lastLogin) AS last_seen
       FROM users u
       LEFT JOIN user_online_status uos ON u.id = uos.user_id
-      WHERE u.gender = ?
-        AND u.id != ?
+      WHERE u.id != ?
     `;
 
-    const params = [oppositeGender, userId];
+    const params = [userId];
+
+    // Apply gender filter only when we know the requesting user's gender.
+    if (useGenderFilter && oppositeGender) {
+      query += ` AND u.gender = ?`;
+      params.push(oppositeGender);
+    }
 
     // Apply cursor for pagination (cursor is last user's sort key: "isOnline_lastSeen_id")
     if (cursor) {
