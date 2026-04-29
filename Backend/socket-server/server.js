@@ -409,11 +409,14 @@ pool.getConnection()
 
         for (const { chat_room_id } of missingRows) {
           try {
-            // Identify participants from the first (oldest) message in this room.
+            // Identify participants from the oldest message in this room so we
+            // consistently pick the original sender/receiver pair regardless of
+            // insertion order.
             const [[sample]] = await conn.query(
               `SELECT sender_id, receiver_id
                  FROM chat_messages
                 WHERE chat_room_id = ?
+                ORDER BY created_at ASC
                 LIMIT 1`,
               [chat_room_id],
             );
