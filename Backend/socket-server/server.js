@@ -408,7 +408,28 @@ const ALLOWED_VOICE_MIMES = new Set([
  *  respected).
  */
 function buildFileUrl(req, subDir, filename) {
-  const base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+  let base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
+
+  // Sanitize the base URL to fix common malformations.
+  // Keep applying fixes until no more changes occur (handles chained issues).
+  let previous;
+  do {
+    previous = base;
+    // Fix: 'https://https://...' -> 'https://...'
+    base = base.replace(/^(https?):\/\/(https?):\/\//i, '$1://');
+    // Fix: 'https://https//...' -> 'https://...' (one missing slash in second protocol)
+    base = base.replace(/^(https?):\/\/(https)\/\//i, '$1://');
+    // Fix: 'https://http//...' -> 'https://...' (one missing slash in second protocol)
+    base = base.replace(/^(https?):\/\/(http)\/\//i, '$1://');
+    // Fix: 'https//...' -> 'https://...' (missing colon between protocol and slashes)
+    base = base.replace(/^(https?)\/\//i, '$1://');
+    // Fix: 'https/...' -> 'https://...' (only one slash, no colon)
+    base = base.replace(/^(https?)\/([^/])/i, '$1://$2');
+  } while (base !== previous);
+
+  // Remove trailing slash from base to avoid double slashes
+  base = base.replace(/\/$/, '');
+
   return `${base}/uploads/${subDir}/${filename}`;
 }
 
