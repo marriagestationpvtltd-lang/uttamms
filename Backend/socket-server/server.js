@@ -383,6 +383,142 @@ pool.getConnection()
       console.log('✅ Added idx_sender_receiver_time index to chat_messages');
     }
 
+    // ── Backfill chat_rooms from chat_messages (idempotent, safe) ────────────
+    // Populates the chat_rooms table for any conversation that exists in
+    // chat_messages but does not yet have a chat_rooms row.  This fixes the
+    // "chat list empty in APK" issue that occurs when messages were saved by
+    // the PHP backend before the Socket.IO server's chat_rooms table was
+    // integrated — the two code paths write to the same chat_messages table
+    // but only the Socket.IO path creates the corresponding chat_rooms entry.
+    //
+    // The migration is limited to 500 rooms per server startup to avoid
+    // overwhelming the DB; it will process the remainder on subsequent restarts
+    // until all rooms are backfilled.
+    try {
+      const [missingRows] = await conn.query(
+        `SELECT DISTINCT cm.chat_room_id
+           FROM chat_messages cm
+          WHERE NOT EXISTS (
+                  SELECT 1 FROM chat_rooms cr WHERE cr.id = cm.chat_room_id
+                )
+          LIMIT 500`,
+      );
+
+      if (missingRows.length > 0) {
+        console.log(`🔄 Backfilling ${missingRows.length} missing chat_rooms row(s) from chat_messages …`);
+
+        for (const { chat_room_id } of missingRows) {
+          try {
+            // Identify participants from the oldest message in this room so we
+            // consistently pick the original sender/receiver pair regardless of
+            // insertion order.
+            const [[sample]] = await conn.query(
+              `SELECT sender_id, receiver_id
+                 FROM chat_messages
+                WHERE chat_room_id = ?
+                ORDER BY created_at ASC
+                LIMIT 1`,
+              [chat_room_id],
+            );
+            if (!sample) continue;
+
+            const user1Id = sample.sender_id.toString();
+            const user2Id = sample.receiver_id.toString();
+
+            // Fetch display names and profile pictures for both participants.
+            const [userRows] = await conn.query(
+              `SELECT id, firstName, lastName, profile_picture
+                 FROM users
+                WHERE id IN (?, ?)`,
+              [user1Id, user2Id],
+            );
+
+            const userMap = {};
+            for (const u of userRows) {
+              const rawPic = (u.profile_picture || '').trim();
+              userMap[u.id.toString()] = {
+                name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
+                // Build a full HTTPS URL using the same logic as getChatRooms().
+                pic: rawPic
+                  ? (rawPic.startsWith('http')
+                    ? rawPic
+                    : `${API_BASE_URL}/Api2/${rawPic.replace(/^\/+/, '')}`)
+                  : '',
+              };
+            }
+
+            const u1 = userMap[user1Id] || { name: `User ${user1Id}`, pic: '' };
+            const u2 = userMap[user2Id] || { name: `User ${user2Id}`, pic: '' };
+
+            // Get the most recent message to populate last_message fields.
+            const [[lastMsg]] = await conn.query(
+              `SELECT message, message_type, sender_id, created_at
+                 FROM chat_messages
+                WHERE chat_room_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1`,
+              [chat_room_id],
+            );
+
+            const namesJson  = JSON.stringify({ [user1Id]: u1.name, [user2Id]: u2.name });
+            const imagesJson = JSON.stringify({ [user1Id]: u1.pic,  [user2Id]: u2.pic  });
+
+            // Create the chat_rooms row — INSERT IGNORE is safe for concurrent starts.
+            await conn.query(
+              `INSERT IGNORE INTO chat_rooms
+                 (id, participants, participant_names, participant_images,
+                  last_message, last_message_type, last_message_time,
+                  last_message_sender_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                chat_room_id,
+                JSON.stringify([user1Id, user2Id]),
+                namesJson,
+                imagesJson,
+                lastMsg ? (lastMsg.message   || '') : '',
+                lastMsg ? (lastMsg.message_type || 'text') : 'text',
+                lastMsg ? lastMsg.created_at : new Date(),
+                lastMsg ? lastMsg.sender_id.toString() : user1Id,
+              ],
+            );
+
+            // Seed unread-count rows (INSERT IGNORE — safe if already present).
+            await conn.query(
+              `INSERT IGNORE INTO chat_unread_counts (chat_room_id, user_id, unread_count)
+               VALUES (?, ?, 0), (?, ?, 0)`,
+              [chat_room_id, user1Id, chat_room_id, user2Id],
+            );
+
+            // Set the actual unread counts from unread messages in the room.
+            const [unreadRows] = await conn.query(
+              `SELECT receiver_id, COUNT(*) AS cnt
+                 FROM chat_messages
+                WHERE chat_room_id = ? AND is_read = 0
+                GROUP BY receiver_id`,
+              [chat_room_id],
+            );
+            for (const row of unreadRows) {
+              await conn.query(
+                `UPDATE chat_unread_counts
+                    SET unread_count = ?
+                  WHERE chat_room_id = ? AND user_id = ?`,
+                [row.cnt, chat_room_id, row.receiver_id.toString()],
+              );
+            }
+          } catch (roomErr) {
+            console.error(`Backfill: error processing room "${chat_room_id}":`, roomErr.message);
+          }
+        }
+
+        console.log('✅ chat_rooms backfill complete');
+      } else {
+        console.log('✅ chat_rooms backfill: all rooms are up-to-date');
+      }
+    } catch (backfillErr) {
+      // Non-fatal: log the error but do not prevent the server from starting.
+      console.error('chat_rooms backfill failed (non-fatal):', backfillErr.message);
+    }
+
     conn.release();
   })
   .catch(err => { console.error('❌ MySQL connection failed:', err.message); });
