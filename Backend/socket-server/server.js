@@ -435,12 +435,12 @@ const io     = new Server(server, {
   cors: {
     origin: originChecker,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
-  // Allow both long-polling (initial handshake) and WebSocket (persistent).
-  // Clients connect via polling first, then the connection is automatically
-  // upgraded to WebSocket.  This is more reliable across proxies and firewalls
-  // than attempting a direct WebSocket upgrade without a prior HTTP handshake.
-  transports: ['polling', 'websocket'],
+  // Allow both WebSocket (preferred) and long-polling (fallback).
+  // WebSocket is listed first so clients that support it connect directly
+  // without an intermediate polling handshake.
+  transports: ['websocket', 'polling'],
   allowUpgrades: true,
   pingTimeout:       60000,
   pingInterval:      25000,
@@ -450,6 +450,7 @@ const io     = new Server(server, {
 app.use(cors({
   origin: originChecker,
   methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true,
 }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));

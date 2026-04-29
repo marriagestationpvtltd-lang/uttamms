@@ -126,8 +126,8 @@ class AdminSocketService {
     _socket = IO.io(
       kAdminSocketUrl,
       IO.OptionBuilder()
-          .setTransports(['polling', 'websocket'])
-          .setReconnectionDelay(2000)
+          .setTransports(['websocket'])
+          .setReconnectionDelay(1000)
           .setReconnectionDelayMax(10000)
           .setReconnectionAttempts(kAdminSocketReconnectAttempts)
           .enableReconnection()
