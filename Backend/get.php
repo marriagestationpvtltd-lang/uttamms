@@ -181,7 +181,7 @@ while ($user = $result->fetch_assoc()) {
             ? $pic
             : $base_url . ltrim($pic, '/');
     } else {
-        $profile_picture = $base_url . "default.png";
+        $profile_picture = "";
     }
 
     // Match count: number of opposite-gender users in the system
