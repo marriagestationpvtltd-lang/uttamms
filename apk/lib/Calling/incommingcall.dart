@@ -490,7 +490,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
             // Notify caller AFTER successfully joining Agora channel
             // This prevents race condition where caller receives accept before recipient joins
-            if (widget.callData['isConferenceCall'] == true) {
+            if (widget.callData['isConferenceCall'] == true || widget.callData['isConferenceCall'] == 'true') {
               // Conference call: emit participant_call_accept so admin receives
               // participant_accepted_call without disrupting the original call.
               SocketService().emitParticipantCallAccept(
@@ -578,7 +578,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Future<void> _rejectCall() async {
     _ringTimer?.cancel();
     await _stopRingtone();
-    if (widget.callData['isConferenceCall'] == true) {
+    if (widget.callData['isConferenceCall'] == true || widget.callData['isConferenceCall'] == 'true') {
       // Conference call: notify admin via participant_call_reject so the
       // admin's original call is NOT accidentally terminated.
       SocketService().emitParticipantCallReject(
@@ -611,7 +611,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Future<void> _missedCall() async {
     await _stopRingtone();
 
-    if (widget.callData['isConferenceCall'] == true) {
+    if (widget.callData['isConferenceCall'] == true || widget.callData['isConferenceCall'] == 'true') {
       // Conference call: notify admin the invitation was not answered so admin
       // knows without ending its original active call.
       SocketService().emitParticipantCallReject(
