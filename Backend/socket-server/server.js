@@ -296,6 +296,21 @@ pool.getConnection()
       console.log('✅ Added idx_isOnline index to users table for dashboard queries');
     }
 
+    // Ensure composite index on chat_messages(sender_id, receiver_id, created_at)
+    // for efficient queries that filter by both participants and sort by time.
+    const [[idxChat]] = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'chat_messages' AND INDEX_NAME = 'idx_sender_receiver_time'
+        LIMIT 1`,
+      [dbName],
+    );
+    if (!idxChat) {
+      await conn.query(
+        `ALTER TABLE chat_messages ADD INDEX idx_sender_receiver_time (sender_id, receiver_id, created_at)`
+      ).catch(e => console.warn('idx_sender_receiver_time already exists:', e.message));
+      console.log('✅ Added idx_sender_receiver_time index to chat_messages');
+    }
+
     conn.release();
   })
   .catch(err => { console.error('❌ MySQL connection failed:', err.message); });
