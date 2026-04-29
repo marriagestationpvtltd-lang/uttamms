@@ -3,7 +3,6 @@
 require('dotenv').config();
 const express   = require('express');
 const http      = require('http');
-const https     = require('https');
 const { Server } = require('socket.io');
 const mysql     = require('mysql2/promise');
 const cors      = require('cors');
@@ -564,56 +563,16 @@ const messageQueue = [];
 // Express + Socket.IO setup
 // ──────────────────────────────────────────────────────────────────────────────
 const app    = express();
-// When running behind a reverse proxy that sets X-Forwarded-Proto / X-Forwarded-For
-// (e.g. Apache, Cloudflare), trust proxy headers so req.protocol returns 'https'.
-// Safe to keep enabled even when Node.js handles SSL directly.
+// Trust reverse-proxy headers (X-Forwarded-Proto, X-Forwarded-For) so that
+// req.protocol returns 'https' when running behind Apache (cPanel) or any
+// other reverse proxy that terminates SSL upstream.
 app.set('trust proxy', 1);
 
-// ── HTTP / HTTPS server creation ──────────────────────────────────────────────
-// Without a reverse proxy such as nginx the Node.js process must handle SSL
-// itself so that browsers (including the Flutter-Web admin panel loaded over
-// HTTPS) can make wss:// connections.
-//
-// To enable HTTPS set the following variables in your .env file:
-//   SSL_CERT_PATH=/etc/letsencrypt/live/yourdomain.com/fullchain.pem
-//   SSL_KEY_PATH=/etc/letsencrypt/live/yourdomain.com/privkey.pem
-//   PORT=443        # (or 3001 – see docs)
-//
-// When these variables are absent the server falls back to plain HTTP which is
-// fine for local development or when a proxy terminates SSL upstream.
-const SSL_CERT_PATH = process.env.SSL_CERT_PATH;
-const SSL_KEY_PATH  = process.env.SSL_KEY_PATH;
-
-let server;
-if (SSL_CERT_PATH && SSL_KEY_PATH) {
-  try {
-    const sslOptions = {
-      cert: fs.readFileSync(SSL_CERT_PATH),
-      key:  fs.readFileSync(SSL_KEY_PATH),
-    };
-    server = https.createServer(sslOptions, app);
-    console.log('🔒 HTTPS mode: wss:// connections are supported without a proxy.');
-  } catch (err) {
-    console.error(`❌ Failed to load SSL certificates: ${err.message}`);
-    if (process.env.NODE_ENV === 'production') {
-      // In production, an SSL misconfiguration must be fixed explicitly.
-      // Silently falling back to HTTP would serve an insecure server without
-      // the operator realising it.
-      console.error('   Exiting — fix SSL_CERT_PATH / SSL_KEY_PATH and restart.');
-      process.exit(1);
-    }
-    console.error('   Falling back to plain HTTP (development mode only).');
-    server = http.createServer(app);
-  }
-} else {
-  server = http.createServer(app);
-  if (process.env.NODE_ENV === 'production') {
-    console.warn(
-      '⚠️  HTTP mode: wss:// connections will fail from HTTPS pages without a proxy.\n' +
-      '   Set SSL_CERT_PATH and SSL_KEY_PATH in .env to enable native HTTPS.',
-    );
-  }
-}
+// Plain HTTP server — SSL is terminated by the upstream proxy (Apache on
+// cPanel, Cloudflare, etc.).  The .htaccess file in this directory tells
+// Apache to forward both wss:// WebSocket upgrades and https:// polling
+// requests to this plain-HTTP process on localhost:PORT.
+const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
     origin: originChecker,
