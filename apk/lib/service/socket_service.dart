@@ -224,6 +224,8 @@ class SocketService {
       if (rooms is List) _chatRoomsUpdateCtrl.add(rooms);
     });
 
+    // 'chat_list_update' is a server-side alias for 'chat_rooms_update'.
+    // Both events carry the same payload and are routed to the same stream.
     _socket!.on('chat_list_update', (data) {
       final map = _toMap(data);
       final rooms = map['chatRooms'];

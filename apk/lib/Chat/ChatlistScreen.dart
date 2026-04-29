@@ -663,8 +663,10 @@ class _ChatListScreenState extends State<ChatListScreen>
     return DateFormat('hh:mm a').format(time.toLocal());
   }
 
-  /// Safely converts a dynamic map to Map<String, String>, tolerating
-  /// null values and non-string entries that may arrive from the socket.
+  /// Safely converts a dynamic map (typically from a socket event payload) to
+  /// Map<String, String>, tolerating null values and non-string entries.
+  /// This avoids [TypeError] exceptions that occur when [Map.from()] is called
+  /// on a map whose values are not already of type String.
   Map<String, String> _safeStringMap(dynamic raw) {
     if (raw is! Map) return {};
     return Map<String, String>.fromEntries(
@@ -672,7 +674,9 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
-  /// Safely converts a dynamic list to List<String>.
+  /// Safely converts a dynamic list (typically from a socket event payload) to
+  /// List<String>, converting each element via [toString()] to avoid
+  /// [TypeError] exceptions when integer participant IDs are present.
   List<String> _safeStringList(dynamic raw) {
     if (raw is! List) return [];
     return raw.map((e) => e?.toString() ?? '').toList();
