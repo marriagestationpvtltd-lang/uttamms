@@ -16,6 +16,13 @@ define('DB_NAME', 'ms');
 define('DB_USER', 'ms');
 define('DB_PASS', 'ms');
 
+// Base URL of the Socket.IO / Node.js server used for real-time event delivery.
+// Override this in your server environment if the socket server runs on a
+// different host or port.
+if (!defined('SOCKET_SERVER_URL')) {
+    define('SOCKET_SERVER_URL', getenv('SOCKET_SERVER_URL') ?: 'http://localhost:3001');
+}
+
 try {
     $pdo = new PDO(
         'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',

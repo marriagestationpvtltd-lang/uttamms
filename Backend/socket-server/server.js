@@ -2490,6 +2490,123 @@ setInterval(async () => {
 }, 60000);
 
 // ──────────────────────────────────────────────────────────────────────────────
+// REST — GET /api/chat-rooms?userId=xxx
+// Returns the chat room list for a user, sorted by last_message_time DESC.
+// Provides an HTTP fallback for clients that cannot use the socket event.
+// ──────────────────────────────────────────────────────────────────────────────
+app.get('/api/chat-rooms', async (req, res) => {
+  try {
+    const userId = (req.query.userId || '').toString().trim();
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const chatRooms = await getChatRooms(userId);
+    res.json({ success: true, chatRooms });
+  } catch (err) {
+    console.error('GET /api/chat-rooms error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// REST — POST /api/mark-chat-read
+// Marks all unread messages in a chat room as read for a user and resets the
+// unread counter.  Also emits real-time socket events so the sender knows their
+// messages have been read.
+// Body: { chatRoomId, userId }
+// ──────────────────────────────────────────────────────────────────────────────
+app.post('/api/mark-chat-read', async (req, res) => {
+  try {
+    const { chatRoomId, userId } = req.body || {};
+    if (!chatRoomId || !userId) {
+      return res.status(400).json({ error: 'chatRoomId and userId are required' });
+    }
+    await markMessagesRead({ chatRoomId, userId });
+
+    // Notify the other participant(s) that their messages were read
+    io.to(chatRoomId).emit('messages_read', { chatRoomId, userId });
+
+    // Push refreshed chat list to this user
+    const rooms = await getChatRooms(userId.toString());
+    io.to(`user:${userId}`).emit('chat_rooms_update', { chatRooms: rooms });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /api/mark-chat-read error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// REST — POST /api/notify-new-message
+// Called by the PHP backend after it saves a message directly to the DB so that
+// the socket server can emit real-time events to both participants without
+// duplicating the DB write.
+// Body: { chatRoomId, senderId, receiverId, messageId, message, messageType,
+//         timestamp (ISO), user1Name, user2Name, user1Image, user2Image }
+// ──────────────────────────────────────────────────────────────────────────────
+app.post('/api/notify-new-message', async (req, res) => {
+  try {
+    const {
+      chatRoomId, senderId, receiverId, messageId,
+      message = '', messageType = 'text',
+      timestamp, user1Name = '', user2Name = '',
+      user1Image = '', user2Image = '',
+    } = req.body || {};
+
+    if (!chatRoomId || !senderId || !receiverId) {
+      return res.status(400).json({ error: 'chatRoomId, senderId, receiverId are required' });
+    }
+
+    const safeTimestamp = timestamp || new Date().toISOString();
+
+    const payload = {
+      messageId:   messageId || '',
+      chatRoomId,
+      senderId:    senderId.toString(),
+      receiverId:  receiverId.toString(),
+      message:     message || '',
+      messageType: messageType || 'text',
+      timestamp:   safeTimestamp,
+      isRead:      false,
+      isDelivered: false,
+      repliedTo:   null,
+    };
+
+    // Emit new_message to the chat room and to each participant's personal room
+    io.to(chatRoomId).emit('new_message', payload);
+    io.to(`user:${senderId}`).emit('new_message', payload);
+    io.to(`user:${receiverId}`).emit('new_message', payload);
+
+    // Emit to admin room for monitoring
+    io.to('admin_room').emit('send_message', {
+      messageId:    payload.messageId,
+      chatRoomId,
+      senderId:     payload.senderId,
+      receiverId:   payload.receiverId,
+      senderName:   user1Name  || `User ${senderId}`,
+      receiverName: user2Name  || `User ${receiverId}`,
+      message:      messageType === 'text' ? maskSensitiveData(message) : message,
+      messageType:  payload.messageType,
+      timestamp:    safeTimestamp,
+    });
+
+    // Push refreshed chat-room lists to both participants
+    for (const uid of [senderId.toString(), receiverId.toString()]) {
+      try {
+        const rooms = await getChatRooms(uid);
+        io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
+      } catch (e) {
+        console.error(`notify-new-message: getChatRooms error [userId=${uid}]:`, e.message);
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('POST /api/notify-new-message error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
 // HTTP fallback — POST /api/send-message
 // Clients call this when the socket is unavailable (reconnecting after a
 // network outage) so that no messages are lost.  The endpoint saves the

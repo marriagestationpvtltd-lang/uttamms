@@ -125,6 +125,33 @@ try {
 
     logActivity($sender_id, 'message_sent', 'Message sent', $receiver_id);
 
+    // Notify the socket server so it can push real-time events to both participants.
+    // This is a fire-and-forget call — a failure here must not block the response.
+    try {
+        $notifyPayload = json_encode([
+            'chatRoomId'  => $chat_room_id,
+            'senderId'    => (string)$sender_id,
+            'receiverId'  => (string)$receiver_id,
+            'messageId'   => $message_id,
+            'message'     => $message,
+            'messageType' => $message_type,
+            'timestamp'   => gmdate('c'),
+        ]);
+        $notifyCtx = stream_context_create(['http' => [
+            'method'        => 'POST',
+            'header'        => "Content-Type: application/json\r\nContent-Length: " . strlen($notifyPayload),
+            'content'       => $notifyPayload,
+            'timeout'       => 2,
+            'ignore_errors' => true,
+        ]]);
+        $notifyResult = @file_get_contents(SOCKET_SERVER_URL . '/api/notify-new-message', false, $notifyCtx);
+        if ($notifyResult === false) {
+            error_log('send_message.php: socket notify failed (server may be unavailable)');
+        }
+    } catch (Throwable $ignored) {
+        error_log('send_message.php: socket notify exception: ' . $ignored->getMessage());
+    }
+
     echo json_encode([
         'success'    => true,
         'message'    => 'Message sent',
