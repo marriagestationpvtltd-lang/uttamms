@@ -6323,20 +6323,39 @@ class _ChatWindowState extends State<ChatWindow> {
   ///   - `http://http://host/path`   → `http://host/path`
   ///
   /// Returns [url] unchanged for any other URL shape.
+  ///
+  /// Also fixes double-protocol malformations that may have been stored in the
+  /// database before the server-side sanitization was added (e.g.
+  /// 'https://https://host/...' or 'https://https//host/...').
   static String _normalizeUploadUrl(String url) {
-    if (url.isEmpty) return url;
-    try {
-      // Repair doubled-protocol prefixes before further processing.
-      // e.g. 'https://https://host/path' → 'https://host/path'
-      //      'https://https//host/path'  → 'https://host/path'
-      String fixed = url;
-      fixed = fixed.replaceFirst(
-          RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
-          r'$1://');
-      fixed = fixed.replaceFirst(
-          RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
-          r'$1://');
+    // Fix any malformed protocol prefix first.
+    String fixed = url;
+    String prev;
+    do {
+      prev = fixed;
+      // 'https://https://...' or 'https://http://...' → 'https://...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https://https//...' or 'https://http//...' → 'https://...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https//...' → 'https://...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?)//', caseSensitive: false),
+        (m) => '${m[1]}://',
+      );
+      // 'https/host...' (single slash, no colon) → 'https://host...'
+      fixed = fixed.replaceFirstMapped(
+        RegExp(r'^(https?)/([^/])', caseSensitive: false),
+        (m) => '${m[1]}://${m[2]}',
+      );
+    } while (fixed != prev);
 
+    try {
       final parsed = Uri.parse(fixed);
       if (parsed.path.startsWith('/uploads/')) {
         final base = Uri.parse(kAdminSocketUrl);
@@ -6353,7 +6372,7 @@ class _ChatWindowState extends State<ChatWindow> {
       // /uploads/ re-anchoring is needed.
       return fixed;
     } catch (_) {}
-    return url;
+    return fixed;
   }
 
   int _estimateLineCount(String text) {
