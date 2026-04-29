@@ -34,7 +34,7 @@ import 'left.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:html' as html;
 import 'dart:js' as js;
-import 'dart:js_util' show allowInterop;
+import 'dart:js' show allowInterop;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
