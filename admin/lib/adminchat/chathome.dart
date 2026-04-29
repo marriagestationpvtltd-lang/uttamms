@@ -3427,15 +3427,23 @@ class _ChatWindowState extends State<ChatWindow> {
 
       // Open current URL in new tab - the app will check session storage on load
       final currentUrl = html.window.location.href.split('#')[0];
-      html.window.open('$currentUrl#profile/$userId', '_blank');
+      // dart:html types window.open() as non-nullable, but browsers may return
+      // null when popups are blocked. Cast to dynamic for runtime null check.
+      final dynamic newWindow =
+          html.window.open('$currentUrl#profile/$userId', '_blank');
 
-      // Successfully opened in new tab
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile opened in new tab'),
-          duration: Duration(seconds: 2),
-        ),
-      );
+      if (newWindow == null) {
+        // Popup was blocked, fall back to same window navigation
+        html.window.sessionStorage.remove('pendingProfileView');
+        _navigateToProfile(context, userId);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Profile opened in new tab'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     } catch (e) {
       // If there's any error, fall back to same window navigation
       _navigateToProfile(context, userId);
