@@ -9186,11 +9186,20 @@ class _GroupCallParticipantPickerState
       u['isOnline'] == true;
 
   List<Map<String, dynamic>> get _filtered {
-    if (_query.isEmpty) return widget.allUsers;
-    final q = _query.toLowerCase();
-    return widget.allUsers
-        .where((u) => _displayName(u).toLowerCase().contains(q))
-        .toList();
+    final base = _query.isEmpty
+        ? List<Map<String, dynamic>>.from(widget.allUsers)
+        : widget.allUsers
+            .where((u) =>
+                _displayName(u).toLowerCase().contains(_query.toLowerCase()) ||
+                (u['id']?.toString() ?? '').contains(_query))
+            .toList();
+    base.sort((a, b) {
+      final aOnline = _isOnline(a) ? 0 : 1;
+      final bOnline = _isOnline(b) ? 0 : 1;
+      if (aOnline != bOnline) return aOnline - bOnline;
+      return _displayName(a).compareTo(_displayName(b));
+    });
+    return base;
   }
 
   @override
@@ -9397,13 +9406,26 @@ class _GroupCallParticipantPickerState
                                     ? const Color(0xFF7B61FF)
                                     : null),
                           ),
-                          subtitle: Text(
-                            isOnline ? 'Online' : 'Offline',
-                            style: TextStyle(
-                                color: isOnline
-                                    ? const Color(0xFF22C55E)
-                                    : Colors.grey.shade400,
-                                fontSize: 12),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                isOnline ? 'Online' : 'Offline',
+                                style: TextStyle(
+                                    color: isOnline
+                                        ? const Color(0xFF22C55E)
+                                        : Colors.grey.shade400,
+                                    fontSize: 12),
+                              ),
+                              if (userId.isNotEmpty)
+                                Text(
+                                  'ID: $userId',
+                                  style: TextStyle(
+                                      color: Colors.grey.shade500,
+                                      fontSize: 11),
+                                ),
+                            ],
                           ),
                           trailing: isSelected
                               ? const Icon(Icons.check_circle,
