@@ -583,7 +583,21 @@ class _GroupCallScreenState extends State<GroupCallScreen>
 
   Future<void> _addUser() async {
     final excludeIds = _participants.map((p) => p.userId).toSet();
-    final users = await _fetchUsers(excludeIds: excludeIds);
+    // Use the first non-admin participant's ID for gender-based filtering so
+    // the add-user list shows users of the opposite gender (matchmaking rule:
+    // male ↔ female only).  Falls back to the PHP user list if unavailable.
+    String? filterUserId;
+    for (final p in widget.initialParticipants) {
+      final id = p['id'];
+      if (id != null && id.isNotEmpty && id != widget.adminId) {
+        filterUserId = id;
+        break;
+      }
+    }
+    final users = await _fetchUsers(
+      excludeIds: excludeIds,
+      filterByUserId: filterUserId,
+    );
     if (!mounted) return;
     final selected = await showModalBottomSheet<Map<String, String>>(
       context: context,
@@ -639,9 +653,53 @@ class _GroupCallScreenState extends State<GroupCallScreen>
     }
   }
 
+  /// Fetch the list of users available to add to this group call.
+  ///
+  /// When [filterByUserId] is provided the socket server's gender-filtered
+  /// `/api/call-join-list` endpoint is used, which returns online users first
+  /// and applies the matchmaking gender rule (male ↔ female only).
+  /// When no filter user is available the method falls back to the PHP
+  /// `get_users.php` endpoint so existing behaviour is preserved.
+  ///
+  /// [excludeIds] – user IDs already in the call; filtered out client-side.
   static Future<List<Map<String, dynamic>>> _fetchUsers({
     Set<String> excludeIds = const {},
+    String? filterByUserId,
   }) async {
+    // ── Attempt 1: socket server's gender-filtered, online-first list ─────────
+    if (filterByUserId != null && filterByUserId.isNotEmpty) {
+      try {
+        final uri = Uri.parse('$kAdminSocketBaseUrl/api/call-join-list')
+            .replace(queryParameters: {'userId': filterByUserId, 'limit': '50'});
+        final res = await http.get(uri);
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data['success'] == true) {
+            final List<dynamic> raw = (data['users'] as List<dynamic>?) ?? [];
+            return raw
+                .map((u) {
+                  final m = Map<String, dynamic>.from(u as Map);
+                  // Normalise to the keys that _AddUserModal already reads.
+                  m['_isOnline']       = m['isOnline'] == true;
+                  m['_firstName']      = (m['firstName'] ?? '').toString().trim();
+                  m['_fullName']       = (m['name'] ?? '').toString().trim();
+                  m['profile_picture'] = m['profilePicture']?.toString();
+                  final lastSeenStr    = m['lastSeen']?.toString();
+                  m['_lastSeen']       = lastSeenStr != null && lastSeenStr.isNotEmpty
+                      ? DateTime.tryParse(lastSeenStr)
+                      : null;
+                  return m;
+                })
+                .where((u) => !excludeIds.contains(u['id']?.toString()))
+                .toList();
+          }
+        }
+      } catch (_) {
+        // Fall through to PHP fallback below.
+      }
+    }
+
+    // ── Fallback: existing PHP get_users.php endpoint ─────────────────────────
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token') ?? '';
