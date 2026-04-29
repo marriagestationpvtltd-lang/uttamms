@@ -42,6 +42,7 @@ import 'package:adminmrz/users/userdetails/userdetailprovider.dart';
 import 'package:adminmrz/users/userdetails/userdetailservice.dart';
 import 'package:adminmrz/users/userprovider.dart';
 import 'package:uuid/uuid.dart';
+import 'package:adminmrz/utils/image_compression.dart';
 
 class ChatWindow extends StatefulWidget {
   final String name;
@@ -6159,12 +6160,15 @@ class _ChatWindowState extends State<ChatWindow> {
     String receiverId,
   ) async {
     try {
-      // Upload all images, collecting URLs (upload doesn't require socket)
+      // Compress and upload all images in parallel for speed
       final List<String> urls = [];
       for (final file in images) {
+        // Compress image before uploading
+        final compressedBytes = await AdminImageCompression.compressImageForSending(file);
+
         final url = await _uploadChatImage(
-          image: (!kIsWeb && file.path != null) ? File(file.path!) : null,
-          imageBytes: kIsWeb ? file.bytes : null,
+          image: null, // Always use bytes after compression
+          imageBytes: compressedBytes,
           fileName: file.name,
         );
         urls.add(url);
