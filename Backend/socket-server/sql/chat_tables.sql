@@ -158,12 +158,17 @@ CREATE TABLE IF NOT EXISTS `blocks` (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ============================================================
--- Verification: confirm all chat tables were created.
--- SHOW TABLES works on all MySQL hosting, including restricted
--- shared/cPanel environments that block information_schema.
+-- After importing, verify all tables were created by running
+-- the following query manually in your MySQL client or
+-- phpMyAdmin SQL tab (do NOT include it in this import file):
+--
+--   SHOW TABLES LIKE 'chat_%';
+--   SHOW TABLES LIKE 'user_%';
+--   SHOW TABLES LIKE 'call_%';
+--   SHOW TABLES LIKE 'group_%';
+--   SHOW TABLES LIKE 'blocks';
+--
+-- Expected tables: chat_rooms, chat_unread_counts,
+--   chat_messages, user_online_status, call_history,
+--   group_calls, user_activities, blocks
 -- ============================================================
-SHOW TABLES LIKE 'chat\_%';
-SHOW TABLES LIKE 'user\_%';
-SHOW TABLES LIKE 'call\_%';
-SHOW TABLES LIKE 'group\_%';
-SHOW TABLES LIKE 'blocks';
