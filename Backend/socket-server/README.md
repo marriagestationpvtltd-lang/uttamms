@@ -18,45 +18,18 @@ mysql -u root -p marriagestation < sql/chat_tables.sql
 ### 2. Environment
 ```bash
 cp .env.example .env
-# Edit .env with your MySQL credentials, allowed origins, etc.
+# Edit .env with your MySQL credentials, Redis config, and allowed origins
 ```
 
 ### 3. Install & start
 
-#### cPanel shared hosting (recommended — no nginx needed)
-
-cPanel's Apache handles SSL automatically.  The `.htaccess` file in this
-directory configures Apache to proxy both WebSocket and HTTP requests to
-the Node.js process — **no nginx or SSL certificates needed in Node.js**.
-
-1. In cPanel → **Setup Node.js App**, create a new application:
-   - **Node.js version**: 18 or higher
-   - **Application root**: path to this `socket-server` folder
-   - **Application URL**: the sub-domain you want (e.g. `socket.yourdomain.com`)
-   - **Application startup file**: `server.js`
-   - **PORT**: pick any free port (e.g. `3001`) and set it in your `.env`
-
-2. Copy `.env.example` to `.env` and fill in your MySQL credentials and
-   the `PORT` value you chose above.  **Leave `SSL_CERT_PATH` and
-   `SSL_KEY_PATH` blank** — cPanel/Apache handles SSL for you.
-
-3. Click **Run NPM Install** in the cPanel UI, then **Start** the app.
-
-4. Verify the `.htaccess` file is present in the application root
-   (it is already in this repository).  cPanel may auto-generate its own
-   `.htaccess`; if so, merge the WebSocket proxy rules from the
-   repository's `.htaccess` into the generated file.
-
-5. Make sure the `ALLOWED_ORIGINS` in your `.env` includes your Flutter
-   web admin URL (e.g. `https://adminnew.marriagestation.com.np`).
-
-#### Single-instance (development / local)
+#### Single-instance (development)
 ```bash
 npm install
 npm run dev      # auto-reload
 ```
 
-#### Multi-instance VPS production (for 4000+ concurrent users)
+#### Multi-instance production (recommended for 4000+ users)
 ```bash
 npm install
 npm install -g pm2
@@ -65,30 +38,20 @@ npm install -g pm2
 pm2 start ecosystem.config.js --env production
 pm2 save          # persist across reboots
 pm2 startup       # generate OS init script
+
+# Nginx (load balancer in front of all instances)
+sudo cp nginx.conf /etc/nginx/sites-available/socket-server
+sudo ln -sf /etc/nginx/sites-available/socket-server /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
-If you run on a self-managed VPS **without** any proxy in front, set
-`SSL_CERT_PATH` and `SSL_KEY_PATH` in `.env` to enable native HTTPS so
-browsers can make `wss://` connections.
+## Architecture (high-concurrency)
 
-## Architecture
-
-### cPanel / shared hosting
-```
-Flutter clients
-      │  wss:// → Apache (SSL, port 443)
-      │              │  ws://127.0.0.1:3001 (via .htaccess mod_proxy)
-      ▼              ▼
-   Apache       Node.js Socket.IO  ←── MySQL
-  (cPanel)       server:3001
-```
-
-### High-concurrency VPS
 ```
 Flutter clients
       │  WebSocket
       ▼
-  Nginx (load balancer, optional)
+  Nginx (load balancer)
   ├─ Node.js instance :3001
   ├─ Node.js instance :3002
   ├─ Node.js instance :3003  ←── all share state via Redis adapter
@@ -111,7 +74,7 @@ Clients send `userId` and `token` in `socket.handshake.auth` on connection:
 ```dart
 // Flutter (socket_service.dart)
 IO.OptionBuilder()
-  .setTransports(['polling', 'websocket'])  // polling first for proxy compatibility
+  .setTransports(['websocket'])
   .setAuth({'userId': userId, 'token': bearerToken})
   .build()
 ```

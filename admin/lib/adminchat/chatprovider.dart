@@ -58,8 +58,6 @@ class ChatProvider extends ChangeNotifier {
             'profile_picture': item['profile_picture']?.toString() ?? '',
             'last_seen_text': item['last_seen_text']?.toString() ?? '',
             'chat_message': item['chat_message']?.toString() ?? '',
-            'unread_count': item['unread_count']?.toString() ?? '0',
-            'last_message_time': item['last_message_time']?.toString() ?? '',
           })
               .toList();
 

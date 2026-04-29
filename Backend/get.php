@@ -129,14 +129,7 @@ $mainSQL = "
               $unsentFilter3
             ORDER  BY cm3.created_at DESC
             LIMIT  1
-        ) AS last_sender_id,
-        COALESCE((
-            SELECT uc.unread_count
-            FROM   chat_unread_counts uc
-            WHERE  uc.chat_room_id = CONCAT('1_', u.id)
-              AND  uc.user_id = '1'
-            LIMIT  1
-        ), 0) AS unread_count
+        ) AS last_sender_id
     FROM  users u
     $whereSQL
     ORDER BY
@@ -181,7 +174,7 @@ while ($user = $result->fetch_assoc()) {
             ? $pic
             : $base_url . ltrim($pic, '/');
     } else {
-        $profile_picture = "";
+        $profile_picture = $base_url . "default.png";
     }
 
     // Match count: number of opposite-gender users in the system
@@ -232,7 +225,6 @@ while ($user = $result->fetch_assoc()) {
         'chat_message_type' => $user['chat_message_type'] ?? 'text',
         'last_message_time' => $lastMsgTimeIso,
         'last_sender_id'    => $user['last_sender_id'] !== null ? (string)$user['last_sender_id'] : null,
-        'unread_count'      => (int)($user['unread_count'] ?? 0),
         'matches'           => $matchesCount,
         'last_seen'         => $last_seen,
         'last_seen_text'    => $last_seen_text,

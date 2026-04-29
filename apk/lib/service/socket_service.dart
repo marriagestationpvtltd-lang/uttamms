@@ -147,11 +147,7 @@ class SocketService {
     _socket = IO.io(
       kSocketServerUrl,
       IO.OptionBuilder()
-          // Use polling first so the Socket.IO handshake (EIO=4) completes as
-          // a regular HTTPS request, then upgrade to WebSocket.  This is more
-          // resilient than WebSocket-only because a failed WS upgrade no longer
-          // kills the connection — it falls back to polling automatically.
-          .setTransports(['polling', 'websocket'])
+          .setTransports(['websocket'])   // WebSocket only — no polling
           .enableAutoConnect()
           .enableReconnection()
           .setReconnectionAttempts(20)
@@ -223,14 +219,6 @@ class SocketService {
     });
 
     _socket!.on('chat_rooms_update', (data) {
-      final map = _toMap(data);
-      final rooms = map['chatRooms'];
-      if (rooms is List) _chatRoomsUpdateCtrl.add(rooms);
-    });
-
-    // 'chat_list_update' is a server-side alias for 'chat_rooms_update'.
-    // Both events carry the same payload and are routed to the same stream.
-    _socket!.on('chat_list_update', (data) {
       final map = _toMap(data);
       final rooms = map['chatRooms'];
       if (rooms is List) _chatRoomsUpdateCtrl.add(rooms);
@@ -742,7 +730,7 @@ class SocketService {
       filename: filename,
       userId: userId,
       type: 'image',
-      mimeType: _mimeTypeFromFilename(filename),
+      mimeType: MediaType('image', 'jpeg'),
     );
   }
 
@@ -795,104 +783,7 @@ class SocketService {
     if (url == null || url.isEmpty) {
       throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
     }
-    // Normalize the returned URL to always use the known socket server base.
-    // If PUBLIC_URL is not configured on the server, the returned URL may use
-    // an internal address (e.g. http://127.0.0.1:3001/...) that is not
-    // accessible from outside. Re-anchoring to kSocketServerUrl ensures the
-    // stored URL is always publicly reachable.
-    return _normalizeUploadUrl(url);
-  }
-
-  /// Ensures the upload URL uses [kSocketServerUrl] as its base.
-  ///
-  /// The server's /upload endpoint derives the public URL from request headers
-  /// when PUBLIC_URL is not set in its environment.  If the server is behind a
-  /// reverse proxy that does not forward Host / X-Forwarded-Proto correctly,
-  /// it may return an internal address.  This helper replaces the scheme and
-  /// host with the known client-side socket server URL while preserving the
-  /// path, query parameters, and fragment of the original URL.
-  ///
-  /// Also fixes double-protocol malformations that may have been stored in the
-  /// database before the server-side sanitization was added (e.g.
-  /// 'https://https://host/...' or 'https://https//host/...').
-  static String _normalizeUploadUrl(String url) {
-    // First fix any malformed protocol prefix so Uri.parse can decode the host
-    // and path correctly.
-    final fixed = _fixMalformedProtocol(url);
-    try {
-      final parsed = Uri.parse(fixed);
-      if (parsed.path.startsWith('/uploads/')) {
-        final base = Uri.parse(kSocketServerUrl);
-        return Uri(
-          scheme: base.scheme,
-          host: base.host,
-          port: base.hasPort ? base.port : null,
-          path: parsed.path,
-          queryParameters: parsed.hasQuery ? parsed.queryParameters : null,
-          fragment: parsed.hasFragment ? parsed.fragment : null,
-        ).toString();
-      }
-    } catch (_) {}
-    return fixed;
-  }
-
-  /// Fixes common double-protocol URL malformations iteratively until the URL
-  /// stabilises.  Examples:
-  ///   'https://https://host/path' → 'https://host/path'
-  ///   'https://https//host/path'  → 'https://host/path'
-  ///   'https//host/path'          → 'https://host/path'
-  ///   'https/host/path'           → 'https://host/path'
-  static String _fixMalformedProtocol(String url) {
-    String s = url;
-    String prev;
-    do {
-      prev = s;
-      // 'https://https://...' or 'https://http://...' → 'https://...'
-      s = s.replaceFirstMapped(
-        RegExp(r'^(https?):\/\/(https?):\/\/', caseSensitive: false),
-        (m) => '${m[1]}://',
-      );
-      // 'https://https//...' or 'https://http//...' → 'https://...'
-      s = s.replaceFirstMapped(
-        RegExp(r'^(https?):\/\/(https?)\/\/', caseSensitive: false),
-        (m) => '${m[1]}://',
-      );
-      // 'https//...' → 'https://...'
-      s = s.replaceFirstMapped(
-        RegExp(r'^(https?)//', caseSensitive: false),
-        (m) => '${m[1]}://',
-      );
-      // 'https/host...' (single slash, no colon) → 'https://host...'
-      s = s.replaceFirstMapped(
-        RegExp(r'^(https?)/([^/])', caseSensitive: false),
-        (m) => '${m[1]}://${m[2]}',
-      );
-    } while (s != prev);
-    return s;
-  }
-
-  /// Returns a [MediaType] for [filename] based on its extension.
-  /// Falls back to `image/jpeg` for unknown or missing extensions.
-  static MediaType _mimeTypeFromFilename(String filename) {
-    final ext = filename.contains('.')
-        ? filename.split('.').last.toLowerCase()
-        : '';
-    switch (ext) {
-      case 'png':
-        return MediaType('image', 'png');
-      case 'gif':
-        return MediaType('image', 'gif');
-      case 'webp':
-        return MediaType('image', 'webp');
-      case 'bmp':
-        return MediaType('image', 'bmp');
-      case 'heic':
-        return MediaType('image', 'heic');
-      case 'heif':
-        return MediaType('image', 'heif');
-      default:
-        return MediaType('image', 'jpeg');
-    }
+    return url;
   }
 
   // ── Utility ───────────────────────────────────────────────────────────────

@@ -14,86 +14,14 @@ const { v4: uuidv4 } = require('uuid');
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
-const PORT        = process.env.PORT || 3000;
+const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
-
-/**
- * Build a CORS origin checker that supports:
- *  - '*'  → allow every origin
- *  - Exact strings (e.g. 'https://example.com')
- *  - Bare localhost / 127.0.0.1 entries without a port
- *    (e.g. 'http://localhost') → matches any port on that host,
- *    which is useful during local Flutter web / browser development
- *    where the dev server picks an arbitrary port.
- *
- * Usage: pass the returned value as the `origin` option in both
- * express cors() and the Socket.IO cors config.
- */
-function buildOriginChecker(allowedOrigins) {
-  if (allowedOrigins.includes('*')) return '*';
-
-  // Pre-compute which bare-localhost patterns are present so we can do a
-  // fast regex match on incoming request origins.
-  const localhostPrefixes = allowedOrigins
-    .filter(o => /^https?:\/\/(localhost|127\.0\.0\.1)$/.test(o))
-    .map(o => {
-      // e.g. 'http://localhost' → /^http:\/\/localhost(:\d+)?$/
-      const escaped = o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      return new RegExp(`^${escaped}(:\\d+)?$`);
-    });
-
-  return function (origin, callback) {
-    // Non-browser clients (e.g. mobile / curl) send no Origin header — allow.
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) return callback(null, true);
-
-    for (const re of localhostPrefixes) {
-      if (re.test(origin)) return callback(null, true);
-    }
-
-    callback(new Error(`CORS: origin '${origin}' is not allowed`));
-  };
-}
-
-const originChecker = buildOriginChecker(ALLOWED_ORIGINS);
 // Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
 // Recommended for production so image URLs are always correct regardless of
 // how reverse-proxy headers are forwarded.
 // Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
 const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
-
-/**
- * Sanitize a URL string to fix common double-protocol malformations that can
- * appear when the server was misconfigured (e.g. PUBLIC_URL already contained
- * the scheme and it was concatenated again).  Applies fixes iteratively until
- * the URL stabilises so chained issues are resolved in one call.
- *
- * Examples fixed:
- *   'https://https://host/path' → 'https://host/path'
- *   'https://https//host/path'  → 'https://host/path'
- *   'https://http//host/path'   → 'https://host/path'
- *   'https//host/path'          → 'https://host/path'
- *   'https/host/path'           → 'https://host/path'
- */
-function sanitizeUrl(url) {
-  if (typeof url !== 'string' || !url) return url;
-  let s = url;
-  let previous;
-  do {
-    previous = s;
-    // 'https://https://...' or 'https://http://...' → 'https://...'
-    s = s.replace(/^(https?):\/\/(https?):\/\//i, '$1://');
-    // 'https://https//...' or 'https://http//...' → 'https://...'
-    s = s.replace(/^(https?):\/\/(https?)\/\//i, '$1://');
-    // 'https//...' → 'https://...'
-    s = s.replace(/^(https?)\/\//i, '$1://');
-    // 'https/host...' (single slash, no colon) → 'https://host...'
-    s = s.replace(/^(https?)\/([^/])/i, '$1://$2');
-  } while (s !== previous);
-  return s;
-}
 // Base URL of the PHP API, used to resolve relative profile-picture paths.
 // Defaults to the known production domain; override with API_BASE_URL env var.
 const API_BASE_URL = (process.env.API_BASE_URL || 'https://digitallami.com').replace(/\/$/, '');
@@ -368,157 +296,6 @@ pool.getConnection()
       console.log('✅ Added idx_isOnline index to users table for dashboard queries');
     }
 
-    // Ensure composite index on chat_messages(sender_id, receiver_id, created_at)
-    // for efficient queries that filter by both participants and sort by time.
-    const [[idxChat]] = await conn.query(
-      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
-        WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'chat_messages' AND INDEX_NAME = 'idx_sender_receiver_time'
-        LIMIT 1`,
-      [dbName],
-    );
-    if (!idxChat) {
-      await conn.query(
-        `ALTER TABLE chat_messages ADD INDEX idx_sender_receiver_time (sender_id, receiver_id, created_at)`
-      ).catch(e => console.warn('idx_sender_receiver_time already exists:', e.message));
-      console.log('✅ Added idx_sender_receiver_time index to chat_messages');
-    }
-
-    // ── Backfill chat_rooms from chat_messages (idempotent, safe) ────────────
-    // Populates the chat_rooms table for any conversation that exists in
-    // chat_messages but does not yet have a chat_rooms row.  This fixes the
-    // "chat list empty in APK" issue that occurs when messages were saved by
-    // the PHP backend before the Socket.IO server's chat_rooms table was
-    // integrated — the two code paths write to the same chat_messages table
-    // but only the Socket.IO path creates the corresponding chat_rooms entry.
-    //
-    // The migration is limited to 500 rooms per server startup to avoid
-    // overwhelming the DB; it will process the remainder on subsequent restarts
-    // until all rooms are backfilled.
-    try {
-      const [missingRows] = await conn.query(
-        `SELECT DISTINCT cm.chat_room_id
-           FROM chat_messages cm
-          WHERE NOT EXISTS (
-                  SELECT 1 FROM chat_rooms cr WHERE cr.id = cm.chat_room_id
-                )
-          LIMIT 500`,
-      );
-
-      if (missingRows.length > 0) {
-        console.log(`🔄 Backfilling ${missingRows.length} missing chat_rooms row(s) from chat_messages …`);
-
-        for (const { chat_room_id } of missingRows) {
-          try {
-            // Identify participants from the oldest message in this room so we
-            // consistently pick the original sender/receiver pair regardless of
-            // insertion order.
-            const [[sample]] = await conn.query(
-              `SELECT sender_id, receiver_id
-                 FROM chat_messages
-                WHERE chat_room_id = ?
-                ORDER BY created_at ASC
-                LIMIT 1`,
-              [chat_room_id],
-            );
-            if (!sample) continue;
-
-            const user1Id = sample.sender_id.toString();
-            const user2Id = sample.receiver_id.toString();
-
-            // Fetch display names and profile pictures for both participants.
-            const [userRows] = await conn.query(
-              `SELECT id, firstName, lastName, profile_picture
-                 FROM users
-                WHERE id IN (?, ?)`,
-              [user1Id, user2Id],
-            );
-
-            const userMap = {};
-            for (const u of userRows) {
-              const rawPic = (u.profile_picture || '').trim();
-              userMap[u.id.toString()] = {
-                name: [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
-                // Build a full HTTPS URL using the same logic as getChatRooms().
-                pic: rawPic
-                  ? (rawPic.startsWith('http')
-                    ? rawPic
-                    : `${API_BASE_URL}/Api2/${rawPic.replace(/^\/+/, '')}`)
-                  : '',
-              };
-            }
-
-            const u1 = userMap[user1Id] || { name: `User ${user1Id}`, pic: '' };
-            const u2 = userMap[user2Id] || { name: `User ${user2Id}`, pic: '' };
-
-            // Get the most recent message to populate last_message fields.
-            const [[lastMsg]] = await conn.query(
-              `SELECT message, message_type, sender_id, created_at
-                 FROM chat_messages
-                WHERE chat_room_id = ?
-                ORDER BY created_at DESC
-                LIMIT 1`,
-              [chat_room_id],
-            );
-
-            const namesJson  = JSON.stringify({ [user1Id]: u1.name, [user2Id]: u2.name });
-            const imagesJson = JSON.stringify({ [user1Id]: u1.pic,  [user2Id]: u2.pic  });
-
-            // Create the chat_rooms row — INSERT IGNORE is safe for concurrent starts.
-            await conn.query(
-              `INSERT IGNORE INTO chat_rooms
-                 (id, participants, participant_names, participant_images,
-                  last_message, last_message_type, last_message_time,
-                  last_message_sender_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                chat_room_id,
-                JSON.stringify([user1Id, user2Id]),
-                namesJson,
-                imagesJson,
-                lastMsg ? (lastMsg.message   || '') : '',
-                lastMsg ? (lastMsg.message_type || 'text') : 'text',
-                lastMsg ? lastMsg.created_at : new Date(),
-                lastMsg ? lastMsg.sender_id.toString() : user1Id,
-              ],
-            );
-
-            // Seed unread-count rows (INSERT IGNORE — safe if already present).
-            await conn.query(
-              `INSERT IGNORE INTO chat_unread_counts (chat_room_id, user_id, unread_count)
-               VALUES (?, ?, 0), (?, ?, 0)`,
-              [chat_room_id, user1Id, chat_room_id, user2Id],
-            );
-
-            // Set the actual unread counts from unread messages in the room.
-            const [unreadRows] = await conn.query(
-              `SELECT receiver_id, COUNT(*) AS cnt
-                 FROM chat_messages
-                WHERE chat_room_id = ? AND is_read = 0
-                GROUP BY receiver_id`,
-              [chat_room_id],
-            );
-            for (const row of unreadRows) {
-              await conn.query(
-                `UPDATE chat_unread_counts
-                    SET unread_count = ?
-                  WHERE chat_room_id = ? AND user_id = ?`,
-                [row.cnt, chat_room_id, row.receiver_id.toString()],
-              );
-            }
-          } catch (roomErr) {
-            console.error(`Backfill: error processing room "${chat_room_id}":`, roomErr.message);
-          }
-        }
-
-        console.log('✅ chat_rooms backfill complete');
-      } else {
-        console.log('✅ chat_rooms backfill: all rooms are up-to-date');
-      }
-    } catch (backfillErr) {
-      // Non-fatal: log the error but do not prevent the server from starting.
-      console.error('chat_rooms backfill failed (non-fatal):', backfillErr.message);
-    }
-
     conn.release();
   })
   .catch(err => { console.error('❌ MySQL connection failed:', err.message); });
@@ -564,35 +341,22 @@ const messageQueue = [];
 // ──────────────────────────────────────────────────────────────────────────────
 const app    = express();
 // Trust reverse-proxy headers (X-Forwarded-Proto, X-Forwarded-For) so that
-// req.protocol returns 'https' when running behind Apache (cPanel) or any
-// other reverse proxy that terminates SSL upstream.
+// req.protocol returns 'https' when running behind nginx/Apache.
 app.set('trust proxy', 1);
-
-// Plain HTTP server — SSL is terminated by the upstream proxy (Apache on
-// cPanel, Cloudflare, etc.).  The .htaccess file in this directory tells
-// Apache to forward both wss:// WebSocket upgrades and https:// polling
-// requests to this plain-HTTP process on localhost:PORT.
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
-    origin: originChecker,
+    origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
     methods: ['GET', 'POST'],
-    credentials: true,
   },
-  // Allow both WebSocket (preferred) and long-polling (fallback).
-  // WebSocket is listed first so clients that support it connect directly
-  // without an intermediate polling handshake.
-  transports: ['websocket', 'polling'],
-  allowUpgrades: true,
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
 });
 
 app.use(cors({
-  origin: originChecker,
+  origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
   methods: ['GET', 'POST', 'OPTIONS'],
-  credentials: true,
 }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));
@@ -629,15 +393,7 @@ const ALLOWED_VOICE_MIMES = new Set([
  *  respected).
  */
 function buildFileUrl(req, subDir, filename) {
-  let base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
-
-  // Sanitize the base URL using the shared helper (handles all known
-  // double-protocol / missing-colon variants).
-  base = sanitizeUrl(base);
-
-  // Remove trailing slash from base to avoid double slashes
-  base = base.replace(/\/$/, '');
-
+  const base = PUBLIC_URL || `${req.protocol}://${req.get('host')}`;
   return `${base}/uploads/${subDir}/${filename}`;
 }
 
@@ -739,7 +495,7 @@ async function logActivity({ userId, userName = '', targetId = null, targetName 
 // Call History REST API
 // ──────────────────────────────────────────────────────────────────────────────
 
-// POST /api/calls — Log a new call (UPSERT to prevent duplicates)
+// POST /api/calls — Log a new call
 app.post('/api/calls', async (req, res) => {
   try {
     const {
@@ -752,16 +508,12 @@ app.post('/api/calls', async (req, res) => {
       return res.status(400).json({ error: 'callId, callerId, recipientId, initiatedBy are required' });
     }
 
-    // Use INSERT ... ON DUPLICATE KEY UPDATE to ensure ONE call = ONE record
-    // If call_id already exists, only update start_time if it's the first insert
     await pool.query(
       `INSERT INTO call_history
          (call_id, caller_id, caller_name, caller_image,
           recipient_id, recipient_name, recipient_image,
           call_type, start_time, status, initiated_by)
-       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)
-       ON DUPLICATE KEY UPDATE
-         call_id = call_id`,
+       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)`,
       [callId, callerId, callerName, callerImage,
        recipientId, recipientName, recipientImage,
        callType === 'video' ? 'video' : 'audio', initiatedBy],
@@ -931,314 +683,6 @@ app.get('/api/group-calls/:channelName', async (req, res) => {
   }
 });
 
-// GET /api/admin/call-history — Admin endpoint for call history with participant details
-app.get('/api/admin/call-history', requireAdminToken, async (req, res) => {
-  try {
-    const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
-    const page = Math.max(1, parseInt(req.query.page || '1', 10));
-    const offset = (page - 1) * limit;
-
-    // Count total call history records
-    const [[{ total }]] = await pool.query(
-      'SELECT COUNT(*) AS total FROM call_history'
-    );
-
-    // Fetch call history with participant details (JOIN with users table)
-    const [rows] = await pool.query(
-      `SELECT
-          ch.id,
-          ch.call_id,
-          ch.caller_id,
-          ch.caller_name,
-          ch.caller_image,
-          ch.recipient_id,
-          ch.recipient_name,
-          ch.recipient_image,
-          ch.call_type,
-          ch.start_time,
-          ch.end_time,
-          ch.duration,
-          ch.status,
-          ch.initiated_by,
-          u1.firstName AS caller_first_name,
-          u1.lastName AS caller_last_name,
-          u1.profile_picture AS caller_profile_pic,
-          u2.firstName AS recipient_first_name,
-          u2.lastName AS recipient_last_name,
-          u2.profile_picture AS recipient_profile_pic
-       FROM call_history ch
-       LEFT JOIN users u1 ON ch.caller_id = u1.id
-       LEFT JOIN users u2 ON ch.recipient_id = u2.id
-       ORDER BY ch.start_time DESC
-       LIMIT ? OFFSET ?`,
-      [limit, offset]
-    );
-
-    const calls = rows.map(r => ({
-      id: r.id,
-      callId: r.call_id,
-      callType: r.call_type,
-      startTime: r.start_time ? r.start_time.toISOString() : null,
-      endTime: r.end_time ? r.end_time.toISOString() : null,
-      duration: r.duration,
-      status: r.status,
-      initiatedBy: r.initiated_by,
-      participants: [
-        {
-          id: r.caller_id,
-          name: r.caller_name || `${r.caller_first_name || ''} ${r.caller_last_name || ''}`.trim(),
-          avatar: r.caller_image || (r.caller_profile_pic ?
-            (r.caller_profile_pic.startsWith('http') ?
-              r.caller_profile_pic :
-              `${API_BASE_URL}/${r.caller_profile_pic}`) :
-            null),
-          role: 'caller',
-        },
-        {
-          id: r.recipient_id,
-          name: r.recipient_name || `${r.recipient_first_name || ''} ${r.recipient_last_name || ''}`.trim(),
-          avatar: r.recipient_image || (r.recipient_profile_pic ?
-            (r.recipient_profile_pic.startsWith('http') ?
-              r.recipient_profile_pic :
-              `${API_BASE_URL}/${r.recipient_profile_pic}`) :
-            null),
-          role: 'recipient',
-        },
-      ],
-    }));
-
-    res.json({
-      success: true,
-      total: Number(total),
-      page,
-      limit,
-      pages: Math.ceil(Number(total) / limit),
-      calls,
-    });
-  } catch (err) {
-    console.error('GET /api/admin/call-history error:', err.message);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// GET /api/admin/dashboard-stats — Admin dashboard statistics API
-app.get('/api/admin/dashboard-stats', requireAdminToken, async (req, res) => {
-  try {
-    // Total users count
-    const [[{ totalUsers }]] = await pool.query(
-      'SELECT COUNT(*) AS totalUsers FROM users'
-    );
-
-    // Online users count (from user_online_status where is_online = 1)
-    const [[{ onlineUsers }]] = await pool.query(
-      'SELECT COUNT(*) AS onlineUsers FROM user_online_status WHERE is_online = 1'
-    );
-
-    // Active calls count (group_calls where status = 'active' OR call_history where end_time IS NULL)
-    const [[{ activeCalls }]] = await pool.query(
-      `SELECT COUNT(*) AS activeCalls
-       FROM (
-         SELECT 1 FROM group_calls WHERE status = 'active'
-         UNION ALL
-         SELECT 1 FROM call_history WHERE end_time IS NULL
-       ) AS active_calls_union`
-    );
-
-    // Total calls today
-    const [[{ totalCallsToday }]] = await pool.query(
-      `SELECT COUNT(*) AS totalCallsToday
-       FROM call_history
-       WHERE DATE(start_time) = CURDATE()`
-    );
-
-    // Recent activities (limit 20, sorted by created_at DESC)
-    const [recentActivities] = await pool.query(
-      `SELECT
-          ua.id,
-          ua.user_id,
-          ua.user_name,
-          ua.activity_type,
-          ua.description,
-          ua.target_id,
-          ua.target_name,
-          ua.created_at,
-          u.firstName,
-          u.lastName,
-          u.profile_picture
-       FROM user_activities ua
-       LEFT JOIN users u ON ua.user_id = u.id
-       ORDER BY ua.created_at DESC
-       LIMIT 20`
-    );
-
-    // Format recent activities
-    const formattedActivities = recentActivities.map(a => ({
-      id: a.id,
-      userId: a.user_id,
-      userName: a.user_name || `${a.firstName || ''} ${a.lastName || ''}`.trim() || `User ${a.user_id}`,
-      activityType: a.activity_type,
-      description: a.description,
-      targetId: a.target_id,
-      targetName: a.target_name,
-      createdAt: a.created_at ? a.created_at.toISOString() : null,
-      userAvatar: a.profile_picture ?
-        (a.profile_picture.startsWith('http') ?
-          a.profile_picture :
-          `${API_BASE_URL}/${a.profile_picture}`) :
-        null,
-    }));
-
-    res.json({
-      success: true,
-      stats: {
-        totalUsers: Number(totalUsers),
-        onlineUsers: Number(onlineUsers),
-        activeCalls: Number(activeCalls),
-        totalCallsToday: Number(totalCallsToday),
-      },
-      recentActivities: formattedActivities,
-    });
-  } catch (err) {
-    console.error('GET /api/admin/dashboard-stats error:', err.message);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Call Join List API — Gender-based user filtering for group calls
-// ──────────────────────────────────────────────────────────────────────────────
-
-/**
- * GET /api/call-join-list?userId=xxx[&cursor=xxx]
- *
- * Returns users available for joining a group call with gender-based filtering:
- * - Male users see ONLY female users
- * - Female users see ONLY male users
- *
- * Sorting:
- * 1. Online users first (isOnline = true)
- * 2. Then by lastSeen DESC (most recently active)
- *
- * Pagination:
- * - Limit: 15 users per request
- * - Cursor-based (no offset duplication)
- * - Returns: { users: [], nextCursor: "", hasMore: boolean }
- */
-app.get('/api/call-join-list', async (req, res) => {
-  try {
-    const userId = (req.query.userId || '').toString().trim();
-    const cursor = (req.query.cursor || '').toString().trim();
-    const limit = 15;
-
-    if (!userId) {
-      return res.status(400).json({ error: 'userId is required' });
-    }
-
-    // Get current user's gender
-    const [[currentUser]] = await pool.query(
-      'SELECT id, gender FROM users WHERE id = ? LIMIT 1',
-      [userId]
-    );
-
-    if (!currentUser) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Determine opposite gender (male sees female, female sees male)
-    const oppositeGender = currentUser.gender === 'Male' ? 'Female' : 'Male';
-
-    // Build query with cursor-based pagination
-    let query = `
-      SELECT
-        u.id,
-        u.firstName,
-        u.lastName,
-        u.gender,
-        u.profile_picture,
-        u.isOnline,
-        u.lastLogin,
-        COALESCE(uos.is_online, 0) AS is_online_status,
-        COALESCE(uos.last_seen, u.lastLogin) AS last_seen
-      FROM users u
-      LEFT JOIN user_online_status uos ON u.id = uos.user_id
-      WHERE u.gender = ?
-        AND u.id != ?
-    `;
-
-    const params = [oppositeGender, userId];
-
-    // Apply cursor for pagination (cursor is last user's sort key: "isOnline_lastSeen_id")
-    if (cursor) {
-      const [cursorIsOnline, cursorLastSeen, cursorId] = cursor.split('_');
-      query += `
-        AND (
-          (COALESCE(uos.is_online, 0) < ?) OR
-          (COALESCE(uos.is_online, 0) = ? AND COALESCE(uos.last_seen, u.lastLogin) < ?) OR
-          (COALESCE(uos.is_online, 0) = ? AND COALESCE(uos.last_seen, u.lastLogin) = ? AND u.id > ?)
-        )
-      `;
-      params.push(
-        cursorIsOnline, cursorIsOnline, cursorLastSeen,
-        cursorIsOnline, cursorLastSeen, cursorId
-      );
-    }
-
-    // Sort: online first, then by last_seen DESC, then by id ASC for stability
-    query += `
-      ORDER BY
-        COALESCE(uos.is_online, 0) DESC,
-        COALESCE(uos.last_seen, u.lastLogin) DESC,
-        u.id ASC
-      LIMIT ?
-    `;
-    params.push(limit + 1); // Fetch one extra to determine if there are more
-
-    const [rows] = await pool.query(query, params);
-
-    // Check if there are more results
-    const hasMore = rows.length > limit;
-    const users = rows.slice(0, limit);
-
-    // Generate next cursor from last user
-    let nextCursor = '';
-    if (hasMore && users.length > 0) {
-      const lastUser = users[users.length - 1];
-      const isOnline = lastUser.is_online_status || 0;
-      const lastSeen = lastUser.last_seen ?
-        new Date(lastUser.last_seen).toISOString() :
-        new Date().toISOString();
-      nextCursor = `${isOnline}_${lastSeen}_${lastUser.id}`;
-    }
-
-    // Format response
-    const formattedUsers = users.map(u => ({
-      id: u.id.toString(),
-      name: `${u.firstName || ''} ${u.lastName || ''}`.trim(),
-      firstName: u.firstName || '',
-      lastName: u.lastName || '',
-      gender: u.gender,
-      profilePicture: u.profile_picture ?
-        (u.profile_picture.startsWith('http') ?
-          u.profile_picture :
-          `${API_BASE_URL}/${u.profile_picture}`) :
-        null,
-      isOnline: !!(u.is_online_status || u.isOnline),
-      lastSeen: u.last_seen ? new Date(u.last_seen).toISOString() : null,
-    }));
-
-    res.json({
-      success: true,
-      users: formattedUsers,
-      nextCursor,
-      hasMore,
-    });
-
-  } catch (err) {
-    console.error('GET /api/call-join-list error:', err.message);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
 // ──────────────────────────────────────────────────────────────────────────────
 // Admin REST API — chat history
 // ──────────────────────────────────────────────────────────────────────────────
@@ -1368,41 +812,26 @@ app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
       [...params, limit, offset],
     );
 
-    const messages = rows.map(r => {
-      // Sanitize the message field for image types so the admin panel receives
-      // a valid URL even for rows stored with a double-protocol malformation.
-      let messageField = r.message;
-      if (r.messageType === 'image' && typeof messageField === 'string') {
-        messageField = sanitizeUrl(messageField);
-      } else if (r.messageType === 'image_gallery' && typeof messageField === 'string') {
-        try {
-          const urls = JSON.parse(messageField);
-          if (Array.isArray(urls)) {
-            messageField = JSON.stringify(urls.map(u => typeof u === 'string' ? sanitizeUrl(u) : u));
-          }
-        } catch (_) {}
-      }
-      return {
-        messageId:            r.messageId,
-        chatRoomId:           r.chatRoomId,
-        senderId:             r.senderId,
-        receiverId:           r.receiverId,
-        senderName:           (r.senderName || '').trim() || `User ${r.senderId}`,
-        receiverName:         (r.receiverName || '').trim() || `User ${r.receiverId}`,
-        message:              messageField,
-        messageType:          r.messageType,
-        images:               parseImageUrls(r.messageType, r.message),
-        isRead:               r.isRead === 1,
-        isDelivered:          r.isDelivered === 1,
-        isDeletedForSender:   r.isDeletedForSender === 1,
-        isDeletedForReceiver: r.isDeletedForReceiver === 1,
-        isEdited:             r.isEdited === 1,
-        isUnsent:             r.isUnsent === 1,
-        liked:                r.liked === 1,
-        repliedTo:            parseJsonField(r.repliedTo),
-        timestamp:            r.timestamp ? r.timestamp.toISOString() : null,
-      };
-    });
+    const messages = rows.map(r => ({
+      messageId:            r.messageId,
+      chatRoomId:           r.chatRoomId,
+      senderId:             r.senderId,
+      receiverId:           r.receiverId,
+      senderName:           (r.senderName || '').trim() || `User ${r.senderId}`,
+      receiverName:         (r.receiverName || '').trim() || `User ${r.receiverId}`,
+      message:              r.message,
+      messageType:          r.messageType,
+      images:               parseImageUrls(r.messageType, r.message),
+      isRead:               r.isRead === 1,
+      isDelivered:          r.isDelivered === 1,
+      isDeletedForSender:   r.isDeletedForSender === 1,
+      isDeletedForReceiver: r.isDeletedForReceiver === 1,
+      isEdited:             r.isEdited === 1,
+      isUnsent:             r.isUnsent === 1,
+      liked:                r.liked === 1,
+      repliedTo:            parseJsonField(r.repliedTo),
+      timestamp:            r.timestamp ? r.timestamp.toISOString() : null,
+    }));
 
     res.json({
       success: true,
@@ -1944,17 +1373,17 @@ async function upsertOnlineStatus(userId, isOnline, activeChatRoomId = null) {
  */
 function parseImageUrls(messageType, message) {
   if (messageType === 'image') {
-    return (typeof message === 'string' && message.length > 0) ? [sanitizeUrl(message)] : [];
+    return (typeof message === 'string' && message.length > 0) ? [message] : [];
   }
   if (messageType === 'image_gallery') {
     try {
       const parsed = JSON.parse(message);
       if (Array.isArray(parsed)) {
-        return parsed.filter(u => typeof u === 'string' && u.length > 0).map(sanitizeUrl);
+        return parsed.filter(u => typeof u === 'string' && u.length > 0);
       }
     } catch (_) {}
     // Fallback: treat the raw value as a single URL
-    return (typeof message === 'string' && message.length > 0) ? [sanitizeUrl(message)] : [];
+    return (typeof message === 'string' && message.length > 0) ? [message] : [];
   }
   return [];
 }
@@ -1974,27 +1403,12 @@ function toMessageMap(row) {
   const messageType = row.message_type || 'text';
   const images = parseImageUrls(messageType, row.message);
 
-  // Sanitize the message field for image types so clients receive a valid URL
-  // even for old rows that were stored with a double-protocol malformation
-  // (e.g. 'https://https//...' or 'https//...').
-  let messageField = row.message;
-  if (messageType === 'image' && typeof messageField === 'string') {
-    messageField = sanitizeUrl(messageField);
-  } else if (messageType === 'image_gallery' && typeof messageField === 'string') {
-    try {
-      const urls = JSON.parse(messageField);
-      if (Array.isArray(urls)) {
-        messageField = JSON.stringify(urls.map(u => typeof u === 'string' ? sanitizeUrl(u) : u));
-      }
-    } catch (_) {}
-  }
-
   return {
     messageId:             row.message_id,
     chatRoomId:            row.chat_room_id,
     senderId:              row.sender_id,
     receiverId:            row.receiver_id,
-    message:               messageField,
+    message:               row.message,
     messageType,
     images,
     isRead:                row.is_read === 1,
@@ -2039,12 +1453,6 @@ io.on('connection', (socket) => {
       lastSeen: new Date().toISOString(),
     });
 
-    // Emit to admin dashboard
-    io.to('admin_room').emit('user_online', {
-      userId:   authenticatedUserId,
-      timestamp: new Date().toISOString(),
-    });
-
     socket.emit('authenticated', { success: true, userId: authenticatedUserId });
     console.log(`✅ Authenticated: userId=${authenticatedUserId}`);
 
@@ -2058,18 +1466,6 @@ io.on('connection', (socket) => {
         console.log(`📞 Re-delivered pending call to userId=${authenticatedUserId}, channel=${channelName}`);
       }
     }
-
-    // Push the user's current chat room list so the Chat tab is always
-    // up-to-date after a (re)connect, even if chat_rooms_update events
-    // were emitted while the socket was offline or not yet authenticated.
-    // Both 'chat_rooms_update' and its legacy alias 'chat_list_update' are
-    // emitted for backward compatibility with older app versions.
-    getChatRooms(authenticatedUserId).then(rooms => {
-      socket.emit('chat_rooms_update', { chatRooms: rooms });
-      socket.emit('chat_list_update', { chatRooms: rooms });
-    }).catch(err => {
-      console.error('authenticate: getChatRooms error:', err.message);
-    });
   });
 
   // ── join_room ─────────────────────────────────────────────────────────────
@@ -2308,7 +1704,6 @@ io.on('connection', (socket) => {
       // Refresh chat list for this user
       const rooms = await getChatRooms(userId);
       socket.emit('chat_rooms_update', { chatRooms: rooms });
-      socket.emit('chat_list_update', { chatRooms: rooms });
     } catch (err) {
       console.error('mark_read error:', err.message);
     }
@@ -2633,15 +2028,6 @@ io.on('connection', (socket) => {
       if (recipientStr) groupCallParticipants.get(channelName).add(recipientStr);
       // Persist initial participants to DB asynchronously.
       persistGroupCallParticipants(channelName, rest.callType || 'audio', callerStr).catch(() => {});
-
-      // Emit call_started to admin dashboard
-      io.to('admin_room').emit('call_started', {
-        channelName,
-        callerId: callerStr,
-        recipientId: recipientStr,
-        callType: rest.callType || 'audio',
-        timestamp: new Date().toISOString(),
-      });
     }
     io.to(`user:${callerStr}`).emit('call_accepted', {
       ...rest,
@@ -2696,16 +2082,6 @@ io.on('connection', (socket) => {
     // Remove both parties from the active-call tracking set
     if (callerId)    activeCallUsers.delete(callerId.toString());
     if (recipientId) activeCallUsers.delete(recipientId.toString());
-
-    // Emit call_ended to admin dashboard
-    if (channelName) {
-      io.to('admin_room').emit('call_ended', {
-        channelName,
-        callerId: callerId ? callerId.toString() : undefined,
-        recipientId: recipientId ? recipientId.toString() : undefined,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     // Notify all group-call participants (not just the 2 initial parties).
     if (channelName && groupCallParticipants.has(channelName)) {
@@ -2924,41 +2300,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // ── user_speaking ────────────────────────────────────────────────────────
-  // Client emits when user's audio level exceeds threshold (real-time speaking detection)
-  // Server broadcasts to all participants in the room/channel
-  socket.on('user_speaking', (data) => {
-    const { userId, roomId, channelName, isSpeaking } = data || {};
-    const speakerId = (userId || authenticatedUserId || '').toString();
-    const room = (roomId || channelName || '').toString();
-
-    if (!speakerId || !room) return;
-
-    // Broadcast speaking_update to all participants in the group call
-    const participants = groupCallParticipants.get(room);
-    if (participants) {
-      for (const uid of participants) {
-        if (uid !== speakerId) { // Don't send back to speaker
-          io.to(`user:${uid}`).emit('speaking_update', {
-            userId: speakerId,
-            roomId: room,
-            channelName: room,
-            isSpeaking: !!isSpeaking,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      }
-    } else {
-      // Fallback: broadcast to room for non-group calls
-      socket.to(room).emit('speaking_update', {
-        userId: speakerId,
-        roomId: room,
-        isSpeaking: !!isSpeaking,
-        timestamp: new Date().toISOString(),
-      });
-    }
-  });
-
   // ── ping (client heartbeat) ───────────────────────────────────────────────
   // Clients emit 'ping' every 10 s to keep their online status fresh.
   // We update last_seen so the stale-user cleanup job can detect silent
@@ -2986,27 +2327,14 @@ io.on('connection', (socket) => {
     // If this user was in an active call, remove them from busy tracking.
     activeCallUsers.delete(authenticatedUserId);
 
-    // Mark user offline after 30 seconds if they don't reconnect
-    // Use a timeout to allow for brief reconnections (e.g., network switching)
-    setTimeout(async () => {
-      // Check if user has reconnected
-      if (!userSockets.has(authenticatedUserId)) {
-        await upsertOnlineStatus(authenticatedUserId, false);
+    await upsertOnlineStatus(authenticatedUserId, false);
 
-        // Notify contacts
-        socket.broadcast.emit('user_status_change', {
-          userId:   authenticatedUserId,
-          isOnline: false,
-          lastSeen: new Date().toISOString(),
-        });
-
-        // Emit to admin dashboard
-        io.to('admin_room').emit('user_offline', {
-          userId:   authenticatedUserId,
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }, 30000); // 30 seconds delay
+    // Notify contacts
+    socket.broadcast.emit('user_status_change', {
+      userId:   authenticatedUserId,
+      isOnline: false,
+      lastSeen: new Date().toISOString(),
+    });
   });
 });
 
@@ -3114,7 +2442,6 @@ setInterval(async () => {
     try {
       const rooms = await getChatRooms(uid);
       io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
-      io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
     } catch (err) {
       console.error(`Worker getChatRooms error [userId=${uid}]:`, err.message);
     }
@@ -3200,7 +2527,6 @@ app.post('/api/mark-chat-read', async (req, res) => {
     // Push refreshed chat list to this user
     const rooms = await getChatRooms(userId.toString());
     io.to(`user:${userId}`).emit('chat_rooms_update', { chatRooms: rooms });
-    io.to(`user:${userId}`).emit('chat_list_update', { chatRooms: rooms });
 
     res.json({ success: true });
   } catch (err) {
@@ -3268,7 +2594,6 @@ app.post('/api/notify-new-message', async (req, res) => {
       try {
         const rooms = await getChatRooms(uid);
         io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
-        io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
       } catch (e) {
         console.error(`notify-new-message: getChatRooms error [userId=${uid}]:`, e.message);
       }
@@ -3347,7 +2672,6 @@ app.post('/api/send-message', async (req, res) => {
       try {
         const rooms = await getChatRooms(uid);
         io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
-        io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
       } catch (_) {}
     }
 
