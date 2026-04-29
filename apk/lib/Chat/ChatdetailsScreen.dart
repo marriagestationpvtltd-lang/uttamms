@@ -2166,6 +2166,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                         isMine: isMine,
                         duration: duration,
                         messageId: messageData['messageId'] ?? '',
+                        messageData: messageData,
                       ),
                       if (isEdited)
                         Padding(
@@ -2352,9 +2353,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     required bool isMine,
     required int? duration,
     required String messageId,
+    Map<String, dynamic>? messageData,
   }) {
+    // Resolve the effective image URL: prefer text (data['message']), then fall
+    // back to the decoded `images` array returned by the server API.
+    String _resolveText() {
+      if (text.isNotEmpty) return text;
+      final imgs = messageData?['images'];
+      if (imgs is List && imgs.isNotEmpty) {
+        return imgs.first?.toString() ?? '';
+      }
+      return '';
+    }
+
     switch (messageType) {
       case 'image':
+        final String imageUrl = _resolveText();
         final double imgWidth = MediaQuery.of(context).size.width * _kImageWidthFraction;
         // Only blur if not mine AND photo request is not accepted - ignore privacy
         final bool shouldBlur = !isMine &&
@@ -2370,7 +2384,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                 ImageFiltered(
                   imageFilter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                   child: CachedNetworkImage(
-                    imageUrl: text,
+                    imageUrl: imageUrl,
                     width: imgWidth,
                     height: imgWidth * _kImageAspectRatio,
                     fit: BoxFit.cover,
@@ -2426,7 +2440,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
                   children: [
                     InteractiveViewer(
                       child: CachedNetworkImage(
-                        imageUrl: text,
+                        imageUrl: imageUrl,
                         fit: BoxFit.contain,
                         errorWidget: (context, url, error) => const Center(
                           child: Icon(Icons.broken_image, color: Colors.white54, size: 64),
@@ -2453,7 +2467,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
               maxHeight: _kImageMaxHeight,
             ),
             child: CachedNetworkImage(
-              imageUrl: text,
+              imageUrl: imageUrl,
               fit: BoxFit.cover,
               placeholder: (context, url) => SizedBox(
                 width: imgWidth,
@@ -4296,7 +4310,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
           messageWidgets.add(_messageBubble(
             isMine: isMine,
-            text: data['message'],
+            text: data['message']?.toString() ?? '',
             timestamp: timestamp,
             messageType: data['messageType'] ?? 'text',
             isRead: data['isRead'] ?? false,

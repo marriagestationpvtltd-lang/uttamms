@@ -748,6 +748,7 @@ app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
       receiverName:         (r.receiverName || '').trim() || `User ${r.receiverId}`,
       message:              r.message,
       messageType:          r.messageType,
+      images:               parseImageUrls(r.messageType, r.message),
       isRead:               r.isRead === 1,
       isDelivered:          r.isDelivered === 1,
       isDeletedForSender:   r.isDeletedForSender === 1,
@@ -1241,6 +1242,31 @@ async function upsertOnlineStatus(userId, isOnline, activeChatRoomId = null) {
   }
 }
 
+/**
+ * Decode the stored `message` field for image messages and return an `images`
+ * array for the client.
+ *
+ * – type == 'image'         → single URL string → images: [url]
+ * – type == 'image_gallery' → JSON-encoded array → images: [url1, url2, …]
+ * – anything else           → images: []
+ */
+function parseImageUrls(messageType, message) {
+  if (messageType === 'image') {
+    return (typeof message === 'string' && message.length > 0) ? [message] : [];
+  }
+  if (messageType === 'image_gallery') {
+    try {
+      const parsed = JSON.parse(message);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(u => typeof u === 'string' && u.length > 0);
+      }
+    } catch (_) {}
+    // Fallback: treat the raw value as a single URL
+    return (typeof message === 'string' && message.length > 0) ? [message] : [];
+  }
+  return [];
+}
+
 // Convert a DB row to the format Flutter expects (mirrors Firestore document shape)
 function toMessageMap(row) {
   let repliedTo = null;
@@ -1253,13 +1279,17 @@ function toMessageMap(row) {
     }
   }
 
+  const messageType = row.message_type || 'text';
+  const images = parseImageUrls(messageType, row.message);
+
   return {
     messageId:             row.message_id,
     chatRoomId:            row.chat_room_id,
     senderId:              row.sender_id,
     receiverId:            row.receiver_id,
     message:               row.message,
-    messageType:           row.message_type,
+    messageType,
+    images,
     isRead:                row.is_read === 1,
     isDelivered:           row.is_delivered === 1,
     isDeletedForSender:    row.is_deleted_for_sender === 1,

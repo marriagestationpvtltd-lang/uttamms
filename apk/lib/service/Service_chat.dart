@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' if (dart.library.html) 'package:ms2026/utils/web_io_stub.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -236,7 +237,11 @@ class _ServiceChatPageState extends State<ServiceChatPage> {
       case 'not_satisfied':
         return _notSatisfiedBubble(isMe);
       case 'image':
-        return _imageBubble(data['message']?.toString() ?? '', isMe);
+        final url = data['message']?.toString() ?? '';
+        if (url.isEmpty) return _textBubble('📷 Photo', isMe);
+        return _imageBubble(url, isMe);
+      case 'image_gallery':
+        return _imageGalleryBubble(data['message']?.toString() ?? '', isMe);
       default:
         return _textBubble(data['message']?.toString() ?? '', isMe);
     }
@@ -373,6 +378,84 @@ class _ServiceChatPageState extends State<ServiceChatPage> {
                 child: Icon(Icons.broken_image, color: _lightTextColor, size: 40),
               ),
             ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _formatTimestamp(),
+            style: TextStyle(
+              fontSize: 11,
+              color: isMe ? Colors.white70 : _lightTextColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Renders a gallery of images in a wrap grid for image_gallery message type.
+  Widget _imageGalleryBubble(String jsonOrUrl, bool isMe) {
+    List<String> urls;
+    try {
+      final decoded = jsonDecode(jsonOrUrl);
+      if (decoded is List) {
+        urls = decoded.whereType<String>().where((u) => u.isNotEmpty).toList();
+      } else {
+        urls = jsonOrUrl.isNotEmpty ? [jsonOrUrl] : [];
+      }
+    } catch (_) {
+      urls = jsonOrUrl.isNotEmpty ? [jsonOrUrl] : [];
+    }
+    if (urls.isEmpty) return _textBubble('📷 Photos', isMe);
+
+    const double imgSize = 100;
+    const double gap = 4;
+
+    return _bubble(
+      isMe,
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: gap,
+            runSpacing: gap,
+            children: urls.map((url) {
+              return ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: CachedNetworkImage(
+                  imageUrl: url,
+                  width: imgSize,
+                  height: imgSize,
+                  fit: BoxFit.cover,
+                  placeholder: (ctx, _) => Container(
+                    width: imgSize,
+                    height: imgSize,
+                    decoration: BoxDecoration(
+                      gradient: _secondaryGradient,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        color: _accentColor,
+                        strokeWidth: 2,
+                      ),
+                    ),
+                  ),
+                  errorWidget: (ctx, _, __) => Container(
+                    width: imgSize,
+                    height: imgSize,
+                    decoration: BoxDecoration(
+                      gradient: _secondaryGradient,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(
+                      Icons.broken_image,
+                      color: _lightTextColor,
+                      size: 32,
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
           ),
           const SizedBox(height: 6),
           Text(

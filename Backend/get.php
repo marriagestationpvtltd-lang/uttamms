@@ -85,6 +85,7 @@ $hasUnsentCol = $unsentCheck && $unsentCheck->num_rows > 0;
 $unsentFilter  = $hasUnsentCol ? 'AND  cm.is_unsent  = 0' : '';
 $unsentFilter2 = $hasUnsentCol ? 'AND  cm2.is_unsent = 0' : '';
 $unsentFilter3 = $hasUnsentCol ? 'AND  cm3.is_unsent = 0' : '';
+$unsentFilter4 = $hasUnsentCol ? 'AND  cm4.is_unsent = 0' : '';
 
 $mainSQL = "
     SELECT
@@ -105,6 +106,14 @@ $mainSQL = "
             ORDER  BY cm.created_at DESC
             LIMIT  1
         ) AS chat_message,
+        (
+            SELECT cm4.message_type
+            FROM   chat_messages cm4
+            WHERE  cm4.chat_room_id = CONCAT('1_', u.id)
+              $unsentFilter4
+            ORDER  BY cm4.created_at DESC
+            LIMIT  1
+        ) AS chat_message_type,
         (
             SELECT cm2.created_at
             FROM   chat_messages cm2
@@ -213,6 +222,7 @@ while ($user = $result->fetch_assoc()) {
         'usertype'          => $user['usertype'] ?? '',
         'profile_picture'   => $profile_picture,
         'chat_message'      => $user['chat_message'] ?? '',
+        'chat_message_type' => $user['chat_message_type'] ?? 'text',
         'last_message_time' => $lastMsgTimeIso,
         'last_sender_id'    => $user['last_sender_id'] !== null ? (string)$user['last_sender_id'] : null,
         'matches'           => $matchesCount,

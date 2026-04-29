@@ -281,6 +281,8 @@ class _ChatWindowState extends State<ChatWindow> {
   static Map<String, dynamic> _socketMsgToAdminData(Map<String, dynamic> msg) {
     final String msgType = msg['messageType']?.toString() ?? 'text';
     final String rawMessage = msg['message']?.toString() ?? '';
+    // The API now provides a pre-decoded `images` array for image/image_gallery types.
+    final List<dynamic>? apiImages = msg['images'] is List ? msg['images'] as List<dynamic> : null;
 
     // Decode optional structured payloads from the message field.
     String? imageUrl;
@@ -291,8 +293,22 @@ class _ChatWindowState extends State<ChatWindow> {
     String displayMessage = rawMessage;
 
     if (msgType == 'image') {
-      imageUrl = rawMessage;
+      // Use the URL from message, falling back to the first entry in images[].
+      imageUrl = rawMessage.isNotEmpty
+          ? rawMessage
+          : (apiImages != null && apiImages.isNotEmpty
+              ? apiImages.first?.toString()
+              : null);
       displayMessage = 'Image';
+    } else if (msgType == 'image_gallery') {
+      // Prefer the `images` array from the API if available; otherwise keep
+      // the raw JSON string so `_buildChatBubble` can decode it itself.
+      if (apiImages != null && apiImages.isNotEmpty) {
+        displayMessage = jsonEncode(
+          apiImages.whereType<String>().toList(),
+        );
+      }
+      // displayMessage stays as the raw JSON string if apiImages is absent.
     } else if (msgType == 'voice') {
       imageUrl = rawMessage; // reuse imageUrl field to carry voice URL
       displayMessage = '🎤 Voice message';
