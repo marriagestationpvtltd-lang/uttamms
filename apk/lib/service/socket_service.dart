@@ -147,7 +147,11 @@ class SocketService {
     _socket = IO.io(
       kSocketServerUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])   // WebSocket only — no polling
+          // Use polling first so the Socket.IO handshake (EIO=4) completes as
+          // a regular HTTPS request, then upgrade to WebSocket.  This is more
+          // resilient than WebSocket-only because a failed WS upgrade no longer
+          // kills the connection — it falls back to polling automatically.
+          .setTransports(['polling', 'websocket'])
           .enableAutoConnect()
           .enableReconnection()
           .setReconnectionAttempts(20)

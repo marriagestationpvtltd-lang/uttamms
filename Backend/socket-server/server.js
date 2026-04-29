@@ -564,8 +564,14 @@ const messageQueue = [];
 // ──────────────────────────────────────────────────────────────────────────────
 const app    = express();
 // Trust reverse-proxy headers (X-Forwarded-Proto, X-Forwarded-For) so that
-// req.protocol returns 'https' when running behind nginx/Apache.
+// req.protocol returns 'https' when running behind Apache (cPanel) or any
+// other reverse proxy that terminates SSL upstream.
 app.set('trust proxy', 1);
+
+// Plain HTTP server — SSL is terminated by the upstream proxy (Apache on
+// cPanel, Cloudflare, etc.).  The .htaccess file in this directory tells
+// Apache to forward both wss:// WebSocket upgrades and https:// polling
+// requests to this plain-HTTP process on localhost:PORT.
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
