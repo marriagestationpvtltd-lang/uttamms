@@ -10,7 +10,6 @@ import 'package:intl/intl.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
-import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
@@ -19,22 +18,16 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'OutgoingCall.dart';
-import 'audiocall.dart';
-import 'chat_screen.dart';
 import 'chatprovider.dart';
-import 'chatscreen.dart';
-import 'constant.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'dart:io';
 import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'chat_theme.dart';
 import 'widgets/typing_indicator.dart';
-import 'left.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:html' as html;
 import 'dart:js' as js;
-import 'dart:js_util' show allowInterop;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
@@ -85,9 +78,8 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _isHorizontalDragging = false;
   List<PlatformFile> _selectedImages = [];
   js.JsObject? _webSpeechRecognition;
-  FlutterSoundRecorder _recorder = FlutterSoundRecorder();
+  final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final ScrollController _scrollController = ScrollController();
-  String? _lastUploadedImageUrl;
 
   // Message list populated via Socket.IO.
   List<Map<String, dynamic>> _messages = [];
@@ -109,7 +101,6 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _hasMoreMessages = true;
   bool _suppressNextAutoScroll = false;
   bool _isInitialLoad = true;
-  int? _prevUserId;
 
   // Scroll lock during message loading to prevent screen shaking
   bool _scrollLocked = true;
@@ -139,7 +130,6 @@ class _ChatWindowState extends State<ChatWindow> {
   Timer? _typingStopTimer;
   Timer? _typingTimer;
   bool _adminTypingActive = false;
-  String? _activeTypingRoomId;
   bool _userIsTyping = false;
   DateTime? _lastTypingStart;
 
@@ -166,13 +156,11 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _isSendingVoice = false;
   int _voiceRecordDuration = 0;
   Timer? _voiceRecordTimer;
-  String? _voiceRecordingPath;
 
   static const int _kMaxQuoteLength = 80; // max chars shown in reply/edit preview
   static const String _kDeletedMessageText = 'This message was deleted.';
   static const String _kUnsentMessageText = 'This message was unsent.';
   static const String _kDefaultMessageText = 'Message';
-  static const String _kMaskedMessageText = '* * * * * * * * * *';
   // Approximate chat row height used for the initial jump before ensureVisible
   // performs the precise final alignment on the mounted target widget.
   static const double _kEstimatedMessageExtent = 112;
@@ -183,7 +171,6 @@ class _ChatWindowState extends State<ChatWindow> {
   static const Duration _kLoadMoreDelay = Duration(milliseconds: 450);
   static const Duration _kContextFindDelay = Duration(milliseconds: 80);
   static const Duration _kEnsureVisibleDuration = Duration(milliseconds: 420);
-  static const Duration _kAdminTypingIdle = Duration(seconds: 3);
   static const int _kMinScrollDurationMs = 320;
   static const Duration _kTypingIdleDuration = Duration(seconds: 3);
   static const Duration _kTypingStartThrottle = Duration(milliseconds: 900);
@@ -356,7 +343,7 @@ class _ChatWindowState extends State<ChatWindow> {
             (decoded.containsKey('reportedUserId') ||
                 decoded.containsKey('reportReason') ||
                 decoded.containsKey('reportMessage'))) {
-          reportData = Map<String, dynamic>.from(decoded as Map);
+          reportData = Map<String, dynamic>.from(decoded);
           displayMessage = '🚩 Profile Report';
           effectiveMsgType = 'report';
         }
@@ -397,7 +384,7 @@ class _ChatWindowState extends State<ChatWindow> {
 
   static Map<String, dynamic>? _normalizeReplyPayload(dynamic rawReplyTo) {
     if (rawReplyTo is! Map) return null;
-    final replyTo = Map<String, dynamic>.from(rawReplyTo as Map);
+    final replyTo = Map<String, dynamic>.from(rawReplyTo);
     if (replyTo['messageId'] == null || replyTo['messageId'].toString().isEmpty) {
       final legacyId = replyTo['docId']?.toString();
       if (legacyId != null && legacyId.isNotEmpty) {
@@ -723,10 +710,10 @@ class _ChatWindowState extends State<ChatWindow> {
             decoration: BoxDecoration(
               color: const Color(0xFF111827),
               borderRadius: BorderRadius.circular(28),
-              border: Border.all(color: Colors.white.withOpacity(0.08)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.28),
+                  color: Colors.black.withValues(alpha: 0.28),
                   blurRadius: 24,
                   offset: const Offset(0, 14),
                 ),
@@ -734,7 +721,7 @@ class _ChatWindowState extends State<ChatWindow> {
             ),
             child: ValueListenableBuilder<Map<String, String?>>(
               valueListenable: callerDetailsNotifier,
-              builder: (_, details, __) {
+              builder: (_, details, _) {
                 final usertype = details['usertype'];
                 final paymentStatus = details['paymentStatus'];
                 final memberId = details['memberId'];
@@ -859,7 +846,7 @@ class _ChatWindowState extends State<ChatWindow> {
                       title,
                       textAlign: TextAlign.center,
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.72),
+                        color: Colors.white.withValues(alpha: 0.72),
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
                       ),
@@ -1588,7 +1575,6 @@ class _ChatWindowState extends State<ChatWindow> {
     _socketService.joinRoom(roomId);
     _typingStopTimer?.cancel();
     _adminTypingActive = false;
-    _activeTypingRoomId = null;
     setState(() => _userIsTyping = false);
   }
 
@@ -1614,7 +1600,6 @@ class _ChatWindowState extends State<ChatWindow> {
     } else {
       _emitTypingStop(roomId);
     }
-    _activeTypingRoomId = roomId;
     _adminTypingActive = true;
     _socketService.sendTypingStart(roomId);
   }
@@ -1666,17 +1651,6 @@ class _ChatWindowState extends State<ChatWindow> {
     } catch (e) {
       print('Error playing typing sound: $e');
     }
-  }
-
-  // ── SEEN STATUS ─────────────────────────────────────────────────────────
-
-  /// Mark incoming messages in the current room as read via Socket.IO.
-  void _markIncomingMessagesAsSeen() {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    if (chatProvider.id == null) return;
-    final String roomId =
-        AdminSocketService.chatRoomId(chatProvider.id.toString());
-    _socketService.markRead(roomId);
   }
 
   // ── CALL HISTORY ─────────────────────────────────────────────────────────
@@ -1888,7 +1862,7 @@ class _ChatWindowState extends State<ChatWindow> {
     _webSpeechRecognition!['interimResults'] = true;
     _webSpeechRecognition!['lang'] = _selectedLanguage;
 
-    _webSpeechRecognition!['onresult'] = allowInterop((dynamic event) {
+    _webSpeechRecognition!['onresult'] = js.allowInterop((dynamic event) {
       final eventObj = js.JsObject.fromBrowserObject(event);
       final results = eventObj['results'];
       if (results == null) return;
@@ -1933,7 +1907,7 @@ class _ChatWindowState extends State<ChatWindow> {
       });
     });
 
-    _webSpeechRecognition!['onend'] = allowInterop((dynamic _) {
+    _webSpeechRecognition!['onend'] = js.allowInterop((dynamic _) {
       // With continuous=true the browser may still fire onend after silence.
       // Restart automatically unless the user explicitly stopped listening.
       if (!_userStoppedListening && _isListening && mounted) {
@@ -1947,7 +1921,7 @@ class _ChatWindowState extends State<ChatWindow> {
       }
     });
 
-    _webSpeechRecognition!['onerror'] = allowInterop((dynamic event) {
+    _webSpeechRecognition!['onerror'] = js.allowInterop((dynamic event) {
       if (!mounted) return;
       final error =
           js.JsObject.fromBrowserObject(event)['error'] as String? ?? '';
@@ -3027,7 +3001,6 @@ class _ChatWindowState extends State<ChatWindow> {
                               final data = group.messages[index];
                               final String msgId = data['messageId'] as String;
                               final isSentByAdmin = data['senderid'] == senderId.toString();
-                              final isSentByUser = !isSentByAdmin;
                               final timestamp = _messageTimestampFromData(data);
                               final replyPayload = _buildReplyPayload(
                                 messageId: msgId,
@@ -3084,30 +3057,21 @@ class _ChatWindowState extends State<ChatWindow> {
                                   // The admin (paid member) always sees all messages in full.
                                   // Message masking for free users is applied in the
                                   // user-facing app, not here in the admin panel.
-                                  const bool isMasked = false;
-                                  final String bubbleMessage = isMasked
-                                      ? _kMaskedMessageText
-                                      : data['message'];
-                                  final String? bubbleType =
-                                      isMasked ? 'text' : data['type'];
+                                  final String bubbleMessage = data['message'];
+                                  final String? bubbleType = data['type'];
                                   final Map<String, dynamic>? bubbleProfileData =
-                                      isMasked
-                                          ? null
-                                          : (data.containsKey('profileData')
-                                              ? data['profileData']
-                                              : null);
-                                  final String? bubbleImageUrl = isMasked
-                                      ? null
-                                      : (data.containsKey('imageUrl')
+                                      data.containsKey('profileData')
+                                          ? data['profileData']
+                                          : null;
+                                  final String? bubbleImageUrl =
+                                      data.containsKey('imageUrl')
                                           ? data['imageUrl']
-                                          : null);
+                                          : null;
                                   final Map<String, dynamic>? bubbleReportData =
-                                      isMasked
-                                          ? null
-                                          : (data.containsKey('reportData')
-                                              ? data['reportData']
-                                                  as Map<String, dynamic>
-                                              : null);
+                                      data.containsKey('reportData')
+                                          ? data['reportData']
+                                              as Map<String, dynamic>
+                                          : null;
 
                                   return Column(
                                     crossAxisAlignment: isSentByAdmin
@@ -3463,15 +3427,16 @@ class _ChatWindowState extends State<ChatWindow> {
 
       // Open current URL in new tab - the app will check session storage on load
       final currentUrl = html.window.location.href.split('#')[0];
-      final newWindow = html.window.open('$currentUrl#profile/$userId', '_blank');
+      // dart:html types window.open() as non-nullable, but browsers may return
+      // null when popups are blocked. Cast to dynamic for runtime null check.
+      final dynamic newWindow =
+          html.window.open('$currentUrl#profile/$userId', '_blank');
 
       if (newWindow == null) {
         // Popup was blocked, fall back to same window navigation
         html.window.sessionStorage.remove('pendingProfileView');
         _navigateToProfile(context, userId);
       } else {
-        // Successfully opened in new tab
-        // Also show a brief message that profile opened in new tab
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Profile opened in new tab'),
@@ -3595,35 +3560,6 @@ class _ChatWindowState extends State<ChatWindow> {
     _floatingDateTimer = Timer(const Duration(seconds: 2), () {
       _floatingDateNotifier.value = null;
     });
-  }
-
-  bool _shouldAutoScrollToBottom({
-    required bool hasSnapshotData,
-    required bool isSearching,
-    required int previousCount,
-    required int currentCount,
-  }) {
-    if (isSearching || _isLoadingMore || !hasSnapshotData) {
-      return false;
-    }
-
-    if (_suppressNextAutoScroll) {
-      return false;
-    }
-
-    if (!_scrollController.hasClients) {
-      // The first layout pass has not attached the controller yet; schedule a
-      // deferred scroll so the view still lands on the latest messages.
-      return true;
-    }
-
-    if (previousCount != currentCount) {
-      return true;
-    }
-
-    final distanceFromBottom =
-        _scrollController.position.maxScrollExtent - _scrollController.offset;
-    return distanceFromBottom <= _autoScrollThreshold;
   }
 
   Widget _buildChatBubble(String message, bool isSentByMe, DateTime timestamp,
@@ -5009,7 +4945,7 @@ class _ChatWindowState extends State<ChatWindow> {
                       bottomRight: Radius.circular(10),
                     ),
                     child: CachedNetworkImage(
-                      imageUrl: imageUrl!,
+                      imageUrl: imageUrl,
                       width: 50,
                       height: 54,
                       memCacheWidth: 50,
@@ -5390,28 +5326,6 @@ class _ChatWindowState extends State<ChatWindow> {
     );
   }
 
-  Widget _buildActionButton(String text, Color color, VoidCallback onPressed) {
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: Colors.white,
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
-      onPressed: onPressed,
-      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-    );
-  }
-
-  void _playAudio(String url) async {
-    final AudioPlayer _audioPlayer = AudioPlayer();
-    try {
-      await _audioPlayer.setUrl(url);
-      await _audioPlayer.play();
-    } catch (e) {
-    }
-  }
-
   Future<void> _toggleVoicePlayback(String messageId, String voiceUrl) async {
     if (_playingVoiceMessageId == messageId && _voiceIsPlaying) {
       await _voiceAudioPlayer.pause();
@@ -5461,7 +5375,6 @@ class _ChatWindowState extends State<ChatWindow> {
       setState(() {
         _isRecordingVoice = true;
         _voiceRecordDuration = 0;
-        _voiceRecordingPath = tempPath;
       });
       _voiceRecordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _voiceRecordDuration++);
@@ -5712,7 +5625,7 @@ class _ChatWindowState extends State<ChatWindow> {
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: CachedNetworkImage(
-                imageUrl: replyImageUrl!,
+                imageUrl: replyImageUrl,
                 width: 44,
                 height: 44,
                 fit: BoxFit.cover,
@@ -6666,7 +6579,7 @@ class _ChatWindowState extends State<ChatWindow> {
                             const Color(0xFF10B981),
                             () {
                               if (mounted) setState(() => _showMsgActionOverlay = false);
-                              _forwardImage(imagePayload!, msgType ?? 'image');
+                              _forwardImage(imagePayload, msgType ?? 'image');
                             },
                           ),
                         if (canCopy)
@@ -6737,163 +6650,6 @@ class _ChatWindowState extends State<ChatWindow> {
         ),
       ),
     );
-  }
-
-  void _showMessageOptions(
-    BuildContext context,
-    String messageId,
-    Map<String, dynamic> replyPayload,
-    bool isSentByMe, {
-    required bool canEdit,
-    required bool canMutate,
-  }) {
-    final String? msgType = replyPayload['type']?.toString();
-    final bool isImageMsg = msgType == 'image' || msgType == 'image_gallery';
-    final String? imagePayload = msgType == 'image'
-        ? replyPayload['imageUrl']?.toString()
-        : (msgType == 'image_gallery' ? replyPayload['message']?.toString() : null);
-    final bool canForward = isImageMsg && imagePayload != null && imagePayload.isNotEmpty;
-    final copyInfo = _resolveCopyInfo(replyPayload);
-    final String? copyText = copyInfo.copyText;
-    final bool canCopy = copyInfo.canCopy;
-    final bool copyIsImage = copyInfo.isImage;
-
-    // Get the current chat room ID
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final String currentRoomId = AdminSocketService.chatRoomId(chatProvider.id?.toString() ?? '');
-
-    // Get current reactions for this message
-    final msgData = _messages.firstWhere(
-      (m) => m['messageId'] == messageId,
-      orElse: () => <String, dynamic>{},
-    );
-    final Map<String, dynamic> reactions = (msgData['reactions'] is Map)
-        ? Map<String, dynamic>.from(msgData['reactions'] as Map)
-        : {};
-    final String myReaction = reactions[kAdminUserId]?.toString() ?? '';
-    const emojis = ['❤️', '😂', '😮', '😢', '👍', '😡'];
-
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        return Wrap(
-          children: [
-            // Emoji reaction row
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: emojis.map((e) {
-                  final isSelected = myReaction == e;
-                  return GestureDetector(
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _socketService.addReaction(
-                        chatRoomId: currentRoomId,
-                        messageId: messageId,
-                        emoji: e,
-                      );
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      margin: const EdgeInsets.symmetric(horizontal: 4),
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFF7B61FF).withOpacity(0.15)
-                            : Colors.transparent,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Text(
-                        e,
-                        style: TextStyle(fontSize: isSelected ? 30 : 26),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.reply_rounded, size: 20, color: Color(0xFF7B61FF)),
-              title: const Text("Reply", style: TextStyle(fontSize: 14)),
-              onTap: () {
-                Navigator.pop(ctx);
-                _startReply(
-                  messageId,
-                  replyPayload['message']?.toString() ?? '',
-                  replyPayload['senderid']?.toString() ?? '',
-                  replyPayload['senderName']?.toString() ?? 'User',
-                  replyPayload,
-                );
-              },
-            ),
-            if (canForward)
-              ListTile(
-                leading: const Icon(Icons.forward_rounded, size: 20, color: Color(0xFF10B981)),
-                title: const Text("Forward", style: TextStyle(fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _forwardImage(imagePayload!, msgType ?? 'image');
-                },
-              ),
-            if (canCopy)
-              ListTile(
-                leading: const Icon(Icons.copy_rounded, size: 20, color: Color(0xFF475569)),
-                title: Text(copyIsImage ? "Copy Link" : "Copy", style: const TextStyle(fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _copyToClipboard(copyText!);
-                },
-              ),
-            if (isSentByMe && canEdit) ...[
-              ListTile(
-                leading: const Icon(Icons.edit, size: 20, color: Color(0xFF0EA5E9)),
-                title: const Text("Edit", style: TextStyle(fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _startEdit(messageId, replyPayload['message']?.toString() ?? '');
-                },
-              ),
-            ],
-            if (canMutate) ...[
-              ListTile(
-                leading: const Icon(Icons.delete, size: 20, color: Color(0xFFEF4444)),
-                title: const Text("Delete", style: TextStyle(fontSize: 14)),
-                onTap: () {
-                  Navigator.pop(ctx);
-                  _deleteMessage(messageId);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.remove_circle_outline_rounded, size: 20, color: Color(0xFFF59E0B)),
-                title: const Text("Unsend", style: TextStyle(fontSize: 14)),
-                onTap: () {
-                  _unsendMessage(messageId);
-                  Navigator.pop(ctx);
-                },
-              ),
-            ],
-          ],
-        );
-      },
-    );
-  }
-
-  void _editMessage(String messageId, String currentMessage) {
-    _startEdit(messageId, currentMessage);
-  }
-
-  void _replyToMessage(
-    String originalMessage,
-    String messageId,
-    String senderid,
-    String senderName,
-  ) {
-    _startReply(messageId, originalMessage, senderid, senderName);
   }
 
   Future<void> _copyToClipboard(String text) async {
