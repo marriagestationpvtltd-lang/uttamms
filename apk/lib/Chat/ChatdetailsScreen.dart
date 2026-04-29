@@ -2461,7 +2461,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
       case 'image':
         final String imageUrl = _resolveText();
         final double imgWidth = MediaQuery.of(context).size.width * _kImageWidthFraction;
-        final bool isUploading = msg['isUploading'] == true;
+        final bool isUploading = messageData?['isUploading'] == true;
 
         // Only blur if not mine AND photo request is not accepted - ignore privacy
         final bool shouldBlur = !isMine &&
