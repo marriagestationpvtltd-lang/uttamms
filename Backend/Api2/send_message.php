@@ -26,7 +26,7 @@ try {
         ? $input['message_type']
         : 'text';
 
-    $allowed_types = ['text', 'image', 'voice', 'video', 'file', 'doc'];
+    $allowed_types = ['text', 'image', 'image_gallery', 'voice', 'video', 'file', 'doc'];
     if (!in_array($message_type, $allowed_types, true)) {
         $message_type = 'text';
     }

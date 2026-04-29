@@ -1375,7 +1375,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       if (type == 'image')
         // For image messages the socket server stores the URL in 'message';
         // 'imageUrl' is the redundant alias written by admin chathome.dart.
-        'imageUrl': data['message']?.toString() ?? data['imageUrl']?.toString(),
+        'imageUrl': _resolveImageUrl(data),
       if (type == 'image_gallery')
         // For gallery messages, extract the first URL for the reply thumbnail.
         'imageUrl': _firstGalleryUrl(data['message']?.toString() ?? ''),
@@ -1611,7 +1611,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   ] else if (effectiveType == 'image') ...[
                     // Single image: rendered outside the gradient bubble (fixes border issue)
                     _buildChatImageMessage(
-                      data['message']?.toString() ?? data['imageUrl']?.toString(),
+                      _resolveImageUrl(data),
                       isMe,
                     ),
                     const SizedBox(height: 4),
@@ -1631,7 +1631,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   ] else if (effectiveType == 'image_gallery') ...[
                     // Multiple images: rendered as WhatsApp-style grid outside the gradient bubble
                     _buildChatGalleryGrid(
-                      _parseGalleryUrls(data['message']?.toString() ?? '[]'),
+                      _parseGalleryUrls(
+                        data['message']?.toString() ?? '[]',
+                        images: data['images'] as List<dynamic>?,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Padding(
@@ -2734,12 +2737,33 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   }
 
   /// Parses a JSON-encoded gallery message into a list of URL strings.
-  List<String> _parseGalleryUrls(String message) {
+  /// Falls back to using the `images` field from the API response if the JSON
+  /// cannot be decoded (e.g. the message was stored as a plain URL).
+  List<String> _parseGalleryUrls(String message, {List<dynamic>? images}) {
     try {
       final decoded = jsonDecode(message);
       if (decoded is List) return decoded.whereType<String>().toList();
     } catch (_) {}
-    return [message];
+    // Use the decoded `images` array from the API response when available.
+    if (images != null && images.isNotEmpty) {
+      return images.whereType<String>().toList();
+    }
+    if (message.isNotEmpty) return [message];
+    return [];
+  }
+
+  /// Resolves the URL for a single image message, falling back to the first
+  /// entry of the `images` array when `message` is empty.
+  String? _resolveImageUrl(Map<String, dynamic> data) {
+    final msg = data['message']?.toString();
+    if (msg != null && msg.isNotEmpty) return msg;
+    final url = data['imageUrl']?.toString();
+    if (url != null && url.isNotEmpty) return url;
+    final imgs = data['images'];
+    if (imgs is List && imgs.isNotEmpty) {
+      return imgs.first?.toString();
+    }
+    return null;
   }
 
   /// Renders a single chat image (outside the gradient bubble).
