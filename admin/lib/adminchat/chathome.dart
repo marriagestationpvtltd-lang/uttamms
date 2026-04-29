@@ -2401,7 +2401,7 @@ class _ChatWindowState extends State<ChatWindow> {
                 Offstage(offstage: isMin, child: callWidget),
                 if (isMin)
                   _buildMiniCallBar(
-                    userName: '${first['name'] ?? ''} +${selected.length}',
+                    userName: '${first['name'] ?? ''} +${selected.length - 1}',
                     isVideo: isVideo,
                     onMaximize: () => isMinimizedNotifier.value = false,
                     onEnd: _removeCallOverlay,
