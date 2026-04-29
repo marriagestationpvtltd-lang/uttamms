@@ -5585,7 +5585,7 @@ class _ChatWindowState extends State<ChatWindow> {
       if (url == null || url.isEmpty) {
         throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
       }
-      return url;
+      return _normalizeUploadUrl(url);
     } else {
       final req = http.MultipartRequest(
         'POST',
@@ -5605,7 +5605,7 @@ class _ChatWindowState extends State<ChatWindow> {
       if (url == null || url.isEmpty) {
         throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
       }
-      return url;
+      return _normalizeUploadUrl(url);
     }
   }
 
@@ -6299,6 +6299,33 @@ class _ChatWindowState extends State<ChatWindow> {
     if (url == null || url.isEmpty) {
       throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
     }
+    // Normalize to always use the known socket server base URL.
+    // If PUBLIC_URL is not configured on the server the returned URL may be an
+    // internal address (e.g. http://127.0.0.1:3001/...) that is unreachable
+    // from clients.  Re-anchoring to kAdminSocketUrl makes images loadable
+    // regardless of the server's proxy configuration.
+    return _normalizeUploadUrl(url);
+  }
+
+  /// Ensures [url] uses [kAdminSocketUrl] as its base when the path starts
+  /// with `/uploads/`.  The scheme and host are replaced with the known server
+  /// while the path, query parameters, and fragment are preserved.
+  /// Returns [url] unchanged for any other URL shape.
+  static String _normalizeUploadUrl(String url) {
+    try {
+      final parsed = Uri.parse(url);
+      if (parsed.path.startsWith('/uploads/')) {
+        final base = Uri.parse(kAdminSocketUrl);
+        return Uri(
+          scheme: base.scheme,
+          host: base.host,
+          port: base.hasPort ? base.port : null,
+          path: parsed.path,
+          queryParameters: parsed.hasQuery ? parsed.queryParameters : null,
+          fragment: parsed.hasFragment ? parsed.fragment : null,
+        ).toString();
+      }
+    } catch (_) {}
     return url;
   }
 
