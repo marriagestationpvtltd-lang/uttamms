@@ -834,6 +834,15 @@ async function getMessageSender(messageId, chatRoomId) {
 }
 
 async function ensureChatRoom({ chatRoomId, user1Id, user2Id, user1Name, user2Name, user1Image, user2Image }) {
+  const name1  = (user1Name  || '').trim();
+  const name2  = (user2Name  || '').trim();
+  const image1 = (user1Image || '').trim();
+  const image2 = (user2Image || '').trim();
+
+  const namesJson  = JSON.stringify({ [user1Id]: name1,  [user2Id]: name2  });
+  const imagesJson = JSON.stringify({ [user1Id]: image1, [user2Id]: image2 });
+
+  // Insert the room if it doesn't exist yet.
   await pool.query(
     `INSERT IGNORE INTO chat_rooms
        (id, participants, participant_names, participant_images, last_message, last_message_type, last_message_time, last_message_sender_id)
@@ -841,10 +850,32 @@ async function ensureChatRoom({ chatRoomId, user1Id, user2Id, user1Name, user2Na
     [
       chatRoomId,
       JSON.stringify([user1Id, user2Id]),
-      JSON.stringify({ [user1Id]: user1Name, [user2Id]: user2Name }),
-      JSON.stringify({ [user1Id]: user1Image, [user2Id]: user2Image }),
+      namesJson,
+      imagesJson,
     ],
   );
+
+  // If we have valid names or images, update any existing room that still has
+  // empty/missing participant_names or participant_images so the chat list
+  // displays correctly even for rooms created before this fix.
+  if (name1 || name2) {
+    await pool.query(
+      `UPDATE chat_rooms
+          SET participant_names = ?
+        WHERE id = ?
+          AND (participant_names IS NULL OR JSON_LENGTH(participant_names) = 0 OR participant_names = '{}')`,
+      [namesJson, chatRoomId],
+    );
+  }
+  if (image1 || image2) {
+    await pool.query(
+      `UPDATE chat_rooms
+          SET participant_images = ?
+        WHERE id = ?
+          AND (participant_images IS NULL OR JSON_LENGTH(participant_images) = 0 OR participant_images = '{}')`,
+      [imagesJson, chatRoomId],
+    );
+  }
 
   // Initialise unread counters
   await pool.query(
@@ -954,18 +985,26 @@ async function getChatRooms(userId) {
     const pidArray = Array.from(otherParticipantIds);
     const placeholders = pidArray.map(() => '?').join(',');
 
-    // Batch-fetch user profile info (privacy, paid status, verified status)
+    // Batch-fetch user profile info (privacy, paid status, verified status, name, image)
+    // Name and profile_picture are used as fallback when participant_names /
+    // participant_images stored in chat_rooms are missing or empty.
     const [userRows] = await pool.query(
-      `SELECT id, privacy, usertype, isVerified FROM users WHERE id IN (${placeholders})`,
+      `SELECT id, privacy, usertype, isVerified, firstName, lastName, profile_picture FROM users WHERE id IN (${placeholders})`,
       pidArray,
     );
     for (const u of userRows) {
+      const rawPicture = (u.profile_picture || '').trim();
+      const pictureUrl = rawPicture
+        ? (rawPicture.startsWith('http') ? rawPicture : `${PUBLIC_URL || 'https://digitallami.com'}/Api2/${rawPicture.replace(/^\/+/, '')}`)
+        : '';
       userInfoMap[u.id.toString()] = {
         privacy:    u.privacy    || 'public',
         usertype:   u.usertype   || 'free',
         isVerified: u.isVerified === 1,
         isOnline:   false,
         lastSeen:   null,
+        name:       [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
+        profilePicture: pictureUrl,
       };
     }
 
@@ -1015,6 +1054,14 @@ async function getChatRooms(userId) {
   return rooms.map(r => {
     const participants = JSON.parse(r.participants);
 
+    // Parse stored names/images — fall back to empty object on parse errors.
+    let storedNames  = {};
+    let storedImages = {};
+    try { storedNames  = JSON.parse(r.participant_names)  || {}; } catch (_) {}
+    try { storedImages = JSON.parse(r.participant_images) || {}; } catch (_) {}
+
+    const participantNames           = {};
+    const participantImages          = {};
     const participantPrivacy         = {};
     const participantPhotoRequests   = {};
     const participantPaidStatus      = {};
@@ -1025,6 +1072,13 @@ async function getChatRooms(userId) {
     for (const pid of participants) {
       const pidStr = pid.toString();
       const info = userInfoMap[pidStr];
+
+      // Use stored name/image first; fall back to live data from users table.
+      const storedName  = (storedNames[pidStr]  || '').trim();
+      const storedImage = (storedImages[pidStr] || '').trim();
+      participantNames[pidStr]  = storedName  || (info ? info.name          : '');
+      participantImages[pidStr] = storedImage || (info ? info.profilePicture : '');
+
       if (info) {
         participantPrivacy[pidStr]        = info.privacy;
         participantPhotoRequests[pidStr]  = info.photoRequest || 'not_sent';
@@ -1038,8 +1092,8 @@ async function getChatRooms(userId) {
     return {
       chatRoomId:                r.id,
       participants:              participants,
-      participantNames:          JSON.parse(r.participant_names),
-      participantImages:         JSON.parse(r.participant_images),
+      participantNames,
+      participantImages,
       participantPrivacy,
       participantPhotoRequests,
       participantPaidStatus,

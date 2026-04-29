@@ -84,11 +84,22 @@ try {
     $images       = json_encode([(string)$myid => $user1_image, (string)$otherid => $user2_image]);
 
     $pdo->prepare("
-        INSERT IGNORE INTO chat_rooms
+        INSERT INTO chat_rooms
           (id, participants, participant_names, participant_images,
            last_message, last_message_type, last_message_time, last_message_sender_id)
         VALUES (?, ?, ?, ?, '', 'text', UTC_TIMESTAMP(), '')
-    ")->execute([$roomId, $participants, $names, $images]);
+        ON DUPLICATE KEY UPDATE
+          participant_names  = IF(
+            ? != '{}' AND (participant_names  IS NULL OR JSON_LENGTH(participant_names)  = 0 OR participant_names  = '{}'),
+            ?,
+            participant_names
+          ),
+          participant_images = IF(
+            ? != '{}' AND (participant_images IS NULL OR JSON_LENGTH(participant_images) = 0 OR participant_images = '{}'),
+            ?,
+            participant_images
+          )
+    ")->execute([$roomId, $participants, $names, $images, $names, $names, $images, $images]);
 
     // Initialise unread counters if not already present
     $pdo->prepare("
