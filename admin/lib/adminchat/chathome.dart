@@ -9236,7 +9236,8 @@ class _GroupCallParticipantPickerState
   String _lastSeenLabel(Map<String, dynamic> u) {
     final lastSeen = u['_lastSeen'] as DateTime?;
     if (lastSeen == null) return '';
-    final diff = DateTime.now().toUtc().difference(lastSeen.toUtc());
+    final now = DateTime.now().toUtc();
+    final diff = now.difference(lastSeen.toUtc());
     if (diff.inSeconds < 60) return 'Last seen just now';
     if (diff.inMinutes < 60) return 'Last seen ${diff.inMinutes} min ago';
     if (diff.inHours < 24) return 'Last seen ${diff.inHours} hr ago';
