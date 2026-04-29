@@ -23,6 +23,8 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s =>
 // "Access-Control-Allow-Origin: *" with "Access-Control-Allow-Credentials: true",
 // so we reflect the request origin (allow every caller) while still setting
 // credentials: true.
+// ⚠️  WARNING: Using '*' accepts connections from ANY origin.  Set ALLOWED_ORIGINS
+// to an explicit comma-separated list of trusted domains in production.
 const corsOriginOption = ALLOWED_ORIGINS.includes('*')
   ? (_origin, callback) => callback(null, true)
   : ALLOWED_ORIGINS;
