@@ -3,6 +3,7 @@ import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/adminchat/services/callmanager.dart';
 import 'package:adminmrz/adminchat/services/web_notification_service.dart';
 import 'package:adminmrz/adminchat/video_call_page.dart';
+import 'package:adminmrz/adminchat/group_call_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -2335,38 +2336,21 @@ class _ChatWindowState extends State<ChatWindow> {
     );
   }
 
-  /// Start a group call: opens participant picker, then launches the call
-  /// with the first selected user. Remaining users are added automatically
-  /// once the call channel is ready.
+  /// Start a group call: opens participant picker, then launches the dedicated
+  /// [GroupCallScreen] which handles all participants natively.
   void _launchGroupCall(ChatProvider chatProvider, {required bool isVideo}) {
     if (_callOverlayEntry != null) return; // call already active
     _showGroupCallParticipantPicker().then((selected) {
       if (selected == null || selected.isEmpty) return;
       if (!mounted) return;
-      final first = selected.first;
-      final extraParticipants = selected.skip(1).toList();
 
       final isMinimizedNotifier = ValueNotifier<bool>(false);
-      String? activeChannel;
 
       void onCallEnded(String callType, String status, int durationSeconds) {
         _removeCallOverlay();
-        _saveCallHistory(first['id']!, callType, status, durationSeconds);
-      }
-
-      void onChannelReady(String channelName) {
-        activeChannel = channelName;
-        // Auto-add remaining participants once the channel is established.
-        for (final extra in extraParticipants) {
-          _socketService.emitAddParticipantToCall(
-            newParticipantId: extra['id']!,
-            channelName: channelName,
-            callType: isVideo ? 'video' : 'audio',
-            adminId: kAdminUserId,
-            adminName: 'Admin',
-            existingParticipantId: first['id'],
-            newParticipantName: extra['name'],
-          );
+        // Save history for the first selected user as the primary contact.
+        if (selected.isNotEmpty) {
+          _saveCallHistory(selected.first['id']!, callType, status, durationSeconds);
         }
       }
 
@@ -2374,34 +2358,24 @@ class _ChatWindowState extends State<ChatWindow> {
         builder: (ctx) => ValueListenableBuilder<bool>(
           valueListenable: isMinimizedNotifier,
           builder: (_, isMin, __) {
-            final callWidget = isVideo
-                ? VideoCallScreen(
-                    currentUserId: kAdminUserId,
-                    currentUserName: 'Admin',
-                    otherUserId: first['id']!,
-                    otherUserName: first['name']!,
-                    onMinimize: () => isMinimizedNotifier.value = true,
-                    onEnd: _removeCallOverlay,
-                    onCallEnded: onCallEnded,
-                    onAddParticipant: () => _showAddParticipantDialog(first['id']!),
-                  )
-                : CallScreen(
-                    currentUserId: kAdminUserId,
-                    currentUserName: 'Admin',
-                    otherUserId: first['id']!,
-                    otherUserName: first['name']!,
-                    onMinimize: () => isMinimizedNotifier.value = true,
-                    onEnd: _removeCallOverlay,
-                    onCallEnded: onCallEnded,
-                    onAddParticipant: () => _showAddParticipantDialog(first['id']!),
-                  );
+            final groupCallWidget = GroupCallScreen(
+              adminId: kAdminUserId,
+              adminName: 'Admin',
+              initialParticipants: selected,
+              isVideo: isVideo,
+              onMinimize: () => isMinimizedNotifier.value = true,
+              onEnd: _removeCallOverlay,
+              onCallEnded: onCallEnded,
+            );
 
             return Stack(
               children: [
-                Offstage(offstage: isMin, child: callWidget),
+                Offstage(offstage: isMin, child: groupCallWidget),
                 if (isMin)
                   _buildMiniCallBar(
-                    userName: '${first['name'] ?? ''} +${selected.length - 1}',
+                    userName: selected.length == 1
+                        ? (selected.first['name'] ?? '')
+                        : '${selected.first['name'] ?? ''} +${selected.length - 1}',
                     isVideo: isVideo,
                     onMaximize: () => isMinimizedNotifier.value = false,
                     onEnd: _removeCallOverlay,
@@ -2412,19 +2386,6 @@ class _ChatWindowState extends State<ChatWindow> {
         ),
       );
       Overlay.of(context).insert(_callOverlayEntry!);
-
-      // Trigger auto-add after a short delay to let the call engine initialise.
-      if (extraParticipants.isNotEmpty) {
-        // Listen for call_accepted to know when channel is active.
-        StreamSubscription<Map<String, dynamic>>? acceptSub;
-        acceptSub = _socketService.onCallAccepted.listen((data) {
-          final ch = data['channelName']?.toString() ?? '';
-          if (ch.isNotEmpty && activeChannel == null) {
-            onChannelReady(ch);
-          }
-          acceptSub?.cancel();
-        });
-      }
     });
   }
 
