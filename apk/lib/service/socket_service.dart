@@ -738,7 +738,7 @@ class SocketService {
       filename: filename,
       userId: userId,
       type: 'image',
-      mimeType: MediaType('image', 'jpeg'),
+      mimeType: _mimeTypeFromFilename(filename),
     );
   }
 
@@ -791,7 +791,62 @@ class SocketService {
     if (url == null || url.isEmpty) {
       throw Exception(json['error']?.toString() ?? 'Upload returned no URL');
     }
+    // Normalize the returned URL to always use the known socket server base.
+    // If PUBLIC_URL is not configured on the server, the returned URL may use
+    // an internal address (e.g. http://127.0.0.1:3001/...) that is not
+    // accessible from outside. Re-anchoring to kSocketServerUrl ensures the
+    // stored URL is always publicly reachable.
+    return _normalizeUploadUrl(url);
+  }
+
+  /// Ensures the upload URL uses [kSocketServerUrl] as its base.
+  ///
+  /// The server's /upload endpoint derives the public URL from request headers
+  /// when PUBLIC_URL is not set in its environment.  If the server is behind a
+  /// reverse proxy that does not forward Host / X-Forwarded-Proto correctly,
+  /// it may return an internal address.  This helper replaces the scheme and
+  /// host with the known client-side socket server URL while preserving the
+  /// path, query parameters, and fragment of the original URL.
+  static String _normalizeUploadUrl(String url) {
+    try {
+      final parsed = Uri.parse(url);
+      if (parsed.path.startsWith('/uploads/')) {
+        final base = Uri.parse(kSocketServerUrl);
+        return Uri(
+          scheme: base.scheme,
+          host: base.host,
+          port: base.hasPort ? base.port : null,
+          path: parsed.path,
+          queryParameters: parsed.hasQuery ? parsed.queryParameters : null,
+          fragment: parsed.hasFragment ? parsed.fragment : null,
+        ).toString();
+      }
+    } catch (_) {}
     return url;
+  }
+
+  /// Returns a [MediaType] for [filename] based on its extension.
+  /// Falls back to `image/jpeg` for unknown or missing extensions.
+  static MediaType _mimeTypeFromFilename(String filename) {
+    final ext = filename.contains('.')
+        ? filename.split('.').last.toLowerCase()
+        : '';
+    switch (ext) {
+      case 'png':
+        return MediaType('image', 'png');
+      case 'gif':
+        return MediaType('image', 'gif');
+      case 'webp':
+        return MediaType('image', 'webp');
+      case 'bmp':
+        return MediaType('image', 'bmp');
+      case 'heic':
+        return MediaType('image', 'heic');
+      case 'heif':
+        return MediaType('image', 'heif');
+      default:
+        return MediaType('image', 'jpeg');
+    }
   }
 
   // ── Utility ───────────────────────────────────────────────────────────────
