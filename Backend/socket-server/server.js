@@ -22,6 +22,9 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s =>
 // how reverse-proxy headers are forwarded.
 // Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
 const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+// Base URL of the PHP API, used to resolve relative profile-picture paths.
+// Defaults to the known production domain; override with API_BASE_URL env var.
+const API_BASE_URL = (process.env.API_BASE_URL || 'https://digitallami.com').replace(/\/$/, '');
 // Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
@@ -995,7 +998,7 @@ async function getChatRooms(userId) {
     for (const u of userRows) {
       const rawPicture = (u.profile_picture || '').trim();
       const pictureUrl = rawPicture
-        ? (rawPicture.startsWith('http') ? rawPicture : `${PUBLIC_URL || 'https://digitallami.com'}/Api2/${rawPicture.replace(/^\/+/, '')}`)
+        ? (rawPicture.startsWith('http') ? rawPicture : `${API_BASE_URL}/Api2/${rawPicture.replace(/^\/+/, '')}`)
         : '';
       userInfoMap[u.id.toString()] = {
         privacy:    u.privacy    || 'public',
@@ -1057,8 +1060,12 @@ async function getChatRooms(userId) {
     // Parse stored names/images — fall back to empty object on parse errors.
     let storedNames  = {};
     let storedImages = {};
-    try { storedNames  = JSON.parse(r.participant_names)  || {}; } catch (_) {}
-    try { storedImages = JSON.parse(r.participant_images) || {}; } catch (_) {}
+    try { storedNames  = JSON.parse(r.participant_names)  || {}; } catch (e) {
+      console.warn(`getChatRooms: failed to parse participant_names for room ${r.id}:`, e.message);
+    }
+    try { storedImages = JSON.parse(r.participant_images) || {}; } catch (e) {
+      console.warn(`getChatRooms: failed to parse participant_images for room ${r.id}:`, e.message);
+    }
 
     const participantNames           = {};
     const participantImages          = {};

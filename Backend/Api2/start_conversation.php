@@ -84,22 +84,32 @@ try {
     $images       = json_encode([(string)$myid => $user1_image, (string)$otherid => $user2_image]);
 
     $pdo->prepare("
-        INSERT INTO chat_rooms
+        INSERT IGNORE INTO chat_rooms
           (id, participants, participant_names, participant_images,
            last_message, last_message_type, last_message_time, last_message_sender_id)
         VALUES (?, ?, ?, ?, '', 'text', UTC_TIMESTAMP(), '')
-        ON DUPLICATE KEY UPDATE
-          participant_names  = IF(
-            ? != '{}' AND (participant_names  IS NULL OR JSON_LENGTH(participant_names)  = 0 OR participant_names  = '{}'),
-            ?,
-            participant_names
-          ),
-          participant_images = IF(
-            ? != '{}' AND (participant_images IS NULL OR JSON_LENGTH(participant_images) = 0 OR participant_images = '{}'),
-            ?,
-            participant_images
-          )
-    ")->execute([$roomId, $participants, $names, $images, $names, $names, $images, $images]);
+    ")->execute([$roomId, $participants, $names, $images]);
+
+    // If we have valid names or images, update any existing room that still has
+    // empty/missing values so the chat list displays correctly for old rooms.
+    $hasNames  = ($user1_name  !== '' || $user2_name  !== '');
+    $hasImages = ($user1_image !== '' || $user2_image !== '');
+    if ($hasNames) {
+        $pdo->prepare("
+            UPDATE chat_rooms
+               SET participant_names = ?
+             WHERE id = ?
+               AND (participant_names IS NULL OR JSON_LENGTH(participant_names) = 0 OR participant_names = '{}')
+        ")->execute([$names, $roomId]);
+    }
+    if ($hasImages) {
+        $pdo->prepare("
+            UPDATE chat_rooms
+               SET participant_images = ?
+             WHERE id = ?
+               AND (participant_images IS NULL OR JSON_LENGTH(participant_images) = 0 OR participant_images = '{}')
+        ")->execute([$images, $roomId]);
+    }
 
     // Initialise unread counters if not already present
     $pdo->prepare("
