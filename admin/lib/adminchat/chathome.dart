@@ -28,6 +28,7 @@ import 'widgets/typing_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'dart:html' as html;
 import 'dart:js' as js;
+import 'dart:js_util' as js_util;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
@@ -1861,7 +1862,7 @@ class _ChatWindowState extends State<ChatWindow> {
     _webSpeechRecognition!['interimResults'] = true;
     _webSpeechRecognition!['lang'] = _selectedLanguage;
 
-    _webSpeechRecognition!['onresult'] = js.allowInterop((dynamic event) {
+    _webSpeechRecognition!['onresult'] = js_util.allowInterop((dynamic event) {
       final eventObj = js.JsObject.fromBrowserObject(event);
       final results = eventObj['results'];
       if (results == null) return;
@@ -1906,7 +1907,7 @@ class _ChatWindowState extends State<ChatWindow> {
       });
     });
 
-    _webSpeechRecognition!['onend'] = js.allowInterop((dynamic _) {
+    _webSpeechRecognition!['onend'] = js_util.allowInterop((dynamic _) {
       // With continuous=true the browser may still fire onend after silence.
       // Restart automatically unless the user explicitly stopped listening.
       if (!_userStoppedListening && _isListening && mounted) {
@@ -1920,7 +1921,7 @@ class _ChatWindowState extends State<ChatWindow> {
       }
     });
 
-    _webSpeechRecognition!['onerror'] = js.allowInterop((dynamic event) {
+    _webSpeechRecognition!['onerror'] = js_util.allowInterop((dynamic event) {
       if (!mounted) return;
       final error =
           js.JsObject.fromBrowserObject(event)['error'] as String? ?? '';
