@@ -17,6 +17,15 @@ const { v4: uuidv4 } = require('uuid');
 const PORT        = process.env.PORT || 3000;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
+
+// When ALLOWED_ORIGINS contains '*', use a reflective function instead of the
+// literal wildcard string.  Browsers reject responses that combine
+// "Access-Control-Allow-Origin: *" with "Access-Control-Allow-Credentials: true",
+// so we reflect the request origin (allow every caller) while still setting
+// credentials: true.
+const corsOriginOption = ALLOWED_ORIGINS.includes('*')
+  ? (_origin, callback) => callback(null, true)
+  : ALLOWED_ORIGINS;
 // Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
 // Recommended for production so image URLs are always correct regardless of
 // how reverse-proxy headers are forwarded.
@@ -392,14 +401,14 @@ app.set('trust proxy', 1);
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: {
-    origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
+    origin: corsOriginOption,
     methods: ['GET', 'POST'],
+    credentials: true,
   },
-  // Allow both long-polling (initial handshake) and WebSocket (persistent).
-  // Clients connect via polling first, then the connection is automatically
-  // upgraded to WebSocket.  This is more reliable across proxies and firewalls
-  // than attempting a direct WebSocket upgrade without a prior HTTP handshake.
-  transports: ['polling', 'websocket'],
+  // Allow both WebSocket (preferred) and long-polling (fallback).
+  // WebSocket is listed first so clients that support it connect directly
+  // without an intermediate polling handshake.
+  transports: ['websocket', 'polling'],
   allowUpgrades: true,
   pingTimeout:       60000,
   pingInterval:      25000,
@@ -407,8 +416,9 @@ const io     = new Server(server, {
 });
 
 app.use(cors({
-  origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
+  origin: corsOriginOption,
   methods: ['GET', 'POST', 'OPTIONS'],
+  credentials: true,
 }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));
