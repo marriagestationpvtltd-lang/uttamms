@@ -510,7 +510,7 @@ async function logActivity({ userId, userName = '', targetId = null, targetName 
 // Call History REST API
 // ──────────────────────────────────────────────────────────────────────────────
 
-// POST /api/calls — Log a new call
+// POST /api/calls — Log a new call (UPSERT to prevent duplicates)
 app.post('/api/calls', async (req, res) => {
   try {
     const {
@@ -523,12 +523,16 @@ app.post('/api/calls', async (req, res) => {
       return res.status(400).json({ error: 'callId, callerId, recipientId, initiatedBy are required' });
     }
 
+    // Use INSERT ... ON DUPLICATE KEY UPDATE to ensure ONE call = ONE record
+    // If call_id already exists, only update start_time if it's the first insert
     await pool.query(
       `INSERT INTO call_history
          (call_id, caller_id, caller_name, caller_image,
           recipient_id, recipient_name, recipient_image,
           call_type, start_time, status, initiated_by)
-       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)`,
+       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)
+       ON DUPLICATE KEY UPDATE
+         call_id = call_id`,
       [callId, callerId, callerName, callerImage,
        recipientId, recipientName, recipientImage,
        callType === 'video' ? 'video' : 'audio', initiatedBy],
@@ -694,6 +698,314 @@ app.get('/api/group-calls/:channelName', async (req, res) => {
     });
   } catch (err) {
     console.error('GET /api/group-calls/:channelName error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/admin/call-history — Admin endpoint for call history with participant details
+app.get('/api/admin/call-history', requireAdminToken, async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || '50', 10), 200);
+    const page = Math.max(1, parseInt(req.query.page || '1', 10));
+    const offset = (page - 1) * limit;
+
+    // Count total call history records
+    const [[{ total }]] = await pool.query(
+      'SELECT COUNT(*) AS total FROM call_history'
+    );
+
+    // Fetch call history with participant details (JOIN with users table)
+    const [rows] = await pool.query(
+      `SELECT
+          ch.id,
+          ch.call_id,
+          ch.caller_id,
+          ch.caller_name,
+          ch.caller_image,
+          ch.recipient_id,
+          ch.recipient_name,
+          ch.recipient_image,
+          ch.call_type,
+          ch.start_time,
+          ch.end_time,
+          ch.duration,
+          ch.status,
+          ch.initiated_by,
+          u1.firstName AS caller_first_name,
+          u1.lastName AS caller_last_name,
+          u1.profile_picture AS caller_profile_pic,
+          u2.firstName AS recipient_first_name,
+          u2.lastName AS recipient_last_name,
+          u2.profile_picture AS recipient_profile_pic
+       FROM call_history ch
+       LEFT JOIN users u1 ON ch.caller_id = u1.id
+       LEFT JOIN users u2 ON ch.recipient_id = u2.id
+       ORDER BY ch.start_time DESC
+       LIMIT ? OFFSET ?`,
+      [limit, offset]
+    );
+
+    const calls = rows.map(r => ({
+      id: r.id,
+      callId: r.call_id,
+      callType: r.call_type,
+      startTime: r.start_time ? r.start_time.toISOString() : null,
+      endTime: r.end_time ? r.end_time.toISOString() : null,
+      duration: r.duration,
+      status: r.status,
+      initiatedBy: r.initiated_by,
+      participants: [
+        {
+          id: r.caller_id,
+          name: r.caller_name || `${r.caller_first_name || ''} ${r.caller_last_name || ''}`.trim(),
+          avatar: r.caller_image || (r.caller_profile_pic ?
+            (r.caller_profile_pic.startsWith('http') ?
+              r.caller_profile_pic :
+              `${API_BASE_URL}/${r.caller_profile_pic}`) :
+            null),
+          role: 'caller',
+        },
+        {
+          id: r.recipient_id,
+          name: r.recipient_name || `${r.recipient_first_name || ''} ${r.recipient_last_name || ''}`.trim(),
+          avatar: r.recipient_image || (r.recipient_profile_pic ?
+            (r.recipient_profile_pic.startsWith('http') ?
+              r.recipient_profile_pic :
+              `${API_BASE_URL}/${r.recipient_profile_pic}`) :
+            null),
+          role: 'recipient',
+        },
+      ],
+    }));
+
+    res.json({
+      success: true,
+      total: Number(total),
+      page,
+      limit,
+      pages: Math.ceil(Number(total) / limit),
+      calls,
+    });
+  } catch (err) {
+    console.error('GET /api/admin/call-history error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/admin/dashboard-stats — Admin dashboard statistics API
+app.get('/api/admin/dashboard-stats', requireAdminToken, async (req, res) => {
+  try {
+    // Total users count
+    const [[{ totalUsers }]] = await pool.query(
+      'SELECT COUNT(*) AS totalUsers FROM users'
+    );
+
+    // Online users count (from user_online_status where is_online = 1)
+    const [[{ onlineUsers }]] = await pool.query(
+      'SELECT COUNT(*) AS onlineUsers FROM user_online_status WHERE is_online = 1'
+    );
+
+    // Active calls count (group_calls where status = 'active' OR call_history where end_time IS NULL)
+    const [[{ activeCalls }]] = await pool.query(
+      `SELECT COUNT(*) AS activeCalls
+       FROM (
+         SELECT 1 FROM group_calls WHERE status = 'active'
+         UNION ALL
+         SELECT 1 FROM call_history WHERE end_time IS NULL
+       ) AS active_calls_union`
+    );
+
+    // Total calls today
+    const [[{ totalCallsToday }]] = await pool.query(
+      `SELECT COUNT(*) AS totalCallsToday
+       FROM call_history
+       WHERE DATE(start_time) = CURDATE()`
+    );
+
+    // Recent activities (limit 20, sorted by created_at DESC)
+    const [recentActivities] = await pool.query(
+      `SELECT
+          ua.id,
+          ua.user_id,
+          ua.user_name,
+          ua.activity_type,
+          ua.description,
+          ua.target_id,
+          ua.target_name,
+          ua.created_at,
+          u.firstName,
+          u.lastName,
+          u.profile_picture
+       FROM user_activities ua
+       LEFT JOIN users u ON ua.user_id = u.id
+       ORDER BY ua.created_at DESC
+       LIMIT 20`
+    );
+
+    // Format recent activities
+    const formattedActivities = recentActivities.map(a => ({
+      id: a.id,
+      userId: a.user_id,
+      userName: a.user_name || `${a.firstName || ''} ${a.lastName || ''}`.trim() || `User ${a.user_id}`,
+      activityType: a.activity_type,
+      description: a.description,
+      targetId: a.target_id,
+      targetName: a.target_name,
+      createdAt: a.created_at ? a.created_at.toISOString() : null,
+      userAvatar: a.profile_picture ?
+        (a.profile_picture.startsWith('http') ?
+          a.profile_picture :
+          `${API_BASE_URL}/${a.profile_picture}`) :
+        null,
+    }));
+
+    res.json({
+      success: true,
+      stats: {
+        totalUsers: Number(totalUsers),
+        onlineUsers: Number(onlineUsers),
+        activeCalls: Number(activeCalls),
+        totalCallsToday: Number(totalCallsToday),
+      },
+      recentActivities: formattedActivities,
+    });
+  } catch (err) {
+    console.error('GET /api/admin/dashboard-stats error:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Call Join List API — Gender-based user filtering for group calls
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/call-join-list?userId=xxx[&cursor=xxx]
+ *
+ * Returns users available for joining a group call with gender-based filtering:
+ * - Male users see ONLY female users
+ * - Female users see ONLY male users
+ *
+ * Sorting:
+ * 1. Online users first (isOnline = true)
+ * 2. Then by lastSeen DESC (most recently active)
+ *
+ * Pagination:
+ * - Limit: 15 users per request
+ * - Cursor-based (no offset duplication)
+ * - Returns: { users: [], nextCursor: "", hasMore: boolean }
+ */
+app.get('/api/call-join-list', async (req, res) => {
+  try {
+    const userId = (req.query.userId || '').toString().trim();
+    const cursor = (req.query.cursor || '').toString().trim();
+    const limit = 15;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required' });
+    }
+
+    // Get current user's gender
+    const [[currentUser]] = await pool.query(
+      'SELECT id, gender FROM users WHERE id = ? LIMIT 1',
+      [userId]
+    );
+
+    if (!currentUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Determine opposite gender (male sees female, female sees male)
+    const oppositeGender = currentUser.gender === 'Male' ? 'Female' : 'Male';
+
+    // Build query with cursor-based pagination
+    let query = `
+      SELECT
+        u.id,
+        u.firstName,
+        u.lastName,
+        u.gender,
+        u.profile_picture,
+        u.isOnline,
+        u.lastLogin,
+        COALESCE(uos.is_online, 0) AS is_online_status,
+        COALESCE(uos.last_seen, u.lastLogin) AS last_seen
+      FROM users u
+      LEFT JOIN user_online_status uos ON u.id = uos.user_id
+      WHERE u.gender = ?
+        AND u.id != ?
+    `;
+
+    const params = [oppositeGender, userId];
+
+    // Apply cursor for pagination (cursor is last user's sort key: "isOnline_lastSeen_id")
+    if (cursor) {
+      const [cursorIsOnline, cursorLastSeen, cursorId] = cursor.split('_');
+      query += `
+        AND (
+          (COALESCE(uos.is_online, 0) < ?) OR
+          (COALESCE(uos.is_online, 0) = ? AND COALESCE(uos.last_seen, u.lastLogin) < ?) OR
+          (COALESCE(uos.is_online, 0) = ? AND COALESCE(uos.last_seen, u.lastLogin) = ? AND u.id > ?)
+        )
+      `;
+      params.push(
+        cursorIsOnline, cursorIsOnline, cursorLastSeen,
+        cursorIsOnline, cursorLastSeen, cursorId
+      );
+    }
+
+    // Sort: online first, then by last_seen DESC, then by id ASC for stability
+    query += `
+      ORDER BY
+        COALESCE(uos.is_online, 0) DESC,
+        COALESCE(uos.last_seen, u.lastLogin) DESC,
+        u.id ASC
+      LIMIT ?
+    `;
+    params.push(limit + 1); // Fetch one extra to determine if there are more
+
+    const [rows] = await pool.query(query, params);
+
+    // Check if there are more results
+    const hasMore = rows.length > limit;
+    const users = rows.slice(0, limit);
+
+    // Generate next cursor from last user
+    let nextCursor = '';
+    if (hasMore && users.length > 0) {
+      const lastUser = users[users.length - 1];
+      const isOnline = lastUser.is_online_status || 0;
+      const lastSeen = lastUser.last_seen ?
+        new Date(lastUser.last_seen).toISOString() :
+        new Date().toISOString();
+      nextCursor = `${isOnline}_${lastSeen}_${lastUser.id}`;
+    }
+
+    // Format response
+    const formattedUsers = users.map(u => ({
+      id: u.id.toString(),
+      name: `${u.firstName || ''} ${u.lastName || ''}`.trim(),
+      firstName: u.firstName || '',
+      lastName: u.lastName || '',
+      gender: u.gender,
+      profilePicture: u.profile_picture ?
+        (u.profile_picture.startsWith('http') ?
+          u.profile_picture :
+          `${API_BASE_URL}/${u.profile_picture}`) :
+        null,
+      isOnline: !!(u.is_online_status || u.isOnline),
+      lastSeen: u.last_seen ? new Date(u.last_seen).toISOString() : null,
+    }));
+
+    res.json({
+      success: true,
+      users: formattedUsers,
+      nextCursor,
+      hasMore,
+    });
+
+  } catch (err) {
+    console.error('GET /api/call-join-list error:', err.message);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -1468,6 +1780,12 @@ io.on('connection', (socket) => {
       lastSeen: new Date().toISOString(),
     });
 
+    // Emit to admin dashboard
+    io.to('admin_room').emit('user_online', {
+      userId:   authenticatedUserId,
+      timestamp: new Date().toISOString(),
+    });
+
     socket.emit('authenticated', { success: true, userId: authenticatedUserId });
     console.log(`✅ Authenticated: userId=${authenticatedUserId}`);
 
@@ -2044,6 +2362,15 @@ io.on('connection', (socket) => {
       if (recipientStr) groupCallParticipants.get(channelName).add(recipientStr);
       // Persist initial participants to DB asynchronously.
       persistGroupCallParticipants(channelName, rest.callType || 'audio', callerStr).catch(() => {});
+
+      // Emit call_started to admin dashboard
+      io.to('admin_room').emit('call_started', {
+        channelName,
+        callerId: callerStr,
+        recipientId: recipientStr,
+        callType: rest.callType || 'audio',
+        timestamp: new Date().toISOString(),
+      });
     }
     io.to(`user:${callerStr}`).emit('call_accepted', {
       ...rest,
@@ -2098,6 +2425,16 @@ io.on('connection', (socket) => {
     // Remove both parties from the active-call tracking set
     if (callerId)    activeCallUsers.delete(callerId.toString());
     if (recipientId) activeCallUsers.delete(recipientId.toString());
+
+    // Emit call_ended to admin dashboard
+    if (channelName) {
+      io.to('admin_room').emit('call_ended', {
+        channelName,
+        callerId: callerId ? callerId.toString() : undefined,
+        recipientId: recipientId ? recipientId.toString() : undefined,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // Notify all group-call participants (not just the 2 initial parties).
     if (channelName && groupCallParticipants.has(channelName)) {
@@ -2316,6 +2653,41 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── user_speaking ────────────────────────────────────────────────────────
+  // Client emits when user's audio level exceeds threshold (real-time speaking detection)
+  // Server broadcasts to all participants in the room/channel
+  socket.on('user_speaking', (data) => {
+    const { userId, roomId, channelName, isSpeaking } = data || {};
+    const speakerId = (userId || authenticatedUserId || '').toString();
+    const room = (roomId || channelName || '').toString();
+
+    if (!speakerId || !room) return;
+
+    // Broadcast speaking_update to all participants in the group call
+    const participants = groupCallParticipants.get(room);
+    if (participants) {
+      for (const uid of participants) {
+        if (uid !== speakerId) { // Don't send back to speaker
+          io.to(`user:${uid}`).emit('speaking_update', {
+            userId: speakerId,
+            roomId: room,
+            channelName: room,
+            isSpeaking: !!isSpeaking,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    } else {
+      // Fallback: broadcast to room for non-group calls
+      socket.to(room).emit('speaking_update', {
+        userId: speakerId,
+        roomId: room,
+        isSpeaking: !!isSpeaking,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+
   // ── ping (client heartbeat) ───────────────────────────────────────────────
   // Clients emit 'ping' every 10 s to keep their online status fresh.
   // We update last_seen so the stale-user cleanup job can detect silent
@@ -2343,14 +2715,27 @@ io.on('connection', (socket) => {
     // If this user was in an active call, remove them from busy tracking.
     activeCallUsers.delete(authenticatedUserId);
 
-    await upsertOnlineStatus(authenticatedUserId, false);
+    // Mark user offline after 30 seconds if they don't reconnect
+    // Use a timeout to allow for brief reconnections (e.g., network switching)
+    setTimeout(async () => {
+      // Check if user has reconnected
+      if (!userSockets.has(authenticatedUserId)) {
+        await upsertOnlineStatus(authenticatedUserId, false);
 
-    // Notify contacts
-    socket.broadcast.emit('user_status_change', {
-      userId:   authenticatedUserId,
-      isOnline: false,
-      lastSeen: new Date().toISOString(),
-    });
+        // Notify contacts
+        socket.broadcast.emit('user_status_change', {
+          userId:   authenticatedUserId,
+          isOnline: false,
+          lastSeen: new Date().toISOString(),
+        });
+
+        // Emit to admin dashboard
+        io.to('admin_room').emit('user_offline', {
+          userId:   authenticatedUserId,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }, 30000); // 30 seconds delay
   });
 });
 
