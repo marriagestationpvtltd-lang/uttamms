@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import '../models/proposal_model.dart';
 import '../services/proposal_service.dart';
 
@@ -86,11 +87,13 @@ class ProposalProvider extends ChangeNotifier {
   // -------------------------------------------------------------------------
 
   Future<bool> sendRequest({
+    required BuildContext context,
     required String senderId,
     required String receiverId,
     required String requestType,
   }) async {
     final response = await _service.sendRequest(
+      context:     context,
       senderId:    senderId,
       receiverId:  receiverId,
       requestType: requestType,
