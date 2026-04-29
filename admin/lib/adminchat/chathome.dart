@@ -2232,12 +2232,11 @@ class _ChatWindowState extends State<ChatWindow> {
   /// Returns the selected user ID or null if cancelled.
   /// Shows a searchable dialog to pick a user to add to the ongoing call.
   /// Returns `{'id': userId, 'name': userName}` on selection, or null on cancel.
-  Future<Map<String, String>?> _showAddParticipantDialog(
-      String currentParticipantId) async {
-    List<Map<String, dynamic>> allUsers = [];
-    String? fetchError;
-
-    // Fetch users before opening the dialog
+  /// Fetches all users from the API, sorted online-first.
+  /// Excludes [excludeId] from the list (usually the current participant).
+  /// Returns the list and any error string.
+  Future<(List<Map<String, dynamic>>, String?)> _fetchAllUsersSortedOnlineFirst(
+      {String? excludeId}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final token = prefs.getString('token') ?? '';
@@ -2248,22 +2247,47 @@ class _ChatWindowState extends State<ChatWindow> {
           if (token.isNotEmpty) 'Authorization': 'Bearer $token',
         },
       );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        allUsers = ((data['data'] as List<dynamic>?) ?? [])
-            .where((u) =>
-                u['id']?.toString() != currentParticipantId &&
-                (u['isOnline'] == 1 ||
-                    u['isOnline'] == '1' ||
-                    u['isOnline'] == true))
-            .map((u) => Map<String, dynamic>.from(u as Map))
-            .toList();
-      } else {
-        fetchError = 'Failed to load users (${response.statusCode})';
+      if (response.statusCode != 200) {
+        return (const <Map<String, dynamic>>[], 'Failed to load users (${response.statusCode})');
       }
-    } catch (e) {
-      fetchError = 'Error loading users';
+      final data = jsonDecode(response.body);
+      List<Map<String, dynamic>> users = ((data['data'] as List<dynamic>?) ?? [])
+          .where((u) => excludeId == null || u['id']?.toString() != excludeId)
+          .map((u) {
+            final raw = Map<String, dynamic>.from(u as Map);
+            // Normalise the online flag to a bool for easy sorting.
+            raw['_isOnline'] = raw['isOnline'] == 1 ||
+                raw['isOnline'] == '1' ||
+                raw['isOnline'] == true;
+            // Build a combined display name with both first and full names.
+            final firstName = (raw['firstName'] ?? '').toString().trim();
+            final lastName  = (raw['lastName']  ?? '').toString().trim();
+            raw['_firstName'] = firstName;
+            raw['_fullName']  = [firstName, lastName].where((s) => s.isNotEmpty).join(' ');
+            return raw;
+          })
+          .toList();
+
+      // Sort: online users first, then alphabetically by first name.
+      users.sort((a, b) {
+        final aOnline = a['_isOnline'] as bool;
+        final bOnline = b['_isOnline'] as bool;
+        if (aOnline && !bOnline) return -1;
+        if (!aOnline && bOnline) return 1;
+        return (a['_firstName'] as String).compareTo(b['_firstName'] as String);
+      });
+
+      return (users, null);
+    } catch (_) {
+      return (const <Map<String, dynamic>>[], 'Error loading users');
     }
+  }
+
+  Future<Map<String, String>?> _showAddParticipantDialog(
+      String currentParticipantId) async {
+    final (allUsers, fetchError) = await _fetchAllUsersSortedOnlineFirst(
+      excludeId: currentParticipantId,
+    );
 
     if (!mounted) return null;
 
@@ -2281,6 +2305,127 @@ class _ChatWindowState extends State<ChatWindow> {
         allUsers: allUsers,
       ),
     );
+  }
+
+  /// Shows a multi-select participant picker for starting a group call.
+  /// Returns a list of selected users [{id, name (first name only)}].
+  Future<List<Map<String, String>>?> _showGroupCallParticipantPicker() async {
+    final (allUsers, fetchError) = await _fetchAllUsersSortedOnlineFirst();
+
+    if (!mounted) return null;
+
+    if (fetchError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(fetchError)),
+      );
+      return null;
+    }
+
+    if (allUsers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No users available')),
+      );
+      return null;
+    }
+
+    return await showDialog<List<Map<String, String>>>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _GroupCallParticipantPicker(allUsers: allUsers),
+    );
+  }
+
+  /// Start a group call: opens participant picker, then launches the call
+  /// with the first selected user. Remaining users are added automatically
+  /// once the call channel is ready.
+  void _launchGroupCall(ChatProvider chatProvider, {required bool isVideo}) {
+    if (_callOverlayEntry != null) return; // call already active
+    _showGroupCallParticipantPicker().then((selected) {
+      if (selected == null || selected.isEmpty) return;
+      if (!mounted) return;
+      final first = selected.first;
+      final extraParticipants = selected.skip(1).toList();
+
+      final isMinimizedNotifier = ValueNotifier<bool>(false);
+      String? activeChannel;
+
+      void onCallEnded(String callType, String status, int durationSeconds) {
+        _removeCallOverlay();
+        _saveCallHistory(first['id']!, callType, status, durationSeconds);
+      }
+
+      void onChannelReady(String channelName) {
+        activeChannel = channelName;
+        // Auto-add remaining participants once the channel is established.
+        for (final extra in extraParticipants) {
+          _socketService.emitAddParticipantToCall(
+            newParticipantId: extra['id']!,
+            channelName: channelName,
+            callType: isVideo ? 'video' : 'audio',
+            adminId: kAdminUserId,
+            adminName: 'Admin',
+            existingParticipantId: first['id'],
+            newParticipantName: extra['name'],
+          );
+        }
+      }
+
+      _callOverlayEntry = OverlayEntry(
+        builder: (ctx) => ValueListenableBuilder<bool>(
+          valueListenable: isMinimizedNotifier,
+          builder: (_, isMin, __) {
+            final callWidget = isVideo
+                ? VideoCallScreen(
+                    currentUserId: kAdminUserId,
+                    currentUserName: 'Admin',
+                    otherUserId: first['id']!,
+                    otherUserName: first['name']!,
+                    onMinimize: () => isMinimizedNotifier.value = true,
+                    onEnd: _removeCallOverlay,
+                    onCallEnded: onCallEnded,
+                    onAddParticipant: () => _showAddParticipantDialog(first['id']!),
+                  )
+                : CallScreen(
+                    currentUserId: kAdminUserId,
+                    currentUserName: 'Admin',
+                    otherUserId: first['id']!,
+                    otherUserName: first['name']!,
+                    onMinimize: () => isMinimizedNotifier.value = true,
+                    onEnd: _removeCallOverlay,
+                    onCallEnded: onCallEnded,
+                    onAddParticipant: () => _showAddParticipantDialog(first['id']!),
+                  );
+
+            return Stack(
+              children: [
+                Offstage(offstage: isMin, child: callWidget),
+                if (isMin)
+                  _buildMiniCallBar(
+                    userName: '${first['name'] ?? ''} +${selected.length}',
+                    isVideo: isVideo,
+                    onMaximize: () => isMinimizedNotifier.value = false,
+                    onEnd: _removeCallOverlay,
+                  ),
+              ],
+            );
+          },
+        ),
+      );
+      Overlay.of(context).insert(_callOverlayEntry!);
+
+      // Trigger auto-add after a short delay to let the call engine initialise.
+      if (extraParticipants.isNotEmpty) {
+        // Listen for call_accepted to know when channel is active.
+        StreamSubscription<Map<String, dynamic>>? acceptSub;
+        acceptSub = _socketService.onCallAccepted.listen((data) {
+          final ch = data['channelName']?.toString() ?? '';
+          if (ch.isNotEmpty && activeChannel == null) {
+            onChannelReady(ch);
+          }
+          acceptSub?.cancel();
+        });
+      }
+    });
   }
 
   /// Launch a call (video or audio) in a floating overlay so the admin can
@@ -2698,6 +2843,32 @@ class _ChatWindowState extends State<ChatWindow> {
                 icon: Icons.call_outlined,
                 iconColor: const Color(0xFF334155),
                 onTap: () => _launchAudioCall(chatProvider),
+              ),
+              const SizedBox(width: 6),
+              // Group Call button — opens multi-select picker and starts a
+              // group audio/video call with all selected participants.
+              Tooltip(
+                message: 'Start Group Call',
+                child: InkWell(
+                  onTap: () => _launchGroupCall(chatProvider, isVideo: false),
+                  onLongPress: () => _launchGroupCall(chatProvider, isVideo: true),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7B61FF).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.groups_outlined, size: 18, color: c.primary),
+                        const SizedBox(width: 2),
+                        Icon(Icons.call_outlined, size: 12, color: c.primary),
+                      ],
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(width: 6),
               _iconBtn(
@@ -8775,11 +8946,27 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
     super.dispose();
   }
 
+  /// Returns the first name for display (privacy: only first name shown in calls).
+  String _displayName(Map<String, dynamic> u) {
+    // Prefer pre-computed _firstName added by _fetchAllUsersSortedOnlineFirst.
+    final fn = (u['_firstName'] ?? u['firstName'] ?? '').toString().trim();
+    if (fn.isNotEmpty) return fn;
+    // Fallback: take first word of full name or name field.
+    final full = (u['_fullName'] ?? u['name'] ?? '').toString().trim();
+    return full.split(' ').first.isNotEmpty ? full.split(' ').first : 'User';
+  }
+
+  bool _isUserOnline(Map<String, dynamic> u) =>
+      u['_isOnline'] == true ||
+      u['isOnline'] == 1 ||
+      u['isOnline'] == '1' ||
+      u['isOnline'] == true;
+
   List<Map<String, dynamic>> get _filtered {
     if (_query.isEmpty) return widget.allUsers;
     final q = _query.toLowerCase();
     return widget.allUsers
-        .where((u) => (u['name']?.toString() ?? '').toLowerCase().contains(q))
+        .where((u) => _displayName(u).toLowerCase().contains(q))
         .toList();
   }
 
@@ -8822,7 +9009,7 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                           ),
                         ),
                         Text(
-                          'Online users only',
+                          'Online users first',
                           style: TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
@@ -8883,8 +9070,8 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                           const SizedBox(height: 12),
                           Text(
                             _query.isEmpty
-                                ? 'No online users available'
-                                : 'No online users match "$_query"',
+                                ? 'No users available'
+                                : 'No users match "$_query"',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 color: Colors.grey.shade500, fontSize: 14),
@@ -8900,15 +9087,11 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                       itemBuilder: (ctx, idx) {
                         final user = filtered[idx];
                         final userId = user['id']?.toString() ?? '';
-                        final userName =
-                            (user['name']?.toString() ?? '').trim();
-                        final displayName =
-                            userName.isNotEmpty ? userName : 'Unknown';
+                        // Show only first name in the participant list (privacy).
+                        final displayName = _displayName(user);
                         final photoUrl =
                             user['profile_picture']?.toString();
-                        final isOnline = user['isOnline'] == 1 ||
-                            user['isOnline'] == '1' ||
-                            user['isOnline'] == true;
+                        final isOnline = _isUserOnline(user);
                         final initial = displayName.isNotEmpty
                             ? displayName[0].toUpperCase()
                             : '?';
@@ -8993,6 +9176,327 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                         );
                       },
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Group Call Participant Picker
+//  Multi-select dialog: allows admin to select multiple users to invite to a
+//  group call.  Online users appear at the top.  Shows first name only.
+// ─────────────────────────────────────────────────────────────────────────────
+class _GroupCallParticipantPicker extends StatefulWidget {
+  final List<Map<String, dynamic>> allUsers;
+  const _GroupCallParticipantPicker({required this.allUsers});
+
+  @override
+  State<_GroupCallParticipantPicker> createState() =>
+      _GroupCallParticipantPickerState();
+}
+
+class _GroupCallParticipantPickerState
+    extends State<_GroupCallParticipantPicker> {
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _query = '';
+  final Set<String> _selectedIds = {};
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  String _displayName(Map<String, dynamic> u) {
+    final fn = (u['_firstName'] ?? u['firstName'] ?? '').toString().trim();
+    if (fn.isNotEmpty) return fn;
+    final full = (u['_fullName'] ?? u['name'] ?? '').toString().trim();
+    final parts = full.split(' ');
+    return parts.first.isNotEmpty ? parts.first : 'User';
+  }
+
+  bool _isOnline(Map<String, dynamic> u) =>
+      u['_isOnline'] == true ||
+      u['isOnline'] == 1 ||
+      u['isOnline'] == '1' ||
+      u['isOnline'] == true;
+
+  List<Map<String, dynamic>> get _filtered {
+    if (_query.isEmpty) return widget.allUsers;
+    final q = _query.toLowerCase();
+    return widget.allUsers
+        .where((u) => _displayName(u).toLowerCase().contains(q))
+        .toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = _filtered;
+    final hasSelection = _selectedIds.isNotEmpty;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      clipBehavior: Clip.antiAlias,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440, maxHeight: 600),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Header ────────────────────────────────────────────────────────
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 20, 8, 16),
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF7B61FF), Color(0xFF6366F1)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.groups, color: Colors.white, size: 26),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'Start Group Call',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700),
+                        ),
+                        Text(
+                          'Select participants (online users first)',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white70),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Search bar ────────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: TextField(
+                controller: _searchCtrl,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Search by name…',
+                  prefixIcon: const Icon(Icons.search, size: 20),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
+                  filled: true,
+                  fillColor: Colors.grey.shade100,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
+                  suffixIcon: _query.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, size: 18),
+                          onPressed: () {
+                            _searchCtrl.clear();
+                            setState(() => _query = '');
+                          },
+                        )
+                      : null,
+                ),
+                onChanged: (v) => setState(() => _query = v),
+              ),
+            ),
+
+            // ── Selection count chip ─────────────────────────────────────────
+            if (_selectedIds.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7B61FF).withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: const Color(0xFF7B61FF).withOpacity(0.3)),
+                      ),
+                      child: Text(
+                        '${_selectedIds.length} selected',
+                        style: const TextStyle(
+                            color: Color(0xFF7B61FF),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton(
+                      onPressed: () => setState(() => _selectedIds.clear()),
+                      child: const Text('Clear',
+                          style: TextStyle(color: Colors.red, fontSize: 12)),
+                    ),
+                  ],
+                ),
+              ),
+
+            // ── User list ─────────────────────────────────────────────────────
+            Flexible(
+              child: filtered.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.search_off,
+                              size: 52, color: Colors.grey.shade400),
+                          const SizedBox(height: 12),
+                          Text(
+                            _query.isEmpty
+                                ? 'No users available'
+                                : 'No users match "$_query"',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                                color: Colors.grey.shade500, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: filtered.length,
+                      separatorBuilder: (_, __) =>
+                          const Divider(height: 1, indent: 72),
+                      itemBuilder: (ctx, idx) {
+                        final user = filtered[idx];
+                        final userId = user['id']?.toString() ?? '';
+                        final name = _displayName(user);
+                        final photoUrl = user['profile_picture']?.toString();
+                        final isOnline = _isOnline(user);
+                        final isSelected = _selectedIds.contains(userId);
+                        final initial =
+                            name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+                        return ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 2),
+                          leading: Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              CircleAvatar(
+                                radius: 22,
+                                backgroundColor:
+                                    const Color(0xFF7B61FF).withOpacity(0.15),
+                                backgroundImage:
+                                    (photoUrl != null && photoUrl.isNotEmpty)
+                                        ? NetworkImage(photoUrl)
+                                        : null,
+                                child: (photoUrl == null || photoUrl.isEmpty)
+                                    ? Text(initial,
+                                        style: const TextStyle(
+                                            color: Color(0xFF7B61FF),
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 15))
+                                    : null,
+                              ),
+                              if (isOnline)
+                                Positioned(
+                                  bottom: 0,
+                                  right: 0,
+                                  child: Container(
+                                    width: 10,
+                                    height: 10,
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF22C55E),
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                          color: Colors.white, width: 2),
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          title: Text(
+                            // Show first name only (privacy requirement).
+                            name,
+                            style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                                color: isSelected
+                                    ? const Color(0xFF7B61FF)
+                                    : null),
+                          ),
+                          subtitle: Text(
+                            isOnline ? 'Online' : 'Offline',
+                            style: TextStyle(
+                                color: isOnline
+                                    ? const Color(0xFF22C55E)
+                                    : Colors.grey.shade400,
+                                fontSize: 12),
+                          ),
+                          trailing: isSelected
+                              ? const Icon(Icons.check_circle,
+                                  color: Color(0xFF7B61FF), size: 22)
+                              : Icon(Icons.circle_outlined,
+                                  color: Colors.grey.shade400, size: 22),
+                          onTap: () {
+                            setState(() {
+                              if (isSelected) {
+                                _selectedIds.remove(userId);
+                              } else {
+                                _selectedIds.add(userId);
+                              }
+                            });
+                          },
+                        );
+                      },
+                    ),
+            ),
+
+            // ── Action footer ─────────────────────────────────────────────────
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: hasSelection
+                      ? () {
+                          final selected = widget.allUsers
+                              .where((u) =>
+                                  _selectedIds.contains(u['id']?.toString() ?? ''))
+                              .map((u) => {
+                                    'id': u['id']?.toString() ?? '',
+                                    'name': _displayName(u),
+                                  })
+                              .toList();
+                          Navigator.pop(context, selected);
+                        }
+                      : null,
+                  icon: const Icon(Icons.call),
+                  label: Text(hasSelection
+                      ? 'Start Call with ${_selectedIds.length} participant${_selectedIds.length == 1 ? '' : 's'}'
+                      : 'Select at least one participant'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF7B61FF),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    disabledBackgroundColor: Colors.grey.shade200,
+                    disabledForegroundColor: Colors.grey.shade500,
+                  ),
+                ),
+              ),
             ),
           ],
         ),

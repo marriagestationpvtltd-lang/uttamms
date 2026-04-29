@@ -58,6 +58,7 @@ class AdminSocketService {
   final _participantAddedToCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _participantAcceptedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _participantRejectedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _participantLeftCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _connectionCtrl = StreamController<bool>.broadcast();
   final _userActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _adminActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -93,6 +94,9 @@ class AdminSocketService {
   Stream<Map<String, dynamic>> get onParticipantAddedToCall => _participantAddedToCallCtrl.stream;
   Stream<Map<String, dynamic>> get onParticipantAcceptedCall => _participantAcceptedCallCtrl.stream;
   Stream<Map<String, dynamic>> get onParticipantRejectedCall => _participantRejectedCallCtrl.stream;
+  /// Emitted when a participant voluntarily leaves a group call.
+  /// Payload: { channelName, leftUserId }
+  Stream<Map<String, dynamic>> get onParticipantLeftCall => _participantLeftCallCtrl.stream;
   Stream<bool> get onConnectionChange => _connectionCtrl.stream;
   /// Emitted by the server whenever a user activity is logged. Admin panel
   /// uses this for real-time activity feed updates.
@@ -244,6 +248,10 @@ class AdminSocketService {
       _participantRejectedCallCtrl.add(_toMap(data));
     });
 
+    _socket!.on('participant_left_call', (data) {
+      _participantLeftCallCtrl.add(_toMap(data));
+    });
+
     _socket!.on('user_activity', (data) {
       if (data is Map) _userActivityCtrl.add(Map<String, dynamic>.from(data));
     });
@@ -298,6 +306,7 @@ class AdminSocketService {
     _participantAddedToCallCtrl.close();
     _participantAcceptedCallCtrl.close();
     _participantRejectedCallCtrl.close();
+    _participantLeftCallCtrl.close();
     _connectionCtrl.close();
     _userActivityCtrl.close();
     _adminActivityCtrl.close();
@@ -669,6 +678,17 @@ class AdminSocketService {
       'channelName': channelName,
       'rejectedById': rejectedById,
       if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
+    });
+  }
+
+  /// Emit leave_group_call so all remaining participants are notified.
+  void emitLeaveGroupCall({
+    required String channelName,
+    required String userId,
+  }) {
+    _socket?.emit('leave_group_call', {
+      'channelName': channelName,
+      'userId': userId,
     });
   }
 
