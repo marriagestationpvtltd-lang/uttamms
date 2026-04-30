@@ -1,9 +1,9 @@
 import 'dart:async';
-import 'dart:html' as html;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'call_history_service.dart';
 
@@ -157,7 +157,7 @@ class _AdminCallHistoryScreenState extends State<AdminCallHistoryScreen> {
   }
 
   void _openRecordingInBrowser(String url) {
-    html.window.open(url, '_blank');
+    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
   }
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────

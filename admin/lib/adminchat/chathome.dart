@@ -26,8 +26,7 @@ import 'package:flutter/foundation.dart' show Uint8List, kIsWeb;
 import 'chat_theme.dart';
 import 'widgets/typing_indicator.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'dart:html' as html;
-import 'dart:js' as js;
+import 'dart:js_util' as js_util;
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
@@ -77,7 +76,7 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _showMatchInfo = false;
   bool _isHorizontalDragging = false;
   List<PlatformFile> _selectedImages = [];
-  js.JsObject? _webSpeechRecognition;
+  Object? _webSpeechRecognition;
   final FlutterSoundRecorder _recorder = FlutterSoundRecorder();
   final ScrollController _scrollController = ScrollController();
 
@@ -1848,41 +1847,38 @@ class _ChatWindowState extends State<ChatWindow> {
   void _initializeWebSpeech() {
     // Prefer the unprefixed SpeechRecognition (Firefox/Edge) with a fallback to
     // the webkit-prefixed version used by Chrome.
-    final dynamic speechClass = js.context.hasProperty('SpeechRecognition')
-        ? js.context['SpeechRecognition']
-        : js.context.hasProperty('webkitSpeechRecognition')
-            ? js.context['webkitSpeechRecognition']
+    final dynamic speechClass = js_util.hasProperty(js_util.globalThis, 'SpeechRecognition')
+        ? js_util.getProperty(js_util.globalThis, 'SpeechRecognition')
+        : js_util.hasProperty(js_util.globalThis, 'webkitSpeechRecognition')
+            ? js_util.getProperty(js_util.globalThis, 'webkitSpeechRecognition')
             : null;
 
     if (speechClass == null) return;
 
-    _webSpeechRecognition = js.JsObject(speechClass as js.JsFunction);
-    _webSpeechRecognition!['continuous'] = true;
-    _webSpeechRecognition!['interimResults'] = true;
-    _webSpeechRecognition!['lang'] = _selectedLanguage;
+    _webSpeechRecognition = js_util.callConstructor(speechClass, []);
+    js_util.setProperty(_webSpeechRecognition!, 'continuous', true);
+    js_util.setProperty(_webSpeechRecognition!, 'interimResults', true);
+    js_util.setProperty(_webSpeechRecognition!, 'lang', _selectedLanguage);
 
-    _webSpeechRecognition!['onresult'] = js.allowInterop((dynamic event) {
-      final eventObj = js.JsObject.fromBrowserObject(event);
-      final results = eventObj['results'];
+    js_util.setProperty(_webSpeechRecognition!, 'onresult', js_util.allowInterop((dynamic event) {
+      final results = js_util.getProperty<Object?>(event, 'results');
       if (results == null) return;
 
-      final resultList = js.JsObject.fromBrowserObject(results);
       // Use safe num→int cast; JS numbers come through as num, not int.
-      final int length = (resultList['length'] as num).toInt();
+      final int length = (js_util.getProperty<Object?>(results, 'length') as num).toInt();
       // Only process new results starting at resultIndex to avoid double-counting
       // previous finals every time onresult fires.
-      final int resultIndex = (eventObj['resultIndex'] as num).toInt();
+      final int resultIndex = (js_util.getProperty<Object?>(event, 'resultIndex') as num).toInt();
 
       String interimTranscript = '';
       String finalTranscript = '';
 
       for (int i = resultIndex; i < length; i++) {
-        final result = js.JsObject.fromBrowserObject(
-            resultList.callMethod('item', [i]));
+        final result = js_util.callMethod<Object>(results, 'item', [i]);
         final transcript =
-            js.JsObject.fromBrowserObject(result.callMethod('item', [0]))['transcript'] as String;
+            js_util.getProperty<Object?>(js_util.callMethod<Object>(result, 'item', [0]), 'transcript') as String;
         // Use == true instead of `as bool` — JS booleans may not cast to Dart bool directly.
-        final isFinal = result['isFinal'] == true;
+        final isFinal = js_util.getProperty<Object?>(result, 'isFinal') == true;
         if (isFinal) {
           finalTranscript += transcript;
         } else {
@@ -1904,26 +1900,25 @@ class _ChatWindowState extends State<ChatWindow> {
           TextPosition(offset: displayText.length),
         );
       });
-    });
+    }));
 
-    _webSpeechRecognition!['onend'] = js.allowInterop((dynamic _) {
+    js_util.setProperty(_webSpeechRecognition!, 'onend', js_util.allowInterop((dynamic _) {
       // With continuous=true the browser may still fire onend after silence.
       // Restart automatically unless the user explicitly stopped listening.
       if (!_userStoppedListening && _isListening && mounted) {
         try {
-          _webSpeechRecognition!.callMethod('start');
+          js_util.callMethod(_webSpeechRecognition!, 'start', []);
         } catch (e) {
           setState(() => _isListening = false);
         }
       } else {
         if (mounted) setState(() => _isListening = false);
       }
-    });
+    }));
 
-    _webSpeechRecognition!['onerror'] = js.allowInterop((dynamic event) {
+    js_util.setProperty(_webSpeechRecognition!, 'onerror', js_util.allowInterop((dynamic event) {
       if (!mounted) return;
-      final error =
-          js.JsObject.fromBrowserObject(event)['error'] as String? ?? '';
+      final error = js_util.getProperty<Object?>(event, 'error') as String? ?? '';
       if (error == 'aborted') return; // user-initiated stop, onend handles state
 
       // Prevent auto-restart only for unrecoverable errors (permission denied).
@@ -1973,9 +1968,9 @@ class _ChatWindowState extends State<ChatWindow> {
       if (_textBeforeVoice.isNotEmpty && !_textBeforeVoice.endsWith(' ')) {
         _textBeforeVoice += ' ';
       }
-      _webSpeechRecognition!['lang'] = _selectedLanguage;
+      js_util.setProperty(_webSpeechRecognition!, 'lang', _selectedLanguage);
       _userStoppedListening = false;
-      _webSpeechRecognition!.callMethod('start');
+      js_util.callMethod(_webSpeechRecognition!, 'start', []);
       setState(() => _isListening = true);
     }
   }
@@ -1983,7 +1978,7 @@ class _ChatWindowState extends State<ChatWindow> {
   void _stopListening() {
     if (_isListening && _webSpeechRecognition != null) {
       _userStoppedListening = true;
-      _webSpeechRecognition!.callMethod('stop');
+      js_util.callMethod(_webSpeechRecognition!, 'stop', []);
       setState(() => _isListening = false);
     }
   }
@@ -3418,24 +3413,26 @@ class _ChatWindowState extends State<ChatWindow> {
   }
 
   void openUrl(String url) {
-    html.window.open(url, '_blank');
+    js_util.callMethod(js_util.globalThis, 'open', [url, '_blank']);
   }
 
   void _openProfileInNewTab(BuildContext context, int userId) {
     try {
       // Store userId in session storage for the new tab to read
-      html.window.sessionStorage['pendingProfileView'] = userId.toString();
+      final sessionStorage = js_util.getProperty<Object>(js_util.globalThis, 'sessionStorage');
+      js_util.callMethod(sessionStorage, 'setItem', ['pendingProfileView', userId.toString()]);
 
       // Open current URL in new tab - the app will check session storage on load
-      final currentUrl = html.window.location.href.split('#')[0];
-      // dart:html types window.open() as non-nullable, but browsers may return
-      // null when popups are blocked. Cast to dynamic for runtime null check.
+      final location = js_util.getProperty<Object>(js_util.globalThis, 'location');
+      final href = js_util.getProperty<String>(location, 'href');
+      final currentUrl = href.split('#')[0];
+      // Browsers may return null when popups are blocked; capture as dynamic.
       final dynamic newWindow =
-          html.window.open('$currentUrl#profile/$userId', '_blank');
+          js_util.callMethod(js_util.globalThis, 'open', ['$currentUrl#profile/$userId', '_blank']);
 
       if (newWindow == null) {
         // Popup was blocked, fall back to same window navigation
-        html.window.sessionStorage.remove('pendingProfileView');
+        js_util.callMethod(sessionStorage, 'removeItem', ['pendingProfileView']);
         _navigateToProfile(context, userId);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -5472,28 +5469,17 @@ class _ChatWindowState extends State<ChatWindow> {
       String resolvedUrl = filePath;
       final uri = Uri.parse(filePath);
       if (!uri.hasScheme) {
-        final origin = html.window.location.origin;
+        final location = js_util.getProperty<Object>(js_util.globalThis, 'location');
+        final origin = js_util.getProperty<String>(location, 'origin');
         final normalizedPath = filePath.startsWith('/') ? filePath : '/$filePath';
         resolvedUrl = '$origin$normalizedPath';
       }
 
-      final xhr = await html.HttpRequest.request(
-        resolvedUrl,
-        responseType: 'arraybuffer',
-      );
-      final resp = xhr.response;
-      if (xhr.status != 200 || resp == null) {
+      final response = await http.get(Uri.parse(resolvedUrl));
+      if (response.statusCode != 200) {
         throw Exception('Failed to read recorded audio data');
       }
-
-      late final Uint8List bytes;
-      if (resp is ByteBuffer) {
-        bytes = Uint8List.view(resp);
-      } else if (resp is Uint8List) {
-        bytes = resp;
-      } else {
-        throw Exception('Failed to read recorded audio data');
-      }
+      final bytes = response.bodyBytes;
       final req = http.MultipartRequest(
         'POST',
         Uri.parse(kAdminSocketUrl).replace(
@@ -5871,7 +5857,7 @@ class _ChatWindowState extends State<ChatWindow> {
                     setState(() {
                       _selectedLanguage = _selectedLanguage == 'en-US' ? 'ne-NP' : 'en-US';
                       if (_webSpeechRecognition != null) {
-                        _webSpeechRecognition!['lang'] = _selectedLanguage;
+                        js_util.setProperty(_webSpeechRecognition!, 'lang', _selectedLanguage);
                       }
                     });
                   },
@@ -8116,10 +8102,16 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
       final hasKnownExt = RegExp(r'\.(png|jpe?g|webp|gif|bmp|heic|heif)$', caseSensitive: false)
           .hasMatch(lastSegment);
       final ext = hasKnownExt ? lastSegment.split('.').last : 'img';
-      final anchor = html.AnchorElement(href: url)
-        ..setAttribute('download', 'photo_${DateTime.now().millisecondsSinceEpoch}.$ext')
-        ..target = '_blank';
-      anchor.click();
+      // Use js_util to programmatically trigger a download anchor.
+      final document = js_util.getProperty<Object>(js_util.globalThis, 'document');
+      final anchor = js_util.callMethod<Object>(document, 'createElement', ['a']);
+      js_util.setProperty(anchor, 'href', url);
+      js_util.setProperty(anchor, 'download', 'photo_${DateTime.now().millisecondsSinceEpoch}.$ext');
+      js_util.setProperty(anchor, 'target', '_blank');
+      final body = js_util.getProperty<Object>(document, 'body');
+      js_util.callMethod(body, 'appendChild', [anchor]);
+      js_util.callMethod(anchor, 'click', []);
+      js_util.callMethod(body, 'removeChild', [anchor]);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Photo copy/download started')),

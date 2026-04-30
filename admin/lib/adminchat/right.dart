@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'chat_theme.dart';
 import 'chatprovider.dart';
-import 'dart:html' as html;
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:math' as math;
 import 'package:adminmrz/config/app_endpoints.dart';
 
@@ -1527,9 +1527,9 @@ class _ProfileCard extends StatelessWidget {
                       // View Profile button
                       Expanded(
                         child: GestureDetector(
-                          onTap: () => html.window.open(
-                            '${kAdminApiBaseUrl}/profile.php?id=$profileId',
-                            '_blank',
+                          onTap: () => launchUrl(
+                            Uri.parse('${kAdminApiBaseUrl}/profile.php?id=$profileId'),
+                            mode: LaunchMode.externalApplication,
                           ),
                           child: Container(
                             padding: const EdgeInsets.symmetric(
