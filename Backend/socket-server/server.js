@@ -29,6 +29,14 @@ const API_BASE_URL = (process.env.API_BASE_URL || 'https://digitallami.com').rep
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
 
+// Log configuration on startup for debugging
+console.log(`⚙️  Loaded configuration:`);
+console.log(`   PORT: ${PORT}`);
+console.log(`   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS.join(', ')}`);
+console.log(`   PUBLIC_URL: ${PUBLIC_URL || '(not set - will use request headers)'}`);
+console.log(`   API_BASE_URL: ${API_BASE_URL}`);
+console.log(`   CALLS_ENABLED: ${CALLS_ENABLED}`);
+
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
   const dir = path.join(UPLOAD_DIR, sub);
@@ -483,7 +491,35 @@ app.post('/upload-multiple', upload.array('files', 10), (req, res) => {
 });
 
 // GET /health
-app.get('/health', (_req, res) => res.json({ status: 'ok', time: new Date() }));
+app.get('/health', (_req, res) => {
+  const mem = process.memoryUsage();
+  const heapMB = (mem.heapUsed / 1024 / 1024).toFixed(1);
+  return res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    config: {
+      port: PORT,
+      allowedOrigins: ALLOWED_ORIGINS,
+      publicUrl: PUBLIC_URL || 'not set',
+      apiBaseUrl: API_BASE_URL,
+      callsEnabled: CALLS_ENABLED,
+    },
+    memory: {
+      heapUsedMB: heapMB,
+      rss: (mem.rss / 1024 / 1024).toFixed(1),
+    },
+    uptime: process.uptime().toFixed(0),
+  });
+});
+
+// GET /cors-test — Verify CORS is working (responds with CORS headers)
+app.get('/cors-test', (_req, res) => {
+  res.json({
+    status: 'CORS enabled',
+    message: 'If you can read this, CORS headers were sent successfully',
+    allowedOrigins: ALLOWED_ORIGINS,
+  });
+});
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Activity logging helper
@@ -1810,9 +1846,31 @@ function toMessageMap(row) {
 // ──────────────────────────────────────────────────────────────────────────────
 // Socket.IO events
 // ──────────────────────────────────────────────────────────────────────────────
+
+// Log any WebSocket upgrade failures for debugging
+io.engine.on('connection_error', (err) => {
+  console.error('❌ Socket.IO connection error:', {
+    code: err.code,
+    message: err.message,
+    status: err.status,
+  });
+});
+
 io.on('connection', (socket) => {
-  console.log(`🔌 Socket connected: ${socket.id}`);
+  console.log(`🔌 Socket connected: ${socket.id} from ${socket.handshake.address}`);
   let authenticatedUserId = null;
+
+  // Handle connection errors on this socket
+  socket.on('error', (error) => {
+    console.error(`❌ Socket ${socket.id} error:`, error);
+  });
+
+  socket.on('disconnect', (reason) => {
+    if (authenticatedUserId) {
+      console.log(`👋 Socket disconnected: ${socket.id} (user: ${authenticatedUserId}, reason: ${reason})`);
+      userSockets.delete(authenticatedUserId);
+    }
+  });
 
   // ── authenticate ──────────────────────────────────────────────────────────
   socket.on('authenticate', async ({ userId }) => {
@@ -3173,6 +3231,10 @@ setInterval(() => {
 // ──────────────────────────────────────────────────────────────────────────────
 server.listen(PORT, () => {
   console.log(`🚀 Socket.IO server running on port ${PORT}`);
+  console.log(`✅ CORS is ${ALLOWED_ORIGINS.includes('*') ? 'enabled for all origins' : 'restricted to: ' + ALLOWED_ORIGINS.join(', ')}`);
+  console.log(`📝 Test endpoint: http://localhost:${PORT}/health`);
+  console.log(`🧪 Test CORS: http://localhost:${PORT}/cors-test`);
+  
   if (!PUBLIC_URL) {
     console.warn(
       '⚠️  WARNING: PUBLIC_URL is not set in .env. Image URLs will be derived from request ' +
@@ -3183,4 +3245,18 @@ server.listen(PORT, () => {
   } else {
     console.log(`🌐 PUBLIC_URL: ${PUBLIC_URL}`);
   }
+});
+
+// Error handling for server startup issues
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use. Try: lsof -i :${PORT}`);
+  } else {
+    console.error(`❌ Server error:`, err.message);
+  }
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });

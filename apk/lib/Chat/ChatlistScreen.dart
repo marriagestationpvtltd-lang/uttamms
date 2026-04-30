@@ -187,12 +187,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       int totalUnread = 0;
       int unreadConvs = 0;
       for (final room in parsedRooms) {
-        final int unread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+        final int unread = _safeUnreadCount(room['unreadCount']);
         totalUnread += unread;
         if (unread > 0) unreadConvs++;
       }
-      final nonAdminRooms =
-          parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+      final nonAdminRooms = parsedRooms.where((r) => !_isAdminRoom(r)).toList();
       setState(() {
         _socketChatRooms = parsedRooms;
         _cachedTotalRooms = nonAdminRooms.length;
@@ -212,8 +211,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (userId.isEmpty) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-          '${_chatRoomsCacheKey}_$userId', jsonEncode(rooms));
+      await prefs.setString('${_chatRoomsCacheKey}_$userId', jsonEncode(rooms));
     } catch (e) {
       print('Error saving chat rooms cache for user $userId: $e');
     }
@@ -224,8 +222,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   Future<bool> _loadRequestsFromCache(String uid) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final pendingCached =
-          prefs.getString('${_pendingRequestsCacheKey}_$uid');
+      final pendingCached = prefs.getString('${_pendingRequestsCacheKey}_$uid');
       final sentCached = prefs.getString('${_sentRequestsCacheKey}_$uid');
       if ((pendingCached == null && sentCached == null) || !mounted) {
         return false;
@@ -254,8 +251,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   /// Persists pending/sent chat requests to SharedPreferences.
-  Future<void> _saveRequestsToCache(String uid, List<ProposalModel> pending,
-      List<ProposalModel> sent) async {
+  Future<void> _saveRequestsToCache(
+      String uid, List<ProposalModel> pending, List<ProposalModel> sent) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('${_pendingRequestsCacheKey}_$uid',
@@ -282,36 +279,75 @@ class _ChatListScreenState extends State<ChatListScreen>
       final userIdString = rawId.toString().trim();
 
       UserMasterData user = await fetchUserMasterData(userIdString);
+      pageno = user.pageno;
 
+      _initializeChatBootstrap(
+        resolvedUserId: user.id?.toString() ?? userIdString,
+        resolvedName: '${user.firstName} ${user.lastName}'.trim(),
+        resolvedImage: user.profilePicture,
+      );
+
+      // Keep UserState in sync with the data already fetched above –
+      // avoids a separate masterdata.php call just for verification/usertype.
       if (mounted) {
-        setState(() {
-          userimage = user.profilePicture;
-          pageno = user.pageno;
-          userId = user.id?.toString() ?? userIdString;
-          name = '${user.firstName} ${user.lastName}'.trim();
-          isLoading = false;
-        });
-        // Keep UserState in sync with the data already fetched above –
-        // avoids a separate masterdata.php call just for verification/usertype.
-        context.read<UserState>().updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
+        context.read<UserState>().updateFromMasterData(
+            user.docStatus, user.isVerified, user.usertype);
       }
 
       print('=== USER DATA LOADED ===');
       print('userId: $userId');
       print('name: $name');
-
-      await _loadPendingChatRequests(user.id?.toString() ?? userIdString);
-      _loadUnreadNotificationCount();
-      _startAdminChatListener(user.id?.toString() ?? userIdString);
-      _initChatRoomsStream();
-      _startAdminStatusListener();
-
     } catch (e) {
       print('Error loading user data: $e');
+
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final userDataString = prefs.getString('user_data');
+        if (userDataString != null) {
+          final userData = jsonDecode(userDataString);
+          final fallbackUserId = (userData['id'] ?? '').toString().trim();
+          final fallbackName =
+              '${userData["firstName"] ?? userData["first_name"] ?? ''} ${userData["lastName"] ?? userData["last_name"] ?? ''}'
+                  .trim();
+          final fallbackImage =
+              (userData["profilePicture"] ?? userData["profile_picture"] ?? '')
+                  .toString();
+
+          if (fallbackUserId.isNotEmpty) {
+            _initializeChatBootstrap(
+              resolvedUserId: fallbackUserId,
+              resolvedName: fallbackName,
+              resolvedImage: fallbackImage,
+            );
+            return;
+          }
+        }
+      } catch (_) {}
+
       if (mounted) {
         setState(() => isLoading = false);
       }
     }
+  }
+
+  void _initializeChatBootstrap({
+    required String resolvedUserId,
+    required String resolvedName,
+    required String resolvedImage,
+  }) {
+    if (!mounted) return;
+    setState(() {
+      userimage = resolvedImage;
+      userId = resolvedUserId;
+      name = resolvedName;
+      isLoading = false;
+    });
+
+    _loadPendingChatRequests(resolvedUserId);
+    _loadUnreadNotificationCount();
+    _startAdminChatListener(resolvedUserId);
+    _initChatRoomsStream();
+    _startAdminStatusListener();
   }
 
   Future<void> _loadUnreadNotificationCount() async {
@@ -355,7 +391,10 @@ class _ChatListScreenState extends State<ChatListScreen>
       final cacheLoaded = await _loadRequestsFromCache(uid);
       // Only show loading spinner if no cached data is available
       if (!cacheLoaded && mounted) {
-        setState(() { _requestsLoading = true; _sentRequestsLoading = true; });
+        setState(() {
+          _requestsLoading = true;
+          _sentRequestsLoading = true;
+        });
       }
       final results = await Future.wait([
         ProposalService.fetchProposals(uid, 'received'),
@@ -367,9 +406,8 @@ class _ChatListScreenState extends State<ChatListScreen>
               p.requestType?.toLowerCase() == 'chat' &&
               p.status?.toLowerCase() == 'pending')
           .toList();
-      final receivedPendingCount = allReceived
-          .where((p) => p.status?.toLowerCase() == 'pending')
-          .length;
+      final receivedPendingCount =
+          allReceived.where((p) => p.status?.toLowerCase() == 'pending').length;
       final sent = results[1]
           .where((p) =>
               p.requestType?.toLowerCase() == 'chat' &&
@@ -388,7 +426,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       await _saveRequestsToCache(uid, pending, sent);
     } catch (e) {
       print('Error loading chat requests: $e');
-      if (mounted) setState(() { _requestsLoading = false; _sentRequestsLoading = false; });
+      if (mounted)
+        setState(() {
+          _requestsLoading = false;
+          _sentRequestsLoading = false;
+        });
     }
   }
 
@@ -400,7 +442,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (mounted) setState(() => _adminLoading = true);
 
     // Fetch once to show initial state
-    SocketService().getChatRooms(uid).then((rooms) {
+    _fetchChatRoomsWithRetry(uid).then((rooms) {
       if (!mounted) return;
       _updateAdminRoomInfo(uid, rooms);
     }).catchError((_) {
@@ -415,17 +457,44 @@ class _ChatListScreenState extends State<ChatListScreen>
     });
   }
 
+  Future<List<Map<String, dynamic>>> _fetchChatRoomsWithRetry(
+    String uid, {
+    int attempts = 3,
+  }) async {
+    final socketService = SocketService();
+    List<Map<String, dynamic>> parsedRooms = [];
+
+    for (int i = 0; i < attempts; i++) {
+      final rooms = await socketService.getChatRooms(uid);
+      parsedRooms =
+          rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      if (parsedRooms.isNotEmpty) return parsedRooms;
+
+      if (!socketService.isConnected) {
+        await Future.delayed(const Duration(milliseconds: 800));
+      } else {
+        await Future.delayed(const Duration(milliseconds: 450));
+      }
+    }
+
+    return parsedRooms;
+  }
+
   void _updateAdminRoomInfo(String uid, List<dynamic> rooms) {
     // Admin chat room id = sorted join of uid and _adminUserId
     final ids = [uid, _adminUserId]..sort();
     final adminRoomId = ids.join('_');
 
-    final adminRoomList = rooms.cast<Map<String, dynamic>>().where(
-      (r) => r['chatRoomId'] == adminRoomId
-    ).toList();
+    final adminRoomList = rooms
+        .cast<Map<String, dynamic>>()
+        .where((r) => r['chatRoomId'] == adminRoomId)
+        .toList();
 
     if (adminRoomList.isEmpty) {
-      if (mounted) setState(() { _adminLoading = false; });
+      if (mounted)
+        setState(() {
+          _adminLoading = false;
+        });
       return;
     }
     final adminRoom = adminRoomList.first;
@@ -441,7 +510,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     DateTime? latestTime;
     if (lastMsgTime is String) latestTime = DateTime.tryParse(lastMsgTime);
 
-    final int unread = (adminRoom['unreadCount'] as num?)?.toInt() ?? 0;
+    final int unread = _safeUnreadCount(adminRoom['unreadCount']);
 
     if (mounted) {
       setState(() {
@@ -486,10 +555,8 @@ class _ChatListScreenState extends State<ChatListScreen>
 
     // Load from cache first so the list appears instantly without a spinner
     _loadChatRoomsFromCache().then((_) {
-      socketService.getChatRooms(userId).then((rooms) {
+      _fetchChatRoomsWithRetry(userId).then((parsedRooms) {
         if (!mounted) return;
-        final parsedRooms =
-            rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
 
         // Guard: if the ack returned empty (either a genuine timeout/no-op
         // because _socket was null, or a server-side error) but
@@ -506,7 +573,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         int totalUnread = 0;
         int unreadConvs = 0;
         for (final room in parsedRooms) {
-          final int unread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+          final int unread = _safeUnreadCount(room['unreadCount']);
           totalUnread += unread;
           if (unread > 0) unreadConvs++;
         }
@@ -538,12 +605,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       int totalUnread = 0;
       int unreadConvs = 0;
       for (final room in parsedRooms) {
-        final int unread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+        final int unread = _safeUnreadCount(room['unreadCount']);
         totalUnread += unread;
         if (unread > 0) unreadConvs++;
       }
-      final nonAdminRooms =
-          parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+      final nonAdminRooms = parsedRooms.where((r) => !_isAdminRoom(r)).toList();
       setState(() {
         _socketChatRooms = parsedRooms;
         _cachedTotalRooms = nonAdminRooms.length;
@@ -591,7 +657,7 @@ class _ChatListScreenState extends State<ChatListScreen>
 
       // Increment unread count for messages received from the other participant.
       if (senderId != userId) {
-        final int prevUnread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+        final int prevUnread = _safeUnreadCount(room['unreadCount']);
         room['unreadCount'] = prevUnread + 1;
       }
 
@@ -602,7 +668,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         int totalUnread = 0;
         int unreadConvs = 0;
         for (final r in _socketChatRooms) {
-          final int u = (r['unreadCount'] as num?)?.toInt() ?? 0;
+          final int u = _safeUnreadCount(r['unreadCount']);
           totalUnread += u;
           if (u > 0) unreadConvs++;
         }
@@ -636,7 +702,9 @@ class _ChatListScreenState extends State<ChatListScreen>
     SocketService().getUserStatus(_adminUserId).then((statusData) {
       if (!mounted) return;
       final bool online = statusData['isOnline'] == true;
-      setState(() { _adminOnline = online; });
+      setState(() {
+        _adminOnline = online;
+      });
     }).catchError((e) {
       print('Error fetching admin status: $e');
     });
@@ -648,7 +716,9 @@ class _ChatListScreenState extends State<ChatListScreen>
       final uid = data['userId']?.toString() ?? '';
       if (uid != _adminUserId) return;
       final bool online = data['isOnline'] == true;
-      setState(() { _adminOnline = online; });
+      setState(() {
+        _adminOnline = online;
+      });
     });
   }
 
@@ -709,7 +779,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   Map<String, String> _safeStringMap(dynamic raw) {
     if (raw is! Map) return {};
     return Map<String, String>.fromEntries(
-      raw.entries.map((e) => MapEntry(e.key.toString(), e.value?.toString() ?? '')),
+      raw.entries
+          .map((e) => MapEntry(e.key.toString(), e.value?.toString() ?? '')),
     );
   }
 
@@ -721,16 +792,61 @@ class _ChatListScreenState extends State<ChatListScreen>
     return raw.map((e) => e?.toString() ?? '').toList();
   }
 
+  /// Reads unread count from number/string/map payloads safely.
+  int _safeUnreadCount(dynamic raw) {
+    if (raw == null) return 0;
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw) ?? 0;
+    if (raw is Map) {
+      final myId = userId.trim();
+      final dynamic mine =
+          raw[myId] ?? raw[int.tryParse(myId)] ?? raw[myId.toString()];
+      if (mine is num) return mine.toInt();
+      if (mine is String) return int.tryParse(mine) ?? 0;
+      for (final value in raw.values) {
+        if (value is num) return value.toInt();
+        if (value is String) {
+          final parsed = int.tryParse(value);
+          if (parsed != null) return parsed;
+        }
+      }
+    }
+    return 0;
+  }
+
+  /// Falls back to room-id parsing if participants are missing in payload.
+  List<String> _participantsFromRoom(Map<String, dynamic> room) {
+    final fromPayload = _safeStringList(room['participants'])
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    if (fromPayload.isNotEmpty) return fromPayload;
+
+    final fromNameKeys = _safeStringMap(room['participantNames'])
+        .keys
+        .map((e) => e.toString().trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (fromNameKeys.isNotEmpty) return fromNameKeys;
+
+    final chatRoomId = room['chatRoomId']?.toString() ?? '';
+    if (chatRoomId.isEmpty) return const [];
+
+    var parts =
+        chatRoomId.split('_').where((e) => e.trim().isNotEmpty).toList();
+    if (parts.length == 3 && parts.first.toLowerCase() == 'chat') {
+      parts = parts.sublist(1);
+    }
+    return parts;
+  }
+
   /// Fetch fresh chat rooms from the server and update state.
   /// Called on demand (e.g. after returning from ChatDetailScreen).
   Future<void> _refreshChatRooms() async {
     if (userId.isEmpty || !mounted) return;
     _lastChatRoomsFetch = DateTime.now();
     try {
-      final rooms = await SocketService().getChatRooms(userId);
+      final parsedRooms = await _fetchChatRoomsWithRetry(userId);
       if (!mounted) return;
-      final parsedRooms =
-          rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
 
       // Guard: don't overwrite real data with an empty timeout response.
       if (parsedRooms.isEmpty && _socketChatRooms.isNotEmpty) {
@@ -743,12 +859,11 @@ class _ChatListScreenState extends State<ChatListScreen>
       int totalUnread = 0;
       int unreadConvs = 0;
       for (final room in parsedRooms) {
-        final int unread = (room['unreadCount'] as num?)?.toInt() ?? 0;
+        final int unread = _safeUnreadCount(room['unreadCount']);
         totalUnread += unread;
         if (unread > 0) unreadConvs++;
       }
-      final nonAdminRooms =
-          parsedRooms.where((r) => !_isAdminRoom(r)).toList();
+      final nonAdminRooms = parsedRooms.where((r) => !_isAdminRoom(r)).toList();
       setState(() {
         _socketChatRooms = parsedRooms;
         _cachedTotalRooms = nonAdminRooms.length;
@@ -775,7 +890,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   /// Example: "Hello world how are you" → "Hello ****"
   String _maskMessagePreview(String message) {
     if (message.isEmpty) return message;
-    final words = message.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+    final words =
+        message.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
     if (words.length <= 1) return message;
     return '${words.first} $_previewMask';
   }
@@ -833,8 +949,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final String callType = payload['callType']?.toString() ?? '';
     final String status = payload['callStatus']?.toString() ?? '';
     final String label = (payload['label']?.toString() ?? '').trim();
-    final int durationSeconds =
-        (payload['duration'] as num?)?.toInt() ??
+    final int durationSeconds = (payload['duration'] as num?)?.toInt() ??
         (payload['callDuration'] as num?)?.toInt() ??
         0;
     final bool isVideo = callType == 'video';
@@ -856,9 +971,8 @@ class _ChatListScreenState extends State<ChatListScreen>
       return isVideo ? 'Video Call (Busy)' : 'Voice Call (Busy)';
     }
 
-    final String baseLabel = isVideo
-        ? 'Video Call'
-        : (callType == 'audio' ? 'Audio Call' : 'Call');
+    final String baseLabel =
+        isVideo ? 'Video Call' : (callType == 'audio' ? 'Audio Call' : 'Call');
     if (durationSeconds <= 0) return baseLabel;
     return '$baseLabel • ${_formatCallDuration(durationSeconds)}';
   }
@@ -932,15 +1046,13 @@ class _ChatListScreenState extends State<ChatListScreen>
       final participantNames = _safeStringMap(room['participantNames']);
       final names = participantNames.values.join(' ').toLowerCase();
       final String lastMessage = room['lastMessage']?.toString() ?? '';
-      final String messageType =
-          room['lastMessageType']?.toString() ?? 'text';
+      final String messageType = room['lastMessageType']?.toString() ?? 'text';
       final preview = _formatConversationPreview(
         rawMessage: lastMessage,
         messageType: messageType,
         compactMediaLabels: true,
       ).toLowerCase();
-      return names.contains(_searchQuery) ||
-          preview.contains(_searchQuery);
+      return names.contains(_searchQuery) || preview.contains(_searchQuery);
     }).toList();
   }
 
@@ -1183,8 +1295,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           final senderId = proposal.senderId ?? '';
           final senderName =
               '${proposal.firstName ?? ''} ${proposal.lastName ?? ''}'.trim();
-          final senderImage =
-              resolveApiImageUrl(proposal.profilePicture ?? '');
+          final senderImage = resolveApiImageUrl(proposal.profilePicture ?? '');
 
           if (senderId.isNotEmpty) {
             final List<String> ids = [userId, senderId]..sort();
@@ -1301,8 +1412,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void _showChatRequestActionSheet(ProposalModel req) {
-    final displayName =
-        '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
@@ -1373,9 +1483,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 icon: const Icon(Icons.person_outline),
                 label: const Text(
                   'View Profile',
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF90E18),
@@ -1446,8 +1554,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
-    final displayName =
-        '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
 
     return InkWell(
       onTap: () {
@@ -1603,8 +1710,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
-    final displayName =
-        '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
 
     return InkWell(
       onTap: () => _showSentChatRequestSheet(req),
@@ -1640,8 +1746,8 @@ class _ChatListScreenState extends State<ChatListScreen>
                       color: Color(0xFF1565C0),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.send,
-                        size: 12, color: Colors.white),
+                    child:
+                        const Icon(Icons.send, size: 12, color: Colors.white),
                   ),
                 ),
               ],
@@ -1681,8 +1787,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
             const SizedBox(width: 8),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
                 color: const Color(0xFF1565C0).withOpacity(0.10),
                 borderRadius: BorderRadius.circular(20),
@@ -1703,8 +1808,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void _showSentChatRequestSheet(ProposalModel req) {
-    final displayName =
-        '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
@@ -1748,8 +1852,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               const SizedBox(height: 4),
               Text(
                 req.city!,
-                style:
-                    const TextStyle(fontSize: 13, color: Colors.black54),
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
               ),
             ],
             const SizedBox(height: 8),
@@ -1776,9 +1879,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 icon: const Icon(Icons.person_outline),
                 label: const Text(
                   'View Profile',
-                  style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600),
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFF90E18),
@@ -1877,7 +1978,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     }
   }
 
-
   Widget build(BuildContext context) {
     if (isLoading) {
       return Scaffold(
@@ -1887,9 +1987,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           title: const Text('Chat', style: TextStyle(color: Colors.black87)),
         ),
         body: const SingleChildScrollView(
-            physics: NeverScrollableScrollPhysics(),
-            child: ChatListSkeleton(count: 8),
-          ),
+          physics: NeverScrollableScrollPhysics(),
+          child: ChatListSkeleton(count: 8),
+        ),
       );
     }
 
@@ -1944,7 +2044,9 @@ class _ChatListScreenState extends State<ChatListScreen>
         ),
         title: Row(
           children: [
-            const Text('Chats', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            const Text('Chats',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600)),
             const SizedBox(width: 12),
             if (_totalUnreadConversations > 0)
               Container(
@@ -1964,145 +2066,152 @@ class _ChatListScreenState extends State<ChatListScreen>
               ),
           ],
         ),
-          iconTheme: const IconThemeData(color: Colors.white),
-          actions: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.favorite_border),
-                  tooltip: 'Proposals',
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ProposalsPage(),
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.favorite_border),
+                tooltip: 'Proposals',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ProposalsPage(),
+                    ),
+                  );
+                },
+              ),
+              if (_receivedProposalCount > 0)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints:
+                        const BoxConstraints(minWidth: 18, minHeight: 18),
+                    child: Text(
+                      _receivedProposalCount > 99
+                          ? '99+'
+                          : '$_receivedProposalCount',
+                      style: const TextStyle(
+                        color: Color(0xFFF90E18),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
                       ),
-                    );
-                  },
-                ),
-                if (_receivedProposalCount > 0)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
-                      ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                      child: Text(
-                        _receivedProposalCount > 99 ? '99+' : '$_receivedProposalCount',
-                        style: const TextStyle(
-                          color: Color(0xFFF90E18),
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-              ],
-            ),
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_rounded),
-                  tooltip: 'Notifications',
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const MatrimonyNotificationPage(),
-                      ),
-                    ).then((_) => _loadUnreadNotificationCount());
-                  },
                 ),
-                if (_unreadNotificationCount > 0)
-                  Positioned(
-                    right: 6,
-                    top: 6,
-                    child: Container(
-                      padding: const EdgeInsets.all(3),
-                      decoration: const BoxDecoration(
-                        color: Colors.white,
-                        shape: BoxShape.circle,
+            ],
+          ),
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.notifications_rounded),
+                tooltip: 'Notifications',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const MatrimonyNotificationPage(),
+                    ),
+                  ).then((_) => _loadUnreadNotificationCount());
+                },
+              ),
+              if (_unreadNotificationCount > 0)
+                Positioned(
+                  right: 6,
+                  top: 6,
+                  child: Container(
+                    padding: const EdgeInsets.all(3),
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                    ),
+                    constraints:
+                        const BoxConstraints(minWidth: 18, minHeight: 18),
+                    child: Text(
+                      _unreadNotificationCount > 99
+                          ? '99+'
+                          : '$_unreadNotificationCount',
+                      style: const TextStyle(
+                        color: Color(0xFFF90E18),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
                       ),
-                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                      child: Text(
-                        _unreadNotificationCount > 99 ? '99+' : '$_unreadNotificationCount',
-                        style: const TextStyle(
-                          color: Color(0xFFF90E18),
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
+                      textAlign: TextAlign.center,
                     ),
                   ),
-              ],
-            ),
-            IconButton(
-              icon: const Icon(Icons.call),
-              tooltip: 'Call History',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const CallHistoryScreen(),
-                  ),
-                );
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Sound & Vibration',
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) =>
-                        const SoundVibrationSettingsScreen(),
-                  ),
-                );
-              },
+                ),
+            ],
+          ),
+          IconButton(
+            icon: const Icon(Icons.call),
+            tooltip: 'Call History',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CallHistoryScreen(),
+                ),
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            tooltip: 'Sound & Vibration',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SoundVibrationSettingsScreen(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+      body: Container(
+        color: const Color(0xFFFAF0F0),
+        child: Column(
+          children: [
+            _buildSearchBar(),
+            _buildPinnedAdminCard(),
+            if (_totalUnreadCount > 0)
+              Container(
+                color: const Color(0xFFF90E18).withOpacity(0.08),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.message,
+                        color: Color(0xFFF90E18), size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      '$_totalUnreadCount unread messages in $_totalUnreadConversations conversations',
+                      style: const TextStyle(
+                        color: Color(0xFFF90E18),
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Expanded(
+              child: _buildChatListWithDebug(),
             ),
           ],
         ),
-        body: Container(
-          color: const Color(0xFFFAF0F0),
-          child: Column(
-            children: [
-              _buildSearchBar(),
-              _buildPinnedAdminCard(),
-              if (_totalUnreadCount > 0)
-                Container(
-                  color: const Color(0xFFF90E18).withOpacity(0.08),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.message, color: Color(0xFFF90E18), size: 18),
-                      const SizedBox(width: 8),
-                      Text(
-                        '$_totalUnreadCount unread messages in $_totalUnreadConversations conversations',
-                        style: const TextStyle(
-                          color: Color(0xFFF90E18),
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              Expanded(
-                child: _buildChatListWithDebug(),
-              ),
-            ],
-          ),
-        ),
-        floatingActionButton: null,
+      ),
+      floatingActionButton: null,
     );
   }
 
@@ -2124,7 +2233,9 @@ class _ChatListScreenState extends State<ChatListScreen>
         automaticallyImplyLeading: false,
         title: Row(
           children: [
-            const Text('Chats', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+            const Text('Chats',
+                style: TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600)),
             const SizedBox(width: 12),
             if (_totalUnreadConversations > 0)
               Container(
@@ -2154,10 +2265,12 @@ class _ChatListScreenState extends State<ChatListScreen>
             if (_totalUnreadCount > 0)
               Container(
                 color: const Color(0xFFF90E18).withOpacity(0.08),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Row(
                   children: [
-                    const Icon(Icons.message, color: Color(0xFFF90E18), size: 18),
+                    const Icon(Icons.message,
+                        color: Color(0xFFF90E18), size: 18),
                     const SizedBox(width: 8),
                     Text(
                       '$_totalUnreadCount unread messages in $_totalUnreadConversations conversations',
@@ -2222,8 +2335,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     // Sort client-side by lastMessageTime descending.
     final chatRooms = List<Map<String, dynamic>>.from(
       _socketChatRooms.where((room) => !_isAdminRoom(room)),
-    )
-      ..sort((a, b) {
+    )..sort((a, b) {
         final aTime = SocketService.parseTimestamp(a['lastMessageTime']);
         final bTime = SocketService.parseTimestamp(b['lastMessageTime']);
         if (aTime == null && bTime == null) return 0;
@@ -2328,8 +2440,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final int firstSentIdx = showSentHeader ? cursor : -1;
     if (showSentHeader) cursor += sentCount;
 
-    final int conversationsHeaderIdx =
-        showConversationsHeader ? cursor++ : -1;
+    final int conversationsHeaderIdx = showConversationsHeader ? cursor++ : -1;
     final int firstRoomIdx = cursor;
 
     final bool showLoadingMore = _isLoadingMore && !isSearching;
@@ -2354,8 +2465,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           if (showConversationsHeader && index == conversationsHeaderIdx) {
             return const SizedBox.shrink();
           }
-          return const Divider(
-              indent: 72, height: 1, color: Color(0xFFE0E0E0));
+          return const Divider(indent: 72, height: 1, color: Color(0xFFE0E0E0));
         },
         itemBuilder: (context, index) {
           // ── Received requests header ──
@@ -2472,22 +2582,22 @@ class _ChatListScreenState extends State<ChatListScreen>
 
           final data = displayedRooms[roomIndex];
 
-          final participants = _safeStringList(data['participants']);
+          final participants = _participantsFromRoom(data);
           final participantNames = _safeStringMap(data['participantNames']);
           final participantImages = _safeStringMap(data['participantImages']);
           final participantPrivacy = _safeStringMap(data['participantPrivacy']);
-          final participantPhotoRequests = _safeStringMap(data['participantPhotoRequests']);
-          final int unreadForMe =
-              (data['unreadCount'] as num?)?.toInt() ?? 0;
+          final participantPhotoRequests =
+              _safeStringMap(data['participantPhotoRequests']);
+          final int unreadForMe = _safeUnreadCount(data['unreadCount']);
           final String lastMessage = data['lastMessage']?.toString() ?? '';
           final DateTime? lastMessageTime =
               SocketService.parseTimestamp(data['lastMessageTime']);
           final String lastMessageType =
               data['lastMessageType']?.toString() ?? 'text';
-          final lastMessageSenderId =
-              data['lastMessageSenderId'] ?? '';
+          final lastMessageSenderId = data['lastMessageSenderId'] ?? '';
 
-          // Find the OTHER participant (not me)
+          // Find the OTHER participant (not me). Be defensive because payload
+          // fields can occasionally be partial during reconnect windows.
           String otherParticipantId = '';
           String otherPersonName = '';
 
@@ -2501,18 +2611,53 @@ class _ChatListScreenState extends State<ChatListScreen>
           }
 
           if (otherParticipantId.isEmpty) {
-            return Container(
-              padding: const EdgeInsets.all(16),
-              child: const Text(
-                'Error: Could not find other participant',
-                style: TextStyle(color: Colors.red),
-              ),
-            );
+            for (final entry in participantNames.entries) {
+              if (entry.key.trim() != userId.trim()) {
+                otherParticipantId = entry.key.trim();
+                otherPersonName = entry.value.trim().isNotEmpty
+                    ? entry.value.trim()
+                    : 'Unknown';
+                break;
+              }
+            }
+          }
+
+          if (otherParticipantId.isEmpty) {
+            for (final key in participantImages.keys) {
+              if (key.trim() != userId.trim()) {
+                otherParticipantId = key.trim();
+                break;
+              }
+            }
+          }
+
+          if (otherParticipantId.isEmpty) {
+            final chatRoomId = data['chatRoomId']?.toString() ?? '';
+            if (chatRoomId.isNotEmpty) {
+              final parts = chatRoomId
+                  .split('_')
+                  .where((e) => e.trim().isNotEmpty)
+                  .toList();
+              for (final p in parts) {
+                if (p != 'chat' && p.trim() != userId.trim()) {
+                  otherParticipantId = p.trim();
+                  break;
+                }
+              }
+            }
+          }
+
+          if (otherPersonName.isEmpty) {
+            final rawName = participantNames[otherParticipantId] ?? '';
+            otherPersonName = rawName.isNotEmpty
+                ? rawName
+                : (otherParticipantId.isNotEmpty
+                    ? 'User $otherParticipantId'
+                    : 'Unknown');
           }
 
           // Determine if last message was sent by me
-          final isLastMessageFromMe =
-              lastMessageSenderId == userId;
+          final isLastMessageFromMe = lastMessageSenderId == userId;
 
           // Prepare message preview
           final String formattedPreview = _formatConversationPreview(
@@ -2535,8 +2680,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           final bool shouldMaskPreview =
               !isLastMessageFromMe && !isCurrentUserPaid && isTextType;
 
-          final String displayPreview =
-              shouldMaskPreview ? _maskMessagePreview(formattedPreview) : formattedPreview;
+          final String displayPreview = shouldMaskPreview
+              ? _maskMessagePreview(formattedPreview)
+              : formattedPreview;
 
           final String messagePreview =
               isLastMessageFromMe && displayPreview.isNotEmpty
@@ -2546,12 +2692,11 @@ class _ChatListScreenState extends State<ChatListScreen>
           final String formattedTime = _formatTime(lastMessageTime);
 
           // Online status for this participant
-          final bool isOnline =
-              _onlineStatuses[otherParticipantId] ?? false;
+          final bool isOnline = _onlineStatuses[otherParticipantId] ?? false;
           final DateTime? participantLastSeen =
               _lastSeenTimes[otherParticipantId];
-          final String resolvedOtherImage = resolveApiImageUrl(
-              participantImages[otherParticipantId] ?? '');
+          final String resolvedOtherImage =
+              resolveApiImageUrl(participantImages[otherParticipantId] ?? '');
 
           // Extract privacy data for the other participant
           final String? otherParticipantPrivacy =
@@ -2561,9 +2706,11 @@ class _ChatListScreenState extends State<ChatListScreen>
 
           // Extract paid/verified status for the other participant
           final participantPaidStatus =
-              Map<String, String>.from(data['participantPaidStatus'] ?? {});
-          final participantVerifiedStatus =
-              Map<String, dynamic>.from(data['participantVerifiedStatus'] ?? {});
+              _safeStringMap(data['participantPaidStatus']);
+          final participantVerifiedStatus = Map<String, dynamic>.from(
+              data['participantVerifiedStatus'] is Map
+                  ? data['participantVerifiedStatus']
+                  : <String, dynamic>{});
           final bool otherIsPaid =
               participantPaidStatus[otherParticipantId] == 'paid';
           final bool otherIsVerified =
@@ -2673,8 +2820,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                             decoration: BoxDecoration(
                               color: const Color(0xFF22C55E),
                               shape: BoxShape.circle,
-                              border: Border.all(
-                                  color: Colors.white, width: 2),
+                              border: Border.all(color: Colors.white, width: 2),
                             ),
                           ),
                         ),
@@ -2835,7 +2981,6 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
-
   void showUpgradeDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -2934,7 +3079,11 @@ class _ChatListScreenState extends State<ChatListScreen>
                       child: ElevatedButton(
                         onPressed: () {
                           Navigator.pop(context);
-                          Navigator.push(context, MaterialPageRoute(builder: (context) => SubscriptionPage(),));
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => SubscriptionPage(),
+                              ));
                           // Navigate to upgrade screen
                         },
                         style: ElevatedButton.styleFrom(
@@ -2962,5 +3111,4 @@ class _ChatListScreenState extends State<ChatListScreen>
       },
     );
   }
-
 }
