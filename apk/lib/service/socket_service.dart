@@ -43,7 +43,8 @@ class SocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _messageUnsentCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageLikedCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _messageReactionCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _messageReactionCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _typingStartCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _typingStopCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messagesReadCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -59,21 +60,27 @@ class SocketService {
   final _callCancelledCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _callEndedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _callRingingCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _callUserOfflineCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _callUserOfflineCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _callBusyCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _callBlockedCtrl = StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Audio-to-video switch streams ─────────────────────────────────────────
 
-  final _switchToVideoRequestCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _switchToVideoResponseCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _switchToVideoRequestCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _switchToVideoResponseCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Conference call streams ───────────────────────────────────────────────
 
   final _addedToCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantAddedToCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantAcceptedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantRejectedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _participantAddedToCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantAcceptedCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantRejectedCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -83,7 +90,8 @@ class SocketService {
       _messageDeletedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageUnsent => _messageUnsentCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageLiked => _messageLikedCtrl.stream;
-  Stream<Map<String, dynamic>> get onMessageReaction => _messageReactionCtrl.stream;
+  Stream<Map<String, dynamic>> get onMessageReaction =>
+      _messageReactionCtrl.stream;
   Stream<Map<String, dynamic>> get onTypingStart => _typingStartCtrl.stream;
   Stream<Map<String, dynamic>> get onTypingStop => _typingStopCtrl.stream;
   Stream<Map<String, dynamic>> get onMessagesRead => _messagesReadCtrl.stream;
@@ -102,7 +110,8 @@ class SocketService {
   Stream<Map<String, dynamic>> get onCallRinging => _callRingingCtrl.stream;
 
   /// Emitted when the recipient is offline at the time of the call_invite.
-  Stream<Map<String, dynamic>> get onCallUserOffline => _callUserOfflineCtrl.stream;
+  Stream<Map<String, dynamic>> get onCallUserOffline =>
+      _callUserOfflineCtrl.stream;
 
   /// Emitted when the recipient is already in another active call.
   Stream<Map<String, dynamic>> get onCallBusy => _callBusyCtrl.stream;
@@ -112,16 +121,21 @@ class SocketService {
 
   // Audio-to-video switch streams
   /// Emitted when the other party requests to upgrade the call to video.
-  Stream<Map<String, dynamic>> get onSwitchToVideoRequest => _switchToVideoRequestCtrl.stream;
+  Stream<Map<String, dynamic>> get onSwitchToVideoRequest =>
+      _switchToVideoRequestCtrl.stream;
 
   /// Emitted when the other party responds to a switch-to-video request.
-  Stream<Map<String, dynamic>> get onSwitchToVideoResponse => _switchToVideoResponseCtrl.stream;
+  Stream<Map<String, dynamic>> get onSwitchToVideoResponse =>
+      _switchToVideoResponseCtrl.stream;
 
   // Conference call streams
   Stream<Map<String, dynamic>> get onAddedToCall => _addedToCallCtrl.stream;
-  Stream<Map<String, dynamic>> get onParticipantAddedToCall => _participantAddedToCallCtrl.stream;
-  Stream<Map<String, dynamic>> get onParticipantAcceptedCall => _participantAcceptedCallCtrl.stream;
-  Stream<Map<String, dynamic>> get onParticipantRejectedCall => _participantRejectedCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantAddedToCall =>
+      _participantAddedToCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantAcceptedCall =>
+      _participantAcceptedCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantRejectedCall =>
+      _participantRejectedCallCtrl.stream;
 
   bool get isConnected => _socket?.connected == true;
 
@@ -147,7 +161,7 @@ class SocketService {
     _socket = IO.io(
       kSocketServerUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])   // WebSocket only — no polling
+          .setTransports(['websocket']) // WebSocket only — no polling
           .enableAutoConnect()
           .enableReconnection()
           .setReconnectionAttempts(20)
@@ -449,11 +463,11 @@ class SocketService {
   }) {
     if (userId.isEmpty || activityType.isEmpty) return;
     _socket?.emit('new_activity', {
-      'userId':       userId,
-      'userName':     userName,
+      'userId': userId,
+      'userName': userName,
       'activityType': activityType,
-      'description':  description,
-      if (targetId   != null) 'targetId':   targetId,
+      'description': description,
+      if (targetId != null) 'targetId': targetId,
       if (targetName != null) 'targetName': targetName,
     });
   }
@@ -619,7 +633,8 @@ class SocketService {
       'adminId': adminId,
       'channelName': channelName,
       'acceptedById': acceptedById,
-      if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
+      if (existingParticipantId != null)
+        'existingParticipantId': existingParticipantId,
     });
   }
 
@@ -634,7 +649,8 @@ class SocketService {
       'adminId': adminId,
       'channelName': channelName,
       'rejectedById': rejectedById,
-      if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
+      if (existingParticipantId != null)
+        'existingParticipantId': existingParticipantId,
     });
   }
 
@@ -828,9 +844,8 @@ class SocketService {
   /// Returns a [MediaType] for [filename] based on its extension.
   /// Falls back to `image/jpeg` for unknown or missing extensions.
   static MediaType _mimeTypeFromFilename(String filename) {
-    final ext = filename.contains('.')
-        ? filename.split('.').last.toLowerCase()
-        : '';
+    final ext =
+        filename.contains('.') ? filename.split('.').last.toLowerCase() : '';
     switch (ext) {
       case 'png':
         return MediaType('image', 'png');
