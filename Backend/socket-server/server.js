@@ -1600,14 +1600,29 @@ async function updateChatRoomLastMessage({ chatRoomId, message, messageType, sen
 }
 
 async function getChatRooms(userId) {
+  const safeUserId = (userId || '').toString().trim();
+  if (!safeUserId) return [];
+
+  const numericUserId = Number(safeUserId);
+  const hasNumericVariant =
+    Number.isInteger(numericUserId) && String(numericUserId) === safeUserId;
+
+  const membershipCondition = hasNumericVariant
+    ? '(JSON_CONTAINS(cr.participants, JSON_QUOTE(?)) OR JSON_CONTAINS(cr.participants, CAST(? AS JSON)))'
+    : 'JSON_CONTAINS(cr.participants, JSON_QUOTE(?))';
+
+  const queryParams = hasNumericVariant
+    ? [safeUserId, safeUserId, safeUserId]
+    : [safeUserId, safeUserId];
+
   const [rooms] = await pool.query(
-    `SELECT cr.*,
+    `SELECT cr.*, 
             COALESCE(uc.unread_count, 0) AS unread_count
        FROM chat_rooms cr
        LEFT JOIN chat_unread_counts uc ON uc.chat_room_id = cr.id AND uc.user_id = ?
-      WHERE JSON_CONTAINS(cr.participants, JSON_QUOTE(?))
+      WHERE ${membershipCondition}
       ORDER BY cr.last_message_time DESC`,
-    [userId, userId],
+    queryParams,
   );
 
   if (rooms.length === 0) return [];
