@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
-import 'dart:js_util' as js_util;
+import 'dart:js' as js;
 import 'package:flutter/foundation.dart';
 
 /// Service for browser notifications and message sounds on the web platform.
@@ -57,12 +57,11 @@ class WebNotificationService {
       _disposePermissionListeners();
     }
 
-    _permissionClickSubscription =
-        html.document.onClick.listen(handleGesture);
-    _permissionKeySubscription =
-        html.document.onKeyDown.listen(handleGesture);
-    _permissionTouchSubscription =
-        html.document.onTouchStart.listen(handleGesture);
+    _permissionClickSubscription = html.document.onClick.listen(handleGesture);
+    _permissionKeySubscription = html.document.onKeyDown.listen(handleGesture);
+    _permissionTouchSubscription = html.document.onTouchStart.listen(
+      handleGesture,
+    );
 
     _permissionRequestFuture = permissionGestureCompleter.future
         .then((_) => requestPermission())
@@ -148,11 +147,11 @@ class WebNotificationService {
 
     // Clicking the notification focuses the tab and opens the conversation.
     notification.onClick.listen((_) {
-      js_util.callMethod(js_util.globalThis, 'eval', ['window.focus()']);
+      js.context.callMethod('eval', ['window.focus()']);
       if (userId.isNotEmpty) {
         // Dispatch a custom event so the Flutter app can navigate to the user.
-        js_util.callMethod(js_util.globalThis, 'eval', [
-          'window.dispatchEvent(new CustomEvent("chatNotification", {detail: {userId: ${json.encode(userId)}}}))'
+        js.context.callMethod('eval', [
+          'window.dispatchEvent(new CustomEvent("chatNotification", {detail: {userId: ${json.encode(userId)}}}))',
         ]);
       }
       notification.close();
@@ -167,7 +166,7 @@ class WebNotificationService {
   /// Works regardless of foreground/background state.
   static void playMessageSound() {
     try {
-      js_util.callMethod(js_util.globalThis, 'eval', [
+      js.context.callMethod('eval', [
         '''
         (function() {
           try {
@@ -201,7 +200,7 @@ class WebNotificationService {
             });
           } catch(e) { /* silently ignore – e.g. user hasn't interacted yet */ }
         })();
-        '''
+        ''',
       ]);
     } catch (_) {}
   }

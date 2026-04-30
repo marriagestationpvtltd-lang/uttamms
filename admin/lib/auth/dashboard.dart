@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:js_util' as js_util;
+import 'dart:js' as js;
+import 'dart:js_interop';
 import 'package:adminmrz/auth/service.dart';
 import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/core/permissions.dart';
@@ -28,16 +29,16 @@ import '../users/userscreen.dart';
 const _kMobileBreakpoint = 768.0;
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
-const _kSidebarBg     = Color(0xFF0F172A);
+const _kSidebarBg = Color(0xFF0F172A);
 const _kSidebarBorder = Color(0xFF1E293B);
-const _kAccent        = Color(0xFF6366F1);
-const _kAccentLight   = Color(0xFF818CF8);
-const _kTextPrimary   = Color(0xFFE2E8F0);
+const _kAccent = Color(0xFF6366F1);
+const _kAccentLight = Color(0xFF818CF8);
+const _kTextPrimary = Color(0xFFE2E8F0);
 const _kTextSecondary = Color(0xFF94A3B8);
-const _kTextMuted     = Color(0xFF64748B);
-const _kContentBg     = Color(0xFFF1F5F9);
-const _kTopBarBg      = Colors.white;
-const _kTopBarBorder  = Color(0xFFE2E8F0);
+const _kTextMuted = Color(0xFF64748B);
+const _kContentBg = Color(0xFFF1F5F9);
+const _kTopBarBg = Colors.white;
+const _kTopBarBorder = Color(0xFFE2E8F0);
 
 // ─── Nav item model ───────────────────────────────────────────────────────────
 class _NavItem {
@@ -68,7 +69,7 @@ class _DashboardPageState extends State<DashboardPage> {
   // Tracks known user names fetched lazily for notification display.
   final Map<String, String> _globalUserNames = {};
   // JS event listener reference kept so we can remove it on dispose.
-  late final Object _onChatNotifEvent;
+  late final JSFunction _onChatNotifEvent;
 
   @override
   void initState() {
@@ -89,8 +90,11 @@ class _DashboardPageState extends State<DashboardPage> {
       const MessageMonitorScreen(),
     ];
     _startGlobalConversationListener();
-    _onChatNotifEvent = js_util.allowInterop(_handleChatNotifJsEvent);
-    js_util.callMethod(js_util.globalThis, 'addEventListener', ['chatNotification', _onChatNotifEvent]);
+    _onChatNotifEvent = ((JSAny? event) => _handleChatNotifJsEvent(event)).toJS;
+    js.context.callMethod('addEventListener', [
+      'chatNotification',
+      _onChatNotifEvent,
+    ]);
 
     // Check if there's a pending profile view from a new tab
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -101,7 +105,10 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     _globalMessageSub?.cancel();
-    js_util.callMethod(js_util.globalThis, 'removeEventListener', ['chatNotification', _onChatNotifEvent]);
+    js.context.callMethod('removeEventListener', [
+      'chatNotification',
+      _onChatNotifEvent,
+    ]);
     super.dispose();
   }
 
@@ -110,9 +117,9 @@ class _DashboardPageState extends State<DashboardPage> {
   /// conversation with the user.
   void _handleChatNotifJsEvent(dynamic event) {
     if (!mounted) return;
-    final detail = js_util.getProperty<Object?>(event, 'detail');
+    final detail = js.JsObject.fromBrowserObject(event)['detail'];
     if (detail == null) return;
-    final userIdStr = js_util.getProperty<Object?>(detail, 'userId')?.toString();
+    final userIdStr = (detail as js.JsObject)['userId']?.toString();
     if (userIdStr == null || userIdStr.isEmpty) return;
     final userId = int.tryParse(userIdStr);
     if (userId == null) return;
@@ -150,7 +157,8 @@ class _DashboardPageState extends State<DashboardPage> {
       if (senderName.isEmpty && chatProvider.chatList.isEmpty) {
         await chatProvider.fetchChatList();
         senderName =
-            chatProvider.getUserById(int.tryParse(userId) ?? -1)?['namee']
+            chatProvider
+                .getUserById(int.tryParse(userId) ?? -1)?['namee']
                 ?.toString() ??
             '';
       }
@@ -202,10 +210,12 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _checkPendingProfileView() {
     // Check if this tab was opened to view a specific user profile
-    final sessionStorage = js_util.getProperty<Object>(js_util.globalThis, 'sessionStorage');
-    final pendingUserId = js_util.callMethod<Object?>(sessionStorage, 'getItem', ['pendingProfileView'])?.toString();
+    final sessionStorage = js.context['sessionStorage'] as js.JsObject;
+    final pendingUserId = sessionStorage.callMethod('getItem', [
+      'pendingProfileView',
+    ])?.toString();
     if (pendingUserId != null && pendingUserId.isNotEmpty) {
-      js_util.callMethod(sessionStorage, 'removeItem', ['pendingProfileView']);
+      sessionStorage.callMethod('removeItem', ['pendingProfileView']);
       final userId = int.tryParse(pendingUserId);
       if (userId != null && mounted) {
         // Navigate to the user profile
@@ -213,10 +223,7 @@ class _DashboardPageState extends State<DashboardPage> {
           MaterialPageRoute(
             builder: (_) => ChangeNotifierProvider(
               create: (_) => UserDetailsProvider(),
-              child: UserDetailsScreen(
-                userId: userId,
-                myId: 1,
-              ),
+              child: UserDetailsScreen(userId: userId, myId: 1),
             ),
           ),
         );
@@ -225,26 +232,27 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   static const List<_NavItem> _navItems = [
-    _NavItem(icon: Icons.grid_view_rounded,   label: 'Dashboard'),
-    _NavItem(icon: Icons.people_alt_rounded,  label: 'Members'),
+    _NavItem(icon: Icons.grid_view_rounded, label: 'Dashboard'),
+    _NavItem(icon: Icons.people_alt_rounded, label: 'Members'),
     _NavItem(icon: Icons.description_rounded, label: 'Documents'),
     _NavItem(icon: Icons.inventory_2_rounded, label: 'Packages'),
-    _NavItem(icon: Icons.payments_rounded,    label: 'Payments'),
+    _NavItem(icon: Icons.payments_rounded, label: 'Payments'),
     _NavItem(icon: Icons.chat_bubble_rounded, label: 'Chat'),
-    _NavItem(icon: Icons.handshake_rounded,   label: 'Requests'),
-    _NavItem(icon: Icons.tune_rounded,        label: 'Call Settings'),
-    _NavItem(icon: Icons.timeline_rounded,    label: 'Activities'),
+    _NavItem(icon: Icons.handshake_rounded, label: 'Requests'),
+    _NavItem(icon: Icons.tune_rounded, label: 'Call Settings'),
+    _NavItem(icon: Icons.timeline_rounded, label: 'Activities'),
     _NavItem(icon: Icons.monitor_heart_rounded, label: 'Messages'),
   ];
 
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
-  void _toggleSidebar()        => setState(() => _isSidebarExpanded = !_isSidebarExpanded);
+  void _toggleSidebar() =>
+      setState(() => _isSidebarExpanded = !_isSidebarExpanded);
 
   // ─── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
-    final adminData    = authProvider.adminData;
+    final adminData = authProvider.adminData;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -291,12 +299,12 @@ class _DashboardPageState extends State<DashboardPage> {
   }
 
   Widget _buildMobileTopBar() {
-    final title    = _navItems[_selectedIndex].label;
-    final cs       = Theme.of(context).colorScheme;
-    final isDark   = Theme.of(context).brightness == Brightness.dark;
+    final title = _navItems[_selectedIndex].label;
+    final cs = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final topBarBg = cs.surface;
     final topBarBorder = cs.outlineVariant;
-    final iconBg   = isDark ? const Color(0xFF263248) : const Color(0xFFF8FAFC);
+    final iconBg = isDark ? const Color(0xFF263248) : const Color(0xFFF8FAFC);
     final mutedColor = cs.onSurface.withOpacity(0.45);
 
     return Container(
@@ -369,8 +377,8 @@ class _DashboardPageState extends State<DashboardPage> {
     Map<String, dynamic>? adminData,
     AuthProvider authProvider,
   ) {
-    final name     = adminData?['name']?.toString() ?? 'Admin';
-    final role     = adminData?['role']?.toString() ?? 'admin';
+    final name = adminData?['name']?.toString() ?? 'Admin';
+    final role = adminData?['role']?.toString() ?? 'admin';
     final initials = name.isNotEmpty ? name[0].toUpperCase() : 'A';
 
     return Drawer(
@@ -432,8 +440,9 @@ class _DashboardPageState extends State<DashboardPage> {
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   itemCount: _navItems.length,
-                  itemBuilder: (_, i) =>
-                      (visible[i] ?? true) ? _buildDrawerNavTile(i) : const SizedBox.shrink(),
+                  itemBuilder: (_, i) => (visible[i] ?? true)
+                      ? _buildDrawerNavTile(i)
+                      : const SizedBox.shrink(),
                 );
               },
             ),
@@ -473,7 +482,10 @@ class _DashboardPageState extends State<DashboardPage> {
                       ),
                       Text(
                         role,
-                        style: const TextStyle(fontSize: 10, color: _kTextMuted),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: _kTextMuted,
+                        ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ],
@@ -505,7 +517,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildDrawerNavTile(int index) {
     final isActive = _selectedIndex == index;
-    final item     = _navItems[index];
+    final item = _navItems[index];
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -631,10 +643,7 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             )
           : Center(
-              child: GestureDetector(
-                onTap: _toggleSidebar,
-                child: _logoMark(),
-              ),
+              child: GestureDetector(onTap: _toggleSidebar, child: _logoMark()),
             ),
     );
   }
@@ -678,16 +687,16 @@ class _DashboardPageState extends State<DashboardPage> {
     final permissions = context.read<AuthProvider>().permissions;
     // Map nav-item index → permission check (null means always visible).
     final Map<int, bool> visible = {
-      0: true,                                  // Dashboard
-      1: permissions.canManageUsers,            // Members
-      2: permissions.canVerifyDocuments,        // Documents
-      3: permissions.canManagePackages,         // Packages
-      4: permissions.canManagePayments,         // Payments
-      5: permissions.canAccessChats,            // Chat
-      6: permissions.canManageRequests,         // Requests
-      7: permissions.canManageSettings,         // Call Settings
-      8: permissions.canViewActivities,         // Activities
-      9: permissions.canMonitorMessages,        // Messages
+      0: true, // Dashboard
+      1: permissions.canManageUsers, // Members
+      2: permissions.canVerifyDocuments, // Documents
+      3: permissions.canManagePackages, // Packages
+      4: permissions.canManagePayments, // Payments
+      5: permissions.canAccessChats, // Chat
+      6: permissions.canManageRequests, // Requests
+      7: permissions.canManageSettings, // Call Settings
+      8: permissions.canViewActivities, // Activities
+      9: permissions.canMonitorMessages, // Messages
     };
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -699,7 +708,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildNavTile(int index) {
     final isActive = _selectedIndex == index;
-    final item     = _navItems[index];
+    final item = _navItems[index];
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -784,8 +793,8 @@ class _DashboardPageState extends State<DashboardPage> {
     Map<String, dynamic>? adminData,
     AuthProvider authProvider,
   ) {
-    final name   = adminData?['name']?.toString() ?? 'Admin';
-    final role   = adminData?['role']?.toString() ?? 'admin';
+    final name = adminData?['name']?.toString() ?? 'Admin';
+    final role = adminData?['role']?.toString() ?? 'admin';
     final initials = name.isNotEmpty ? name[0].toUpperCase() : 'A';
 
     return Container(
@@ -946,9 +955,7 @@ class _DashboardPageState extends State<DashboardPage> {
           // Notification bell
           Padding(
             padding: const EdgeInsets.only(right: 8),
-            child: NotificationCenter(
-              onViewAll: () => _onItemTapped(8),
-            ),
+            child: NotificationCenter(onViewAll: () => _onItemTapped(8)),
           ),
           // Dark / Light mode toggle
           Container(

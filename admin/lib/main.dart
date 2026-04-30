@@ -19,7 +19,7 @@ import 'firebase_options.dart';
 import 'package/packageProvider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
-import 'dart:js_util' as js_util;
+import 'dart:js' as js;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -119,11 +119,7 @@ class ErrorApp extends StatelessWidget {
                 ElevatedButton(
                   onPressed: () {
                     if (kIsWeb) {
-                      js_util.callMethod(
-                        js_util.getProperty<Object>(js_util.globalThis, 'location'),
-                        'reload',
-                        [false],
-                      );
+                      (js.context['location'] as js.JsObject).callMethod('reload', [false]);
                     }
                   },
                   child: const Text('Refresh Page'),

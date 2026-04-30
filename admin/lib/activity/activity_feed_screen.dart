@@ -15,7 +15,6 @@ const _kAmber     = Color(0xFFF59E0B);
 const _kRose      = Color(0xFFEF4444);
 const _kViolet    = Color(0xFF8B5CF6);
 const _kPink      = Color(0xFFEC4899);
-const _kSlate100  = Color(0xFFF1F5F9);
 const _kSlate400  = Color(0xFF94A3B8);
 
 class ActivityFeedScreen extends StatefulWidget {
