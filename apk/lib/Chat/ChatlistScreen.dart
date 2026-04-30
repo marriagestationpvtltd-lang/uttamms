@@ -1333,6 +1333,9 @@ class _ChatListScreenState extends State<ChatListScreen>
           ),
         );
         await _loadPendingChatRequests(userId);
+        // Refresh chat rooms so the newly created conversation appears in the
+        // list immediately instead of waiting for the next socket event.
+        _refreshChatRooms();
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1565,7 +1568,12 @@ class _ChatListScreenState extends State<ChatListScreen>
             MaterialPageRoute(
               builder: (context) => ProfileScreen(userId: senderId),
             ),
-          );
+          ).then((_) async {
+            if (mounted) {
+              await _loadPendingChatRequests(userId);
+              _refreshChatRooms();
+            }
+          });
         }
       },
       child: Container(
