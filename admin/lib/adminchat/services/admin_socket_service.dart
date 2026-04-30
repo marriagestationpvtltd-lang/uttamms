@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'callmanager.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
@@ -41,7 +42,8 @@ class AdminSocketService {
       StreamController<Map<String, dynamic>>.broadcast();
   final _messageUnsentCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageLikedCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _messageReactionCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _messageReactionCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _messagesReadCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _typingStartCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _typingStopCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -51,23 +53,30 @@ class AdminSocketService {
   final _callAcceptedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _callRejectedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _callCancelledCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _callAnsweredElsewhereCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _callAnsweredElsewhereCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _callEndedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _callBusyCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _addedToCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantAddedToCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantAcceptedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantRejectedCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
-  final _participantLeftCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _participantAddedToCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantAcceptedCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantRejectedCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+  final _participantLeftCallCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
   final _connectionCtrl = StreamController<bool>.broadcast();
   final _userActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _adminActivityCtrl = StreamController<Map<String, dynamic>>.broadcast();
   // Receives the server-side send_message event emitted to admin_room so the
   // message monitor screen can display every message in real-time.
-  final _sendMessageMonitorCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _sendMessageMonitorCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
   // Emitted by the server when a user's payment/subscription status changes.
   // Payload: { userId, usertype, is_paid, timestamp }
-  final _paymentUpdatedCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _paymentUpdatedCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
 
   // ── Public streams ────────────────────────────────────────────────────────
 
@@ -77,7 +86,8 @@ class AdminSocketService {
       _messageDeletedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageUnsent => _messageUnsentCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageLiked => _messageLikedCtrl.stream;
-  Stream<Map<String, dynamic>> get onMessageReaction => _messageReactionCtrl.stream;
+  Stream<Map<String, dynamic>> get onMessageReaction =>
+      _messageReactionCtrl.stream;
   Stream<Map<String, dynamic>> get onMessagesRead => _messagesReadCtrl.stream;
   Stream<Map<String, dynamic>> get onTypingStart => _typingStartCtrl.stream;
   Stream<Map<String, dynamic>> get onTypingStop => _typingStopCtrl.stream;
@@ -87,31 +97,43 @@ class AdminSocketService {
   Stream<Map<String, dynamic>> get onCallAccepted => _callAcceptedCtrl.stream;
   Stream<Map<String, dynamic>> get onCallRejected => _callRejectedCtrl.stream;
   Stream<Map<String, dynamic>> get onCallCancelled => _callCancelledCtrl.stream;
-  Stream<Map<String, dynamic>> get onCallAnsweredElsewhere => _callAnsweredElsewhereCtrl.stream;
+  Stream<Map<String, dynamic>> get onCallAnsweredElsewhere =>
+      _callAnsweredElsewhereCtrl.stream;
   Stream<Map<String, dynamic>> get onCallEnded => _callEndedCtrl.stream;
   Stream<Map<String, dynamic>> get onCallBusy => _callBusyCtrl.stream;
   Stream<Map<String, dynamic>> get onAddedToCall => _addedToCallCtrl.stream;
-  Stream<Map<String, dynamic>> get onParticipantAddedToCall => _participantAddedToCallCtrl.stream;
-  Stream<Map<String, dynamic>> get onParticipantAcceptedCall => _participantAcceptedCallCtrl.stream;
-  Stream<Map<String, dynamic>> get onParticipantRejectedCall => _participantRejectedCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantAddedToCall =>
+      _participantAddedToCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantAcceptedCall =>
+      _participantAcceptedCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantRejectedCall =>
+      _participantRejectedCallCtrl.stream;
+
   /// Emitted when a participant voluntarily leaves a group call.
   /// Payload: { channelName, leftUserId }
-  Stream<Map<String, dynamic>> get onParticipantLeftCall => _participantLeftCallCtrl.stream;
+  Stream<Map<String, dynamic>> get onParticipantLeftCall =>
+      _participantLeftCallCtrl.stream;
   Stream<bool> get onConnectionChange => _connectionCtrl.stream;
+
   /// Emitted by the server whenever a user activity is logged. Admin panel
   /// uses this for real-time activity feed updates.
   Stream<Map<String, dynamic>> get onUserActivity => _userActivityCtrl.stream;
+
   /// Emitted by the server immediately when a user sends a text message.
   /// Payload: { sender_id, receiver_id, sender_name, receiver_name, message, timestamp }
   Stream<Map<String, dynamic>> get onAdminActivity => _adminActivityCtrl.stream;
+
   /// Emitted by the server for every sent message (all types) — used by the
   /// admin message monitor screen to show live messages with sender/receiver info.
   /// Payload: { messageId, chatRoomId, senderId, receiverId, senderName,
   ///            receiverName, message, messageType, timestamp }
-  Stream<Map<String, dynamic>> get onMessageMonitor => _sendMessageMonitorCtrl.stream;
+  Stream<Map<String, dynamic>> get onMessageMonitor =>
+      _sendMessageMonitorCtrl.stream;
+
   /// Emitted by the server when a user's payment/subscription status changes.
   /// Payload: { userId, usertype, is_paid, timestamp }
-  Stream<Map<String, dynamic>> get onPaymentUpdated => _paymentUpdatedCtrl.stream;
+  Stream<Map<String, dynamic>> get onPaymentUpdated =>
+      _paymentUpdatedCtrl.stream;
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -120,13 +142,23 @@ class AdminSocketService {
   // ── Connect / Disconnect ──────────────────────────────────────────────────
 
   void connect() {
-    if (_socket != null && _socket!.connected) return;
+    if (_socket != null) {
+      if (_socket!.connected) return;
+      _socket!.connect();
+      return;
+    }
 
-    _socket?.dispose();
+    final transports = kIsWeb
+        // Browser + strict proxy setups frequently reject WS upgrades with 400.
+        // Polling keeps chat functional and Socket.IO can still reconnect safely.
+        ? <String>['polling']
+        : <String>['websocket', 'polling'];
+
     _socket = IO.io(
       kAdminSocketUrl,
       IO.OptionBuilder()
-          .setTransports(['websocket'])
+          .setTransports(transports)
+          .setPath('/socket.io')
           .setReconnectionDelay(2000)
           .setReconnectionDelayMax(10000)
           .setReconnectionAttempts(kAdminSocketReconnectAttempts)
@@ -176,7 +208,8 @@ class AdminSocketService {
     });
 
     _socket!.on('message_reaction', (data) {
-      if (data is Map) _messageReactionCtrl.add(Map<String, dynamic>.from(data));
+      if (data is Map)
+        _messageReactionCtrl.add(Map<String, dynamic>.from(data));
     });
 
     _socket!.on('messages_read', (data) {
@@ -263,7 +296,8 @@ class AdminSocketService {
     // Server emits 'send_message' to admin_room for every sent message so the
     // admin monitor sees it in real-time regardless of which chat room it is in.
     _socket!.on('send_message', (data) {
-      if (data is Map) _sendMessageMonitorCtrl.add(Map<String, dynamic>.from(data));
+      if (data is Map)
+        _sendMessageMonitorCtrl.add(Map<String, dynamic>.from(data));
     });
 
     // Server emits 'payment_updated' to admin_room when a user's payment status changes.
@@ -316,7 +350,6 @@ class AdminSocketService {
 
   Future<bool> ensureConnected() async {
     if (isConnected) return true;
-    connect();
 
     final completer = Completer<bool>();
     late StreamSubscription<bool> sub;
@@ -329,6 +362,11 @@ class AdminSocketService {
         completer.complete(true);
       }
     });
+
+    connect();
+    if (isConnected && !completer.isCompleted) {
+      completer.complete(true);
+    }
 
     final result = await completer.future;
     await sub.cancel();
@@ -418,7 +456,11 @@ class AdminSocketService {
     });
   }
 
-  void addReaction({required String chatRoomId, required String messageId, required String emoji}) {
+  void addReaction({
+    required String chatRoomId,
+    required String messageId,
+    required String emoji,
+  }) {
     _socket?.emit('add_reaction', {
       'chatRoomId': chatRoomId,
       'messageId': messageId,
@@ -643,7 +685,8 @@ class AdminSocketService {
       'callType': callType,
       'adminId': adminId,
       'adminName': adminName,
-      if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
+      if (existingParticipantId != null)
+        'existingParticipantId': existingParticipantId,
       if (newParticipantName != null) 'newParticipantName': newParticipantName,
       if (agoraAppId != null) 'agoraAppId': agoraAppId,
       if (callerUid != null) 'callerUid': callerUid,
@@ -662,7 +705,8 @@ class AdminSocketService {
       'adminId': adminId,
       'channelName': channelName,
       'acceptedById': acceptedById,
-      if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
+      if (existingParticipantId != null)
+        'existingParticipantId': existingParticipantId,
     });
   }
 
@@ -677,7 +721,8 @@ class AdminSocketService {
       'adminId': adminId,
       'channelName': channelName,
       'rejectedById': rejectedById,
-      if (existingParticipantId != null) 'existingParticipantId': existingParticipantId,
+      if (existingParticipantId != null)
+        'existingParticipantId': existingParticipantId,
     });
   }
 

@@ -6303,7 +6303,8 @@ class _ChatWindowState extends State<ChatWindow> {
       final String messageId = const Uuid().v4();
       final String roomId = AdminSocketService.chatRoomId(receiverId);
 
-      if (_socketService.isConnected) {
+      final connected = await _socketService.ensureConnected();
+      if (connected) {
         _socketService.sendMessage(
           chatRoomId: roomId,
           receiverId: receiverId,
@@ -7097,7 +7098,7 @@ class _ChatWindowState extends State<ChatWindow> {
       if (!mounted) return;
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
       final String roomId = AdminSocketService.chatRoomId(receiverId);
-      final bool connected = _socketService.isConnected;
+      final bool connected = await _socketService.ensureConnected();
 
       if (urls.length == 1) {
         final msgId =
@@ -7337,7 +7338,8 @@ class _ChatWindowState extends State<ChatWindow> {
     final String roomId = AdminSocketService.chatRoomId(receiverId);
 
     try {
-      if (_socketService.isConnected) {
+      final connected = await _socketService.ensureConnected();
+      if (connected) {
         _socketService.sendMessage(
           chatRoomId: roomId,
           receiverId: receiverId,

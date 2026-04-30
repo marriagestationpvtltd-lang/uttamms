@@ -11,17 +11,40 @@ const path      = require('path');
 const fs        = require('fs');
 const { v4: uuidv4 } = require('uuid');
 
+function normalizeBaseUrl(input) {
+  let base = (input || '').toString().trim();
+  if (!base) return '';
+
+  // Remove wrapping quotes from env values like "https://example.com".
+  base = base.replace(/^['\"]|['\"]$/g, '');
+
+  // Repair common malformed protocol variants.
+  let previous;
+  do {
+    previous = base;
+    base = base.replace(/^(https?):\/\/(https?):\/\//i, '$1://');
+    base = base.replace(/^(https?):\/\/(https|http)\/\//i, '$1://');
+    base = base.replace(/^(https?)\/\//i, '$1://');
+    base = base.replace(/^(https?)\/([^/])/i, '$1://$2');
+  } while (base !== previous);
+
+  return base.replace(/\/$/, '');
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
 const PORT        = process.env.PORT || 3001;
 const UPLOAD_DIR  = process.env.UPLOAD_DIR || './uploads';
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*').split(',').map(s => s.trim());
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '*')
+  .split(',')
+  .map(s => s.trim().replace(/^['\"]|['\"]$/g, ''))
+  .filter(Boolean);
 // Optional: explicitly set PUBLIC_URL to the server's public HTTPS base URL.
 // Recommended for production so image URLs are always correct regardless of
 // how reverse-proxy headers are forwarded.
 // Example: PUBLIC_URL=https://adminnew.marriagestation.com.np
-const PUBLIC_URL  = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+const PUBLIC_URL  = normalizeBaseUrl(process.env.PUBLIC_URL || '');
 // Base URL of the PHP API, used to resolve relative profile-picture paths.
 // Defaults to the known production domain; override with API_BASE_URL env var.
 const API_BASE_URL = (process.env.API_BASE_URL || 'https://digitallami.com').replace(/\/$/, '');
@@ -371,26 +394,76 @@ const server = http.createServer(app);
 // Build a CORS origin resolver that handles both wildcard and explicit lists.
 // When origin is '*', credentials cannot be set (browser rejects it), so we
 // only enable credentials for explicit origin lists.
-const _hasWildcard = ALLOWED_ORIGINS.includes('*');
-const _corsOrigin = _hasWildcard
-  ? '*'
-  : (origin, callback) => {
-      // Allow requests with no origin (e.g. server-to-server, Postman)
-      if (!origin) return callback(null, true);
-      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
-      return callback(new Error(`CORS: origin ${origin} not allowed`));
-    };
+const _hasWildcard = ALLOWED_ORIGINS.length === 0 || ALLOWED_ORIGINS.includes('*');
+const _isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (_hasWildcard) return true;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  if (/^https?:\/\/localhost(?::\d+)?$/i.test(origin)) return true;
+  if (/^https?:\/\/127\.0\.0\.1(?::\d+)?$/i.test(origin)) return true;
+  return false;
+};
+
+const _corsOrigin = (origin, callback) => {
+  // Allow requests with no origin (e.g. server-to-server, Postman)
+  if (_isAllowedOrigin(origin)) return callback(null, true);
+  return callback(new Error(`CORS: origin ${origin} not allowed`));
+};
+
+const CORS_ALLOWED_HEADERS = [
+  'Content-Type',
+  'Authorization',
+  'X-Requested-With',
+  'Accept',
+  'Origin',
+  'Cache-Control',
+];
+
+const CORS_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'];
+
+// Ensure CORS headers are present for every response path, especially for
+// browser preflight requests that may be intercepted by proxy layers.
+app.use((req, res, next) => {
+  const origin = (req.headers.origin || '').toString();
+  if (_hasWildcard) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (_isAllowedOrigin(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', CORS_METHODS.join(', '));
+  res.setHeader('Access-Control-Allow-Headers', CORS_ALLOWED_HEADERS.join(', '));
+
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  return next();
+});
+
+// Minimal proxy diagnostics for paths that frequently break in production.
+app.use((req, _res, next) => {
+  if (req.path.startsWith('/socket.io') || req.path === '/api/send-message') {
+    console.log(
+      `[proxy-trace] ${req.method} ${req.originalUrl} origin=${req.headers.origin || '-'} ` +
+      `host=${req.headers.host || '-'} xfwdHost=${req.headers['x-forwarded-host'] || '-'} ` +
+      `xfwdProto=${req.headers['x-forwarded-proto'] || '-'} ip=${req.ip || '-'} `,
+    );
+  }
+  next();
+});
 
 const io     = new Server(server, {
   cors: {
     origin: _corsOrigin,
-    methods: ['GET', 'POST'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: CORS_METHODS,
+    allowedHeaders: CORS_ALLOWED_HEADERS,
     ...(!_hasWildcard && { credentials: true }),
   },
-  // Use WebSocket transport exclusively — avoids repeated HTTP polling CORS
-  // pre-flight requests that cause failures in strict CORS environments.
-  transports: ['websocket'],
+  // Allow polling fallback for proxies/environments where WebSocket upgrade
+  // intermittently fails (prevents hard 400 handshake failures).
+  transports: ['websocket', 'polling'],
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
@@ -398,10 +471,17 @@ const io     = new Server(server, {
 
 app.use(cors({
   origin: _corsOrigin,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: CORS_METHODS,
+  allowedHeaders: CORS_ALLOWED_HEADERS,
   ...(!_hasWildcard && { credentials: true }),
 }));
+app.options('*', cors({
+  origin: _corsOrigin,
+  methods: CORS_METHODS,
+  allowedHeaders: CORS_ALLOWED_HEADERS,
+  ...(!_hasWildcard && { credentials: true }),
+}));
+app.options('/api/send-message', (_req, res) => res.sendStatus(204));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));
 
@@ -518,6 +598,30 @@ app.get('/cors-test', (_req, res) => {
     status: 'CORS enabled',
     message: 'If you can read this, CORS headers were sent successfully',
     allowedOrigins: ALLOWED_ORIGINS,
+  });
+});
+
+// GET /proxy-debug — confirms this exact Node process is handling requests.
+app.get('/proxy-debug', (req, res) => {
+  res.json({
+    ok: true,
+    server: 'socket-server',
+    now: new Date().toISOString(),
+    request: {
+      method: req.method,
+      path: req.path,
+      originalUrl: req.originalUrl,
+      host: req.headers.host || null,
+      origin: req.headers.origin || null,
+      xForwardedHost: req.headers['x-forwarded-host'] || null,
+      xForwardedProto: req.headers['x-forwarded-proto'] || null,
+      xForwardedFor: req.headers['x-forwarded-for'] || null,
+    },
+    config: {
+      port: PORT,
+      hasWildcardOrigin: _hasWildcard,
+      allowedOrigins: ALLOWED_ORIGINS,
+    },
   });
 });
 
@@ -1863,13 +1967,6 @@ io.on('connection', (socket) => {
   // Handle connection errors on this socket
   socket.on('error', (error) => {
     console.error(`❌ Socket ${socket.id} error:`, error);
-  });
-
-  socket.on('disconnect', (reason) => {
-    if (authenticatedUserId) {
-      console.log(`👋 Socket disconnected: ${socket.id} (user: ${authenticatedUserId}, reason: ${reason})`);
-      userSockets.delete(authenticatedUserId);
-    }
   });
 
   // ── authenticate ──────────────────────────────────────────────────────────
