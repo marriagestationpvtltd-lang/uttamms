@@ -82,13 +82,15 @@ class UserDetailsService {
         Uri.parse('$_adminBaseUrl/get_user_activity.php?userid=$userId'),
         headers: {
           'Accept': 'application/json',
-          if (token != null) 'Authorization': 'Bearer $token',
+          if (!kIsWeb && token != null) 'Authorization': 'Bearer $token',
         },
       );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final payload = data['data'] ?? data;
-        return ActivityStats.fromJson(payload is Map<String, dynamic> ? payload : {});
+        return ActivityStats.fromJson(
+          payload is Map<String, dynamic> ? payload : {},
+        );
       }
       return ActivityStats.empty();
     } catch (e) {

@@ -11,6 +11,10 @@ class UserService {
   static const String baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
+    if (kIsWeb) {
+      // Keep web GET requests simple to avoid CORS preflight failures.
+      return {'Accept': 'application/json'};
+    }
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     return {

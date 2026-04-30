@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dashmodel.dart';
@@ -15,6 +16,10 @@ class DashboardService {
   static const String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
+    if (kIsWeb) {
+      // Keep web GET requests simple to avoid CORS preflight failures.
+      return {'Accept': 'application/json'};
+    }
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('token');
     return {
