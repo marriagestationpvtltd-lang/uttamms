@@ -380,9 +380,9 @@ const io     = new Server(server, {
     allowedHeaders: ['Content-Type', 'Authorization'],
     ...(!_hasWildcard && { credentials: true }),
   },
-  // Prefer WebSocket — avoids repeated HTTP polling CORS pre-flight requests.
-  // Polling is kept as a fallback for environments where WebSocket is blocked.
-  transports: ['websocket', 'polling'],
+  // Use WebSocket transport exclusively — avoids repeated HTTP polling CORS
+  // pre-flight requests that cause failures in strict CORS environments.
+  transports: ['websocket'],
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks

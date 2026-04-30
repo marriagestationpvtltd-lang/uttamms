@@ -8108,7 +8108,6 @@ class _AdminPhotoViewerPageState extends State<_AdminPhotoViewerPage> {
       js_util.setProperty(anchor, 'href', url);
       js_util.setProperty(anchor, 'download', 'photo_${DateTime.now().millisecondsSinceEpoch}.$ext');
       js_util.setProperty(anchor, 'target', '_blank');
-      js_util.callMethod(document, 'body', []);
       final body = js_util.getProperty<Object>(document, 'body');
       js_util.callMethod(body, 'appendChild', [anchor]);
       js_util.callMethod(anchor, 'click', []);
