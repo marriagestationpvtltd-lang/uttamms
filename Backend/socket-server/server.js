@@ -3250,11 +3250,18 @@ app.post('/api/send-message', async (req, res) => {
     }
     const safeType = ['text', 'image', 'image_gallery', 'voice', 'profile_card', 'report', 'call'].includes(messageType)
       ? messageType : 'text';
+    const safeSenderId = senderId.toString();
+    const safeReceiverId = receiverId.toString();
+    const safeMessage = typeof message === 'string' ? message.slice(0, 65536) : '';
+
+    if (await isEitherBlocked(safeSenderId, safeReceiverId)) {
+      return res.status(403).json({ error: 'Messaging is blocked between these users' });
+    }
 
     // Ensure chat room exists
     await ensureChatRoom({
       chatRoomId,
-      user1Id:    senderId,   user2Id:    receiverId,
+      user1Id:    safeSenderId,   user2Id:    safeReceiverId,
       user1Name,              user2Name,
       user1Image,             user2Image,
     });
@@ -3266,32 +3273,58 @@ app.post('/api/send-message', async (req, res) => {
           is_read, is_delivered, replied_to, created_at, liked)
        VALUES (?,?,?,?,?,?,0,0,?,UTC_TIMESTAMP(),0)`,
       [
-        messageId, chatRoomId, senderId, receiverId,
-        message || '', safeType,
+        messageId, chatRoomId, safeSenderId, safeReceiverId,
+        safeMessage, safeType,
         repliedTo ? JSON.stringify(repliedTo) : null,
       ],
     );
 
     // Update chat room last message
     await updateChatRoomLastMessage({
-      chatRoomId, message, messageType: safeType,
-      senderId, receiverId, isReceiverViewing: false,
+      chatRoomId, message: safeMessage, messageType: safeType,
+      senderId: safeSenderId, receiverId: safeReceiverId, isReceiverViewing: false,
     });
 
     const timestamp = new Date().toISOString();
     const payload = {
-      messageId, chatRoomId, senderId, receiverId,
-      message: message || '', messageType: safeType,
+      messageId, chatRoomId, senderId: safeSenderId, receiverId: safeReceiverId,
+      message: safeMessage, messageType: safeType,
       timestamp, isRead: false, isDelivered: false,
       repliedTo: repliedTo || null,
       senderName: user1Name, receiverName: user2Name,
     };
 
-    // Broadcast to chat room so online participants receive it immediately
+    // Broadcast like the socket send path so both active chat screens and the
+    // admin monitor stay in sync even when the client had to fall back to HTTP.
     io.to(chatRoomId).emit('new_message', payload);
+    io.to(`user:${safeSenderId}`).emit('new_message', payload);
+    io.to(`user:${safeReceiverId}`).emit('new_message', payload);
+
+    io.to('admin_room').emit('send_message', {
+      messageId,
+      chatRoomId,
+      senderId: safeSenderId,
+      receiverId: safeReceiverId,
+      senderName: user1Name || `User ${safeSenderId}`,
+      receiverName: user2Name || `User ${safeReceiverId}`,
+      message: safeType === 'text' ? maskSensitiveData(safeMessage) : safeMessage,
+      messageType: safeType,
+      timestamp,
+    });
+
+    if (safeType === 'text') {
+      io.to('admin_room').emit('admin_activity', {
+        sender_id: safeSenderId,
+        receiver_id: safeReceiverId,
+        sender_name: user1Name || `User ${safeSenderId}`,
+        receiver_name: user2Name || `User ${safeReceiverId}`,
+        message: maskSensitiveData(safeMessage),
+        timestamp,
+      });
+    }
 
     // Update chat room lists for both participants
-    for (const uid of [senderId.toString(), receiverId.toString()]) {
+    for (const uid of [safeSenderId, safeReceiverId]) {
       try {
         const rooms = await getChatRooms(uid);
         io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
