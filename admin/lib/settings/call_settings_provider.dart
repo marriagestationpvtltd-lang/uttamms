@@ -140,60 +140,70 @@ class CallSettingsProvider extends ChangeNotifier {
           : null;
 
       // Some deployments expose /Api9 (capital A) instead of /api9.
-      // Try Api9 first to avoid a noisy initial 500 on case-sensitive hosts.
-      final uploadUrls = <String>{_uploadToneAltUrl, _uploadToneUrl}.toList();
+      // Try /api9 first, then fallback to /Api9.
+      final uploadUrls = <String>[_uploadToneUrl, _uploadToneAltUrl];
       Map<String, dynamic>? decoded;
       int? lastStatusCode;
       String? lastMessage;
+      Object? lastTransportError;
 
       for (final uploadUrl in uploadUrls) {
-        late http.StreamedResponse response;
-
-        if (fileBytes != null) {
-          // Use the redirect-aware helper so that a server-side 301/302 redirect
-          // does NOT silently convert POST → GET (which would cause the PHP
-          // endpoint to return "Invalid request method.").
-          response = await uploadMultipartPost(
-            url: uploadUrl,
-            fieldName: 'tone',
-            bytes: fileBytes,
-            filename: fileName,
-            contentType: _audioMediaType(fileName),
-            extraHeaders: authHeader,
-          ).timeout(const Duration(seconds: 30));
-        } else {
-          // Fallback: path available but bytes were not pre-read (native only).
-          final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
-          if (authHeader != null) request.headers.addAll(authHeader);
-          request.files.add(
-            await http.MultipartFile.fromPath(
-              'tone',
-              path!,
-              filename: fileName,
-            ),
-          );
-          response = await request.send().timeout(const Duration(seconds: 30));
-        }
-
-        final body = await response.stream.bytesToString();
-        lastStatusCode = response.statusCode;
-        decoded = null;
         try {
-          final raw = jsonDecode(body);
-          if (raw is Map<String, dynamic>) decoded = raw;
-        } catch (_) {
+          late http.StreamedResponse response;
+
+          if (fileBytes != null) {
+            // Use the redirect-aware helper so that a server-side 301/302 redirect
+            // does NOT silently convert POST → GET (which would cause the PHP
+            // endpoint to return "Invalid request method.").
+            response = await uploadMultipartPost(
+              url: uploadUrl,
+              fieldName: 'tone',
+              bytes: fileBytes,
+              filename: fileName,
+              contentType: _audioMediaType(fileName),
+              extraHeaders: authHeader,
+            ).timeout(const Duration(seconds: 30));
+          } else {
+            // Fallback: path available but bytes were not pre-read (native only).
+            final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
+            if (authHeader != null) request.headers.addAll(authHeader);
+            request.files.add(
+              await http.MultipartFile.fromPath(
+                'tone',
+                path!,
+                filename: fileName,
+              ),
+            );
+            response = await request.send().timeout(
+              const Duration(seconds: 30),
+            );
+          }
+
+          final body = await response.stream.bytesToString();
+          lastStatusCode = response.statusCode;
           decoded = null;
-        }
+          try {
+            final raw = jsonDecode(body);
+            if (raw is Map<String, dynamic>) decoded = raw;
+          } catch (_) {
+            decoded = null;
+          }
 
-        if (response.statusCode == 200 && decoded != null) {
-          break;
-        }
+          if (response.statusCode == 200 && decoded != null) {
+            break;
+          }
 
-        lastMessage = decoded?['message']?.toString();
-        debugPrint(
-          'uploadCustomTone failed at $uploadUrl: '
-          'status=${response.statusCode}, body=$body',
-        );
+          lastMessage = decoded?['message']?.toString();
+          debugPrint(
+            'uploadCustomTone failed at $uploadUrl: '
+            'status=${response.statusCode}, body=$body',
+          );
+        } catch (e) {
+          // Web CORS failures throw before an HTTP response is available.
+          lastTransportError = e;
+          debugPrint('uploadCustomTone transport error at $uploadUrl: $e');
+          continue;
+        }
       }
 
       if (decoded == null || lastStatusCode != 200) {
@@ -201,6 +211,9 @@ class CallSettingsProvider extends ChangeNotifier {
           throw Exception(
             lastMessage ?? 'Upload failed (HTTP $lastStatusCode).',
           );
+        }
+        if (lastTransportError != null) {
+          throw Exception('Upload failed: $lastTransportError');
         }
         throw Exception(
           'Upload failed: server returned an unexpected response. '
