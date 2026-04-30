@@ -1951,7 +1951,7 @@ class _ChatWindowState extends State<ChatWindow> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(errorMsg)),
       );
-    });
+    }));
   }
 
   Future<void> _initializeRecorder() async {
