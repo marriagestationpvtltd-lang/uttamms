@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:html' as html;
+import 'dart:js_util' as js_util;
 import 'package:adminmrz/auth/service.dart';
 import 'package:adminmrz/adminchat/services/admin_socket_service.dart';
 import 'package:adminmrz/core/permissions.dart';
@@ -68,7 +68,7 @@ class _DashboardPageState extends State<DashboardPage> {
   // Tracks known user names fetched lazily for notification display.
   final Map<String, String> _globalUserNames = {};
   // JS event listener reference kept so we can remove it on dispose.
-  late final void Function(html.Event) _onChatNotifEvent;
+  late final Object _onChatNotifEvent;
 
   @override
   void initState() {
@@ -89,8 +89,8 @@ class _DashboardPageState extends State<DashboardPage> {
       const MessageMonitorScreen(),
     ];
     _startGlobalConversationListener();
-    _onChatNotifEvent = _handleChatNotifJsEvent;
-    html.window.addEventListener('chatNotification', _onChatNotifEvent);
+    _onChatNotifEvent = js_util.allowInterop(_handleChatNotifJsEvent);
+    js_util.callMethod(js_util.globalThis, 'addEventListener', ['chatNotification', _onChatNotifEvent]);
 
     // Check if there's a pending profile view from a new tab
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -101,17 +101,18 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   void dispose() {
     _globalMessageSub?.cancel();
-    html.window.removeEventListener('chatNotification', _onChatNotifEvent);
+    js_util.callMethod(js_util.globalThis, 'removeEventListener', ['chatNotification', _onChatNotifEvent]);
     super.dispose();
   }
 
   /// Handles the custom browser event dispatched when the admin clicks a
   /// chat browser notification.  Navigates to the Chat tab and opens the
   /// conversation with the user.
-  void _handleChatNotifJsEvent(html.Event event) {
+  void _handleChatNotifJsEvent(dynamic event) {
     if (!mounted) return;
-    final detail = (event as html.CustomEvent).detail;
-    final userIdStr = detail != null ? detail['userId']?.toString() : null;
+    final detail = js_util.getProperty<Object?>(event, 'detail');
+    if (detail == null) return;
+    final userIdStr = js_util.getProperty<Object?>(detail, 'userId')?.toString();
     if (userIdStr == null || userIdStr.isEmpty) return;
     final userId = int.tryParse(userIdStr);
     if (userId == null) return;
@@ -201,9 +202,10 @@ class _DashboardPageState extends State<DashboardPage> {
 
   void _checkPendingProfileView() {
     // Check if this tab was opened to view a specific user profile
-    final pendingUserId = html.window.sessionStorage['pendingProfileView'];
+    final sessionStorage = js_util.getProperty<Object>(js_util.globalThis, 'sessionStorage');
+    final pendingUserId = js_util.callMethod<Object?>(sessionStorage, 'getItem', ['pendingProfileView'])?.toString();
     if (pendingUserId != null && pendingUserId.isNotEmpty) {
-      html.window.sessionStorage.remove('pendingProfileView');
+      js_util.callMethod(sessionStorage, 'removeItem', ['pendingProfileView']);
       final userId = int.tryParse(pendingUserId);
       if (userId != null && mounted) {
         // Navigate to the user profile

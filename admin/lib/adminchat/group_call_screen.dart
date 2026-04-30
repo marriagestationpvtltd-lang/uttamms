@@ -691,6 +691,7 @@ class _GroupCallScreenState extends State<GroupCallScreen>
                   return m;
                 })
                 .where((u) => !excludeIds.contains(u['id']?.toString()))
+                .where((u) => u['_isOnline'] == true)
                 .toList();
           }
         }
@@ -728,6 +729,7 @@ class _GroupCallScreenState extends State<GroupCallScreen>
                 : null;
             return m;
           })
+          .where((u) => u['_isOnline'] == true)
           .toList();
       users.sort((a, b) {
         final ao = a['_isOnline'] as bool;
@@ -1643,7 +1645,7 @@ class _AddUserModalState extends State<_AddUserModal> {
                           ),
                         ),
                         Text(
-                          'Online users shown first',
+                          'Only online users shown',
                           style: TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                       ],
@@ -1701,8 +1703,8 @@ class _AddUserModalState extends State<_AddUserModal> {
                           const SizedBox(height: 12),
                           Text(
                             _query.isEmpty
-                                ? 'No users available'
-                                : 'No users match "$_query"',
+                                ? 'No online users available'
+                                : 'No online users match "$_query"',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                                 color: Colors.grey.shade500, fontSize: 14),

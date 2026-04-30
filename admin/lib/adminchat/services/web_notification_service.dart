@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:html' as html;
-import 'dart:js' as js;
+import 'dart:js_util' as js_util;
 import 'package:flutter/foundation.dart';
 
 /// Service for browser notifications and message sounds on the web platform.
@@ -148,10 +148,10 @@ class WebNotificationService {
 
     // Clicking the notification focuses the tab and opens the conversation.
     notification.onClick.listen((_) {
-      js.context.callMethod('eval', ['window.focus()']);
+      js_util.callMethod(js_util.globalThis, 'eval', ['window.focus()']);
       if (userId.isNotEmpty) {
         // Dispatch a custom event so the Flutter app can navigate to the user.
-        js.context.callMethod('eval', [
+        js_util.callMethod(js_util.globalThis, 'eval', [
           'window.dispatchEvent(new CustomEvent("chatNotification", {detail: {userId: ${json.encode(userId)}}}))'
         ]);
       }
@@ -167,7 +167,7 @@ class WebNotificationService {
   /// Works regardless of foreground/background state.
   static void playMessageSound() {
     try {
-      js.context.callMethod('eval', [
+      js_util.callMethod(js_util.globalThis, 'eval', [
         '''
         (function() {
           try {

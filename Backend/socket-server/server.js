@@ -359,19 +359,40 @@ const app    = express();
 // req.protocol returns 'https' when running behind nginx/Apache.
 app.set('trust proxy', 1);
 const server = http.createServer(app);
+
+// Build a CORS origin resolver that handles both wildcard and explicit lists.
+// When origin is '*', credentials cannot be set (browser rejects it), so we
+// only enable credentials for explicit origin lists.
+const _hasWildcard = ALLOWED_ORIGINS.includes('*');
+const _corsOrigin = _hasWildcard
+  ? '*'
+  : (origin, callback) => {
+      // Allow requests with no origin (e.g. server-to-server, Postman)
+      if (!origin) return callback(null, true);
+      if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error(`CORS: origin ${origin} not allowed`));
+    };
+
 const io     = new Server(server, {
   cors: {
-    origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
+    origin: _corsOrigin,
     methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    ...(!_hasWildcard && { credentials: true }),
   },
+  // Prefer WebSocket — avoids repeated HTTP polling CORS pre-flight requests.
+  // Polling is kept as a fallback for environments where WebSocket is blocked.
+  transports: ['websocket', 'polling'],
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
 });
 
 app.use(cors({
-  origin: ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS,
-  methods: ['GET', 'POST', 'OPTIONS'],
+  origin: _corsOrigin,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  ...(!_hasWildcard && { credentials: true }),
 }));
 app.use(express.json());
 app.use('/uploads', express.static(UPLOAD_DIR));
