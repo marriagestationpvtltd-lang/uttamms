@@ -42,6 +42,16 @@ class User {
   int phoneVerified;
   int emailVerified;
 
+  static String? _sanitizeProfilePicture(String? raw) {
+    final value = raw?.trim();
+    if (value == null || value.isEmpty || value == 'null') return null;
+    final lower = value.toLowerCase();
+    if (lower.endsWith('/default.png') || lower.endsWith('default.png')) {
+      return null;
+    }
+    return value;
+  }
+
   User({
     required this.id,
     required this.firstName,
@@ -67,7 +77,9 @@ class User {
 
   factory User.fromJson(Map<String, dynamic> json) {
     return User(
-      id: json['id'] is int ? json['id'] : int.tryParse(json['id'].toString()) ?? 0,
+      id: json['id'] is int
+          ? json['id']
+          : int.tryParse(json['id'].toString()) ?? 0,
       firstName: json['firstName']?.toString() ?? '',
       lastName: json['lastName']?.toString() ?? '',
       email: json['email']?.toString() ?? '',
@@ -76,20 +88,26 @@ class User {
       privacy: json['privacy']?.toString() ?? 'private',
       usertype: json['usertype']?.toString() ?? 'free',
       lastLogin: json['lastLogin']?.toString() ?? '',
-      profilePicture: json['profile_picture']?.toString(),
+      profilePicture: _sanitizeProfilePicture(
+        json['profile_picture']?.toString(),
+      ),
       isOnline: json['isOnline'] is int ? json['isOnline'] : 0,
       isActive: json['isActive'] is int ? json['isActive'] : 1,
       pageno: json['pageno'] is int ? json['pageno'] : null,
       gender: json['gender']?.toString() ?? 'Male',
-      registrationDate: json['registration_date']?.toString() ??
+      registrationDate:
+          json['registration_date']?.toString() ??
           json['created_at']?.toString() ??
           json['registrationDate']?.toString(),
-      expiryDate: json['expiry_date']?.toString() ??
+      expiryDate:
+          json['expiry_date']?.toString() ??
           json['subscription_expiry']?.toString() ??
           json['expiryDate']?.toString(),
-      paymentStatus: json['payment_status']?.toString() ??
+      paymentStatus:
+          json['payment_status']?.toString() ??
           json['paymentStatus']?.toString(),
-      phone: json['phone']?.toString() ??
+      phone:
+          json['phone']?.toString() ??
           json['mobile']?.toString() ??
           json['phone_number']?.toString(),
       phoneVerified: json['phone_verified'] is int
@@ -98,14 +116,23 @@ class User {
       emailVerified: json['email_verified'] is int
           ? json['email_verified']
           : (json['emailVerified'] is int
-              ? json['emailVerified']
-              : (json['isVerified'] is int ? json['isVerified'] : 0)),
+                ? json['emailVerified']
+                : (json['isVerified'] is int ? json['isVerified'] : 0)),
     );
   }
 
   String get fullName => '$firstName $lastName';
 
-  bool get hasProfilePicture => profilePicture != null && profilePicture!.isNotEmpty;
+  bool get hasProfilePicture {
+    final pic = profilePicture?.trim();
+    if (pic == null || pic.isEmpty || pic == 'null') return false;
+    final lower = pic.toLowerCase();
+    // Backend may send default placeholders that are not real user photos.
+    if (lower.endsWith('/default.png') || lower.endsWith('default.png')) {
+      return false;
+    }
+    return true;
+  }
 
   String get formattedStatus {
     return status.replaceAll('_', ' ').toUpperCase();

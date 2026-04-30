@@ -2,10 +2,7 @@ class UserDetailsResponse {
   final String status;
   final UserDetailsData data;
 
-  UserDetailsResponse({
-    required this.status,
-    required this.data,
-  });
+  UserDetailsResponse({required this.status, required this.data});
 
   factory UserDetailsResponse.fromJson(Map<String, dynamic> json) {
     return UserDetailsResponse(
@@ -83,6 +80,16 @@ class PersonalDetail {
   final String birthtime;
   final String birthcity;
 
+  static String _sanitizeProfilePicture(String? raw) {
+    final value = raw?.trim() ?? '';
+    if (value.isEmpty || value == 'null') return '';
+    final lower = value.toLowerCase();
+    if (lower.endsWith('/default.png') || lower.endsWith('default.png')) {
+      return '';
+    }
+    return value;
+  }
+
   PersonalDetail({
     required this.photoRequest,
     required this.firstName,
@@ -126,7 +133,9 @@ class PersonalDetail {
       photoRequest: json['photo_request']?.toString() ?? '',
       firstName: json['firstName']?.toString() ?? 'Not available',
       lastName: json['lastName']?.toString() ?? 'Not available',
-      profilePicture: json['profile_picture']?.toString() ?? '',
+      profilePicture: _sanitizeProfilePicture(
+        json['profile_picture']?.toString(),
+      ),
       userType: json['usertype']?.toString() ?? '',
       isVerified: json['isVerified'] is int ? json['isVerified'] : 0,
       privacy: json['privacy']?.toString() ?? '',
@@ -145,8 +154,11 @@ class PersonalDetail {
       businessName: json['businessname']?.toString() ?? '',
       memberId: json['memberid']?.toString() ?? 'Not available',
       heightName: json['height_name']?.toString() ?? 'Not available',
-      maritalStatusId: json['maritalStatusId'] is int ? json['maritalStatusId'] : 0,
-      maritalStatusName: json['maritalStatusName']?.toString() ?? 'Not available',
+      maritalStatusId: json['maritalStatusId'] is int
+          ? json['maritalStatusId']
+          : 0,
+      maritalStatusName:
+          json['maritalStatusName']?.toString() ?? 'Not available',
       motherTongue: json['motherTongue']?.toString() ?? 'Not available',
       aboutMe: json['aboutMe']?.toString() ?? 'Not available',
       birthDate: json['birthDate']?.toString() ?? '',
@@ -179,7 +191,14 @@ class PersonalDetail {
     }
   }
 
-  bool get hasProfilePicture => profilePicture.isNotEmpty;
+  bool get hasProfilePicture {
+    if (profilePicture.isEmpty || profilePicture == 'null') return false;
+    final lower = profilePicture.toLowerCase();
+    if (lower.endsWith('/default.png') || lower.endsWith('default.png')) {
+      return false;
+    }
+    return true;
+  }
 }
 
 class ContactDetail {
@@ -198,7 +217,8 @@ class ContactDetail {
   factory ContactDetail.fromJson(Map<String, dynamic> json) {
     return ContactDetail(
       email: json['email']?.toString() ?? '',
-      phone: json['phone']?.toString() ??
+      phone:
+          json['phone']?.toString() ??
           json['mobile']?.toString() ??
           json['phone_number']?.toString() ??
           '',
@@ -214,10 +234,15 @@ class ContactDetail {
     String? countryCode,
   }) {
     return ContactDetail(
-      email: (email ?? this.email).isNotEmpty ? (email ?? this.email) : this.email,
-      phone: (phone ?? this.phone).isNotEmpty ? (phone ?? this.phone) : this.phone,
-      whatsapp:
-          (whatsapp ?? this.whatsapp).isNotEmpty ? (whatsapp ?? this.whatsapp) : this.whatsapp,
+      email: (email ?? this.email).isNotEmpty
+          ? (email ?? this.email)
+          : this.email,
+      phone: (phone ?? this.phone).isNotEmpty
+          ? (phone ?? this.phone)
+          : this.phone,
+      whatsapp: (whatsapp ?? this.whatsapp).isNotEmpty
+          ? (whatsapp ?? this.whatsapp)
+          : this.whatsapp,
       countryCode: (countryCode ?? this.countryCode).isNotEmpty
           ? (countryCode ?? this.countryCode)
           : this.countryCode,
@@ -425,7 +450,8 @@ class ActivityStats {
   });
 
   factory ActivityStats.fromJson(Map<String, dynamic> json) {
-    int _parse(dynamic v) => v is int ? v : int.tryParse(v?.toString() ?? '0') ?? 0;
+    int _parse(dynamic v) =>
+        v is int ? v : int.tryParse(v?.toString() ?? '0') ?? 0;
     return ActivityStats(
       requestsSent: _parse(json['requests_sent']),
       requestsReceived: _parse(json['requests_received']),
@@ -437,11 +463,11 @@ class ActivityStats {
   }
 
   factory ActivityStats.empty() => ActivityStats(
-        requestsSent: 0,
-        requestsReceived: 0,
-        chatRequestsSent: 0,
-        chatRequestsAccepted: 0,
-        profileViews: 0,
-        matchesCount: 0,
-      );
+    requestsSent: 0,
+    requestsReceived: 0,
+    chatRequestsSent: 0,
+    chatRequestsAccepted: 0,
+    profileViews: 0,
+    matchesCount: 0,
+  );
 }

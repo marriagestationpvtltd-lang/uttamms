@@ -74,7 +74,34 @@ $allowedMimes = [
     'application/octet-stream',
 ];
 
-$fileMime = mime_content_type($_FILES['tone']['tmp_name']);
+$fileMime = null;
+$tmpName = $_FILES['tone']['tmp_name'] ?? '';
+
+// Some hosts disable mime_content_type(); use multiple fallbacks.
+if ($tmpName !== '' && function_exists('mime_content_type')) {
+    $detected = @mime_content_type($tmpName);
+    if (is_string($detected) && $detected !== '') {
+        $fileMime = $detected;
+    }
+}
+
+if (($fileMime === null || $fileMime === '') && function_exists('finfo_open') && $tmpName !== '') {
+    $finfo = @finfo_open(FILEINFO_MIME_TYPE);
+    if ($finfo !== false) {
+        $detected = @finfo_file($finfo, $tmpName);
+        @finfo_close($finfo);
+        if (is_string($detected) && $detected !== '') {
+            $fileMime = $detected;
+        }
+    }
+}
+
+if ($fileMime === null || $fileMime === '') {
+    $reportedMime = $_FILES['tone']['type'] ?? null;
+    if (is_string($reportedMime) && $reportedMime !== '') {
+        $fileMime = $reportedMime;
+    }
+}
 if (!in_array($fileMime, $allowedMimes, true)) {
     http_response_code(422);
     echo json_encode(['success' => false, 'message' => 'Invalid file type. Allowed: mp3, mp4, aac, ogg, wav, m4a, webm']);
@@ -135,7 +162,15 @@ try {
             PDO::ATTR_EMULATE_PREPARES   => false,
         ]
     );
+} catch (PDOException $e) {
+    error_log('upload_call_tone DB connect error: ' . $e->getMessage());
+    @unlink($destPath);
+    http_response_code(503);
+    echo json_encode(['success' => false, 'message' => 'Database connection failed']);
+    exit;
+}
 
+try {
     // Ensure table exists
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -163,7 +198,7 @@ try {
         ],
     ]);
 
-} catch (PDOException $e) {
+} catch (Throwable $e) {
     error_log('upload_call_tone DB error: ' . $e->getMessage());
     // Roll back the file we just saved to avoid orphaned files
     @unlink($destPath);
