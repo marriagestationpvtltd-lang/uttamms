@@ -116,9 +116,9 @@ if ($_FILES['tone']['size'] > 5 * 1024 * 1024) {
 }
 
 // ── Save file ─────────────────────────────────────────────────────────────────
-// Build the upload directory using __DIR__ so the path is always relative to
-// this script's location, consistent with the other upload scripts in the project.
-$uploadDir = __DIR__ . '/../uploads/ringtones/';
+// Store files in the public uploads directory so the returned /uploads URL
+// resolves to the file that was just written.
+$uploadDir = __DIR__ . '/../../uploads/ringtones/';
 if (!is_dir($uploadDir)) {
     // Use @ to suppress warnings; check is_dir again to handle race conditions
     // where a concurrent request already created the directory.
