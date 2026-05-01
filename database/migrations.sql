@@ -369,7 +369,7 @@ DEALLOCATE PREPARE _stmt;
 SET @_add_cm_delivered_at = (
     SELECT IF(
         COUNT(*) = 0,
-        'ALTER TABLE chat_messages ADD COLUMN delivered_at DATETIME DEFAULT NULL AFTER is_unsent',
+        'ALTER TABLE chat_messages ADD COLUMN delivered_at DATETIME DEFAULT NULL AFTER reactions',
         'SELECT 1'
     )
     FROM INFORMATION_SCHEMA.COLUMNS

@@ -875,8 +875,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     replied_to              JSON,
     liked                   TINYINT(1)   NOT NULL DEFAULT 0,
     reactions               TEXT         NULL DEFAULT NULL,
-    delivered_at            DATETIME     DEFAULT NULL,   -- when delivered to receiver
-    read_at                 DATETIME     DEFAULT NULL,   -- when read by receiver
+    delivered_at            DATETIME     DEFAULT NULL,   -- set when Socket.IO ACK confirms delivery; mirrors is_delivered flag
+    read_at                 DATETIME     DEFAULT NULL,   -- set when receiver opens the message; mirrors is_read flag (is_read=1 when read_at IS NOT NULL)
     created_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_chat_room_time       (chat_room_id, created_at),
     INDEX idx_created_at           (created_at),
@@ -893,7 +893,7 @@ CREATE TABLE IF NOT EXISTS user_online_status (
     is_online           TINYINT(1)   NOT NULL DEFAULT 0,
     last_seen           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     active_chat_room_id VARCHAR(150) DEFAULT NULL,
-    socket_id           VARCHAR(255) DEFAULT NULL,   -- current Socket.IO connection ID
+    socket_id           VARCHAR(255) DEFAULT NULL,   -- current Socket.IO connection ID; cleared to NULL on disconnect / reconnect
     INDEX idx_uos_online (is_online)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
