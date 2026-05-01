@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'callmanager.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
@@ -159,11 +158,10 @@ class AdminSocketService {
       return;
     }
 
-    final transports = kIsWeb
-        // Browser + strict proxy setups frequently reject WS upgrades with 400.
-        // Polling keeps chat functional and Socket.IO can still reconnect safely.
-        ? <String>['polling']
-        : <String>['websocket', 'polling'];
+    // The server is configured with transports: ['websocket'] only.
+    // Sending a polling request results in HTTP 400 Bad Request.
+    // Use websocket-only on all platforms to match the server configuration.
+    const transports = <String>['websocket'];
 
     // Build socket auth payload — include the bearer token when available so
     // the server can validate admin identity against admin_tokens in the DB.
