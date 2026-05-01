@@ -1701,36 +1701,6 @@ class _ChatSidebarState extends State<ChatSidebar> {
                         )
                       : null,
                 ),
-                    radius: 20,
-                    backgroundColor: avatarFallbackColor,
-                    child: profileImage.isNotEmpty
-                        ? ClipOval(
-                            child: CachedNetworkImage(
-                              imageUrl: profileImage,
-                              width: 40,
-                              height: 40,
-                              fit: BoxFit.cover,
-                              errorWidget: (context, url, error) => Icon(
-                                gender.toLowerCase() == 'female'
-                                    ? Icons.female
-                                    : Icons.male,
-                                color: gender.toLowerCase() == 'female'
-                                    ? const Color(0xFFE91E63)
-                                    : const Color(0xFF1565C0),
-                                size: 20,
-                              ),
-                            ),
-                          )
-                        : Icon(
-                            gender.toLowerCase() == 'female'
-                                ? Icons.female
-                                : Icons.male,
-                            color: gender.toLowerCase() == 'female'
-                                ? const Color(0xFFE91E63)
-                                : const Color(0xFF1565C0),
-                            size: 20,
-                          ),
-                  ),
                 Positioned(
                   right: 0,
                   bottom: 0,
