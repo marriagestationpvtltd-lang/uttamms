@@ -89,15 +89,20 @@ class _DashboardPageState extends State<DashboardPage> {
       const ActivityFeedScreen(),
       const MessageMonitorScreen(),
     ];
-    _startGlobalConversationListener();
     _onChatNotifEvent = ((JSAny? event) => _handleChatNotifJsEvent(event)).toJS;
     js.context.callMethod('addEventListener', [
       'chatNotification',
       _onChatNotifEvent,
     ]);
 
-    // Check if there's a pending profile view from a new tab
+    // Use a post-frame callback so Provider.of<AuthProvider> is available.
+    // We set the admin bearer token on the socket service BEFORE the first
+    // connect() call so the server can validate the session against the DB.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final token = Provider.of<AuthProvider>(context, listen: false).token;
+      _socketService.setToken(token);
+      _startGlobalConversationListener();
       _checkPendingProfileView();
     });
   }

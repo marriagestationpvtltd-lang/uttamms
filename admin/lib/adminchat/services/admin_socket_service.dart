@@ -139,6 +139,17 @@ class AdminSocketService {
 
   bool get isConnected => _socket?.connected ?? false;
 
+  /// Admin bearer token (from AuthProvider) used to authenticate the socket
+  /// connection against the admin_tokens database table.
+  String? _adminToken;
+
+  /// Store the admin bearer token so it is included in the next [connect] call.
+  /// Call this before [connect] so the server can validate the admin session
+  /// from the database rather than trusting only the userId.
+  void setToken(String? token) {
+    _adminToken = token;
+  }
+
   // ── Connect / Disconnect ──────────────────────────────────────────────────
 
   void connect() {
@@ -154,6 +165,13 @@ class AdminSocketService {
         ? <String>['polling']
         : <String>['websocket', 'polling'];
 
+    // Build socket auth payload — include the bearer token when available so
+    // the server can validate admin identity against admin_tokens in the DB.
+    final authPayload = <String, dynamic>{'userId': kAdminUserId};
+    if (_adminToken?.isNotEmpty ?? false) {
+      authPayload['token'] = _adminToken!;
+    }
+
     _socket = IO.io(
       kAdminSocketUrl,
       IO.OptionBuilder()
@@ -164,6 +182,7 @@ class AdminSocketService {
           .setReconnectionAttempts(kAdminSocketReconnectAttempts)
           .enableReconnection()
           .disableAutoConnect()
+          .setAuth(authPayload)
           .build(),
     );
 
