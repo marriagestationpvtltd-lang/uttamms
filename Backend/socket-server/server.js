@@ -342,6 +342,41 @@ pool.getConnection()
       console.log('✅ Added idx_sender_receiver_time index to chat_messages');
     }
 
+    // Ensure admin_tokens table exists (shared with the PHP backend; required by
+    // requireAdminToken middleware for GET /api/admin/chat-history and similar
+    // admin REST endpoints).  Using IF NOT EXISTS makes this idempotent.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`admin_tokens\` (
+        \`id\`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        \`admin_id\`   INT UNSIGNED NOT NULL,
+        \`token\`      VARCHAR(128) NOT NULL,
+        \`expires_at\` DATETIME NOT NULL,
+        \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uk_admin_token\` (\`token\`),
+        INDEX \`idx_at_admin_id\`   (\`admin_id\`),
+        INDEX \`idx_at_expires_at\` (\`expires_at\`),
+        FOREIGN KEY (\`admin_id\`) REFERENCES \`admins\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log('✅ admin_tokens table ready');
+
+    // Ensure user_tokens table exists (shared with the PHP backend; used by
+    // the socket server to validate bearer tokens sent in socket.handshake.auth
+    // so the server can verify the connecting user's identity from the DB).
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`user_tokens\` (
+        \`id\`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        \`userid\`     INT UNSIGNED NOT NULL,
+        \`token\`      VARCHAR(255) NOT NULL,
+        \`expires_at\` DATETIME     DEFAULT NULL,
+        \`platform\`   VARCHAR(50)  DEFAULT 'mobile',
+        \`created_at\` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uk_ut_token\` (\`token\`),
+        INDEX \`idx_ut_userid\`    (\`userid\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `).catch(e => console.warn('user_tokens table note:', e.message));
+    console.log('✅ user_tokens table ready');
+
     conn.release();
   })
   .catch(err => { console.error('❌ MySQL connection failed:', err.message); });
@@ -1986,7 +2021,67 @@ io.on('connection', (socket) => {
   // ── authenticate ──────────────────────────────────────────────────────────
   socket.on('authenticate', async ({ userId }) => {
     if (!userId) return;
-    authenticatedUserId = userId.toString();
+    const claimedUserId = userId.toString();
+
+    // If the client supplied a bearer token in socket.handshake.auth, validate
+    // it against the database so the server can confirm the connecting user's
+    // identity rather than blindly trusting the client-provided userId.
+    // Falls back to trusting the client when no token is present (backward
+    // compat with older app versions / development setups).
+    const handshakeToken = (socket.handshake.auth && socket.handshake.auth.token)
+      ? String(socket.handshake.auth.token).slice(0, 255)
+      : null;
+
+    if (handshakeToken) {
+      try {
+        if (claimedUserId === '1') {
+          // Admin — validate against admin_tokens
+          const [[adminRow]] = await pool.query(
+            `SELECT a.id FROM admin_tokens t
+               JOIN admins a ON a.id = t.admin_id
+              WHERE t.token = ? AND t.expires_at > UTC_TIMESTAMP() AND a.is_active = 1
+              LIMIT 1`,
+            [handshakeToken],
+          );
+          if (!adminRow) {
+            console.warn(`authenticate: invalid admin token (socket=${socket.id})`);
+            socket.emit('authentication_error', { error: 'Invalid or expired admin token' });
+            socket.disconnect(true);
+            return;
+          }
+          authenticatedUserId = '1';
+        } else {
+          // Regular user — validate against user_tokens
+          const [[userRow]] = await pool.query(
+            `SELECT userid FROM user_tokens
+              WHERE token = ?
+                AND (expires_at IS NULL OR expires_at > UTC_TIMESTAMP())
+              LIMIT 1`,
+            [handshakeToken],
+          );
+          if (!userRow) {
+            console.warn(`authenticate: invalid user token for claimed userId=${claimedUserId} (socket=${socket.id})`);
+            socket.emit('authentication_error', { error: 'Invalid or expired token' });
+            socket.disconnect(true);
+            return;
+          }
+          const dbUserId = userRow.userid.toString();
+          if (dbUserId !== claimedUserId) {
+            // Token belongs to a different user — use the DB-verified userId
+            console.warn(`authenticate: token userId mismatch (claimed=${claimedUserId}, actual=${dbUserId}); using actual`);
+          }
+          authenticatedUserId = dbUserId;
+        }
+      } catch (err) {
+        // DB error — fail open (trust client userId) to avoid breaking existing flow
+        console.error('authenticate token validation error:', err.message);
+        authenticatedUserId = claimedUserId;
+      }
+    } else {
+      // No token — trust client userId (backward compat)
+      authenticatedUserId = claimedUserId;
+    }
+
     userSockets.set(authenticatedUserId, socket.id);
 
     // Join a personal room so we can push status changes to this user
@@ -2046,9 +2141,40 @@ io.on('connection', (socket) => {
 
   // ── admin_join ────────────────────────────────────────────────────────────
   // Admin panel emits this to subscribe to real-time activity and message events.
-  // Only sockets authenticated as the admin user (userId === '1') may join.
-  socket.on('admin_join', () => {
-    if (authenticatedUserId !== '1') return;
+  // Allowed when:
+  //   1. The socket was already authenticated as userId='1', OR
+  //   2. A valid admin token was passed in socket.handshake.auth.token
+  //      (validated against admin_tokens — allows database-level auth).
+  socket.on('admin_join', async () => {
+    let isAdmin = authenticatedUserId === '1';
+
+    // Also accept admin connections that carry a valid admin_tokens token in
+    // the socket handshake but haven't gone through userId='1' authenticate.
+    if (!isAdmin) {
+      const handshakeToken = (socket.handshake.auth && socket.handshake.auth.token)
+        ? String(socket.handshake.auth.token).slice(0, 255)
+        : null;
+      if (handshakeToken) {
+        try {
+          const [[adminRow]] = await pool.query(
+            `SELECT a.id FROM admin_tokens t
+               JOIN admins a ON a.id = t.admin_id
+              WHERE t.token = ? AND t.expires_at > UTC_TIMESTAMP() AND a.is_active = 1
+              LIMIT 1`,
+            [handshakeToken],
+          );
+          if (adminRow) {
+            isAdmin = true;
+            // Ensure authenticatedUserId reflects admin status
+            if (!authenticatedUserId) authenticatedUserId = '1';
+          }
+        } catch (err) {
+          console.error('admin_join token validation error:', err.message);
+        }
+      }
+    }
+
+    if (!isAdmin) return;
     socket.join('admin_activity');
     socket.join('admin_room');
     console.log(`🛡️  Admin socket ${socket.id} joined admin_activity and admin_room`);
