@@ -1956,6 +1956,24 @@ function parseImageUrls(messageType, message) {
   return [];
 }
 
+/**
+ * Safely converts a Date, string, or null/undefined value to an ISO-8601
+ * string.  Returns null instead of throwing for invalid or zero dates.
+ */
+function safeToISOString(val) {
+  if (val == null) return null;
+  if (val instanceof Date) {
+    return isNaN(val.getTime()) ? null : val.toISOString();
+  }
+  if (typeof val === 'string') {
+    // Already a string (e.g. returned by some MySQL drivers with dateStrings:true)
+    // Validate it is parseable before returning.
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : val;
+  }
+  return null;
+}
+
 // Convert a DB row to the format Flutter expects (mirrors Firestore document shape)
 function toMessageMap(row) {
   let repliedTo = null;
@@ -1985,9 +2003,9 @@ function toMessageMap(row) {
     isDeletedForReceiver:  row.is_deleted_for_receiver === 1,
     isEdited:              row.is_edited === 1,
     isUnsent:              row.is_unsent === 1,
-    editedAt:              row.edited_at ? row.edited_at.toISOString() : null,
+    editedAt:              safeToISOString(row.edited_at),
     repliedTo:             repliedTo,
-    timestamp:             row.created_at ? row.created_at.toISOString() : null,
+    timestamp:             safeToISOString(row.created_at),
     liked:                 row.liked === 1,
     reactions:             (() => {
       try { return row.reactions ? JSON.parse(row.reactions) : {}; }
