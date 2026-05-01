@@ -57,6 +57,34 @@ ALTER TABLE user_documents
 
 -- 5. Remove legacy new-schema columns that are replaced by the above
 --    (safe to drop if they exist; harmless if they do not)
-ALTER TABLE user_documents
-    DROP COLUMN IF EXISTS doc_type,
-    DROP COLUMN IF EXISTS doc_url;
+--    MySQL does not support DROP COLUMN IF EXISTS, so we use an
+--    INFORMATION_SCHEMA check with PREPARE/EXECUTE to make this idempotent.
+SET @_drop_col_doc_type = (
+    SELECT IF(
+        COUNT(*) > 0,
+        'ALTER TABLE user_documents DROP COLUMN doc_type',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_documents'
+      AND COLUMN_NAME  = 'doc_type'
+);
+PREPARE _stmt FROM @_drop_col_doc_type;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @_drop_col_doc_url = (
+    SELECT IF(
+        COUNT(*) > 0,
+        'ALTER TABLE user_documents DROP COLUMN doc_url',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_documents'
+      AND COLUMN_NAME  = 'doc_url'
+);
+PREPARE _stmt FROM @_drop_col_doc_url;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
