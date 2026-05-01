@@ -875,8 +875,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     replied_to              JSON,
     liked                   TINYINT(1)   NOT NULL DEFAULT 0,
     reactions               TEXT         NULL DEFAULT NULL,
-    delivered_at            DATETIME     DEFAULT NULL,   -- set when Socket.IO ACK confirms delivery; mirrors is_delivered flag
-    read_at                 DATETIME     DEFAULT NULL,   -- set when receiver opens the message; mirrors is_read flag (is_read=1 when read_at IS NOT NULL)
+    delivered_at            DATETIME     DEFAULT NULL,   -- set when Socket.IO ACK confirms delivery; mirrors is_delivered flag (is_delivered=1 when delivered_at IS NOT NULL); app layer keeps both in sync
+    read_at                 DATETIME     DEFAULT NULL,   -- set when receiver opens the message; mirrors is_read flag (is_read=1 when read_at IS NOT NULL); app layer keeps both in sync
     created_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_chat_room_time       (chat_room_id, created_at),
     INDEX idx_created_at           (created_at),
