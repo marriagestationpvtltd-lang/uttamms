@@ -1502,8 +1502,29 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
       final messageId = _uuid.v4();
       final bool receiverViewingThisChat = _isReceiverViewingThisChat;
+      final int recordDuration = _recordDurationNotifier.value;
 
-      // Read file bytes cross-platform (works on web and native)
+      // Step 1: Show optimistic UI immediately so the message appears sent at once.
+      setState(() {
+        _cachedMessages.add({
+          'messageId': messageId,
+          'senderId': widget.currentUserId,
+          'receiverId': widget.receiverId,
+          'message': path,  // local path shown while uploading
+          'messageType': 'voice',
+          'timestamp': DateTime.now(),
+          'isRead': receiverViewingThisChat,
+          'isDelivered': receiverViewingThisChat,
+          'isDeletedForSender': false,
+          'isDeletedForReceiver': false,
+          'duration': recordDuration,
+          'isUploading': true,
+        });
+        _messagesCacheVersion++;
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+
+      // Step 2: Read file bytes and upload in background.
       Uint8List voiceBytes;
       if (kIsWeb) {
         // On web path is a blob URL; use XFile to read bytes
@@ -1520,25 +1541,22 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         chatRoomId: widget.chatRoomId,
       );
 
-      // Optimistic UI: add the voice message immediately so the list grows once.
-      setState(() {
-        _cachedMessages.add({
-          'messageId': messageId,
-          'senderId': widget.currentUserId,
-          'receiverId': widget.receiverId,
-          'message': voiceUrl,
-          'messageType': 'voice',
-          'timestamp': DateTime.now(),
-          'isRead': receiverViewingThisChat,
-          'isDelivered': receiverViewingThisChat,
-          'isDeletedForSender': false,
-          'isDeletedForReceiver': false,
-          'duration': _recordDurationNotifier.value,
-        });
-        _messagesCacheVersion++;
-      });
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+      if (!mounted) return;
 
+      // Step 3: Update the optimistic message with the real uploaded URL.
+      setState(() {
+        final msgIndex = _cachedMessages.indexWhere((m) => m['messageId'] == messageId);
+        if (msgIndex != -1) {
+          _cachedMessages[msgIndex] = {
+            ..._cachedMessages[msgIndex],
+            'message': voiceUrl,
+            'isUploading': false,
+          };
+          _messagesCacheVersion++;
+        }
+      });
+
+      // Step 4: Notify the server/receiver via socket or HTTP fallback.
       if (_socketService.isConnected) {
         _socketService.sendMessage(
           chatRoomId:        widget.chatRoomId,
@@ -2637,6 +2655,67 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
         return _buildImageGallery(text: text);
       case 'voice':
         final totalSecs = duration ?? 0;
+        final bool isVoiceUploading = messageData?['isUploading'] == true;
+        // While uploading show a compact sending indicator instead of play controls.
+        if (isVoiceUploading) {
+          return SizedBox(
+            width: 210,
+            child: Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: isMine
+                        ? Colors.white.withOpacity(0.20)
+                        : _accentColor.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(10),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        isMine ? Colors.white : _accentColor,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: null, // indeterminate
+                          minHeight: 4.5,
+                          backgroundColor: isMine
+                              ? Colors.white.withOpacity(0.18)
+                              : Colors.black.withOpacity(0.08),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            isMine ? Colors.white : _accentColor,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        _formatDuration(totalSecs),
+                        style: TextStyle(
+                          color: isMine ? Colors.white70 : _lightTextColor,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
         // A single ValueListenableBuilder on the combined audio state notifier
         // rebuilds only this bubble on each position/state tick; the message
         // list cache remains valid throughout playback.
