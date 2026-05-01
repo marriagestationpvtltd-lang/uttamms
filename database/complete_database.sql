@@ -2661,6 +2661,21 @@ DROP PROCEDURE IF EXISTS _migrate_add_ua_columns;
 -- independently.
 -- =============================================================================
 
+-- 0. Create the user_documents table if it does not exist at all.
+--    This makes the migration safe to run on databases that were initialised
+--    from an older schema that pre-dates the table.
+CREATE TABLE IF NOT EXISTS user_documents (
+    id               INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    userid           INT UNSIGNED NOT NULL,
+    documenttype     VARCHAR(100)  DEFAULT NULL,
+    documentidnumber VARCHAR(100)  DEFAULT NULL,
+    photo            VARCHAR(500)  DEFAULT NULL,
+    status           ENUM('not_uploaded','pending','approved','rejected') NOT NULL DEFAULT 'not_uploaded',
+    created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (userid) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 1. Add reject_reason column to user_documents (stores admin rejection note
 --    per document row rather than globally on users).
 --    MySQL does not support ADD COLUMN IF NOT EXISTS, so we use an
