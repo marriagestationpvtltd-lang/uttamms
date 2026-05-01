@@ -16,6 +16,7 @@
 --   7. chat_messages    – add delivered_at, read_at columns + unread index
 --   8. group_call_members – create table for per-member group-call tracking
 --   9. user_settings    – create key-value settings table
+--  9b. app_settings     – create global app key-value settings table (call-tone)
 --  10. users            – add isOnline index
 --  11. DROP obsolete legacy tables (safe, all guarded with IF EXISTS)
 -- =============================================================================
@@ -445,6 +446,23 @@ CREATE TABLE IF NOT EXISTS user_settings (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_us_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 9b. app_settings – global key-value store for application-wide settings
+--     (used by api9/upload_call_tone.php and api9/update_app_settings.php)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    `setting_key`   VARCHAR(100) NOT NULL PRIMARY KEY,
+    `setting_value` TEXT         DEFAULT NULL,
+    `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default call-tone settings (INSERT IGNORE is idempotent)
+INSERT IGNORE INTO app_settings (`setting_key`, `setting_value`) VALUES
+    ('call_tone_id',          'default'),
+    ('custom_call_tone_url',  ''),
+    ('custom_call_tone_name', '');
 
 -- =============================================================================
 -- 10. users – add index on isOnline for fast online-user lookups

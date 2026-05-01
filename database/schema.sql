@@ -796,6 +796,19 @@ CREATE TABLE IF NOT EXISTS user_call_settings (
     FOREIGN KEY (ringtone_id) REFERENCES ringtones(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- Global application settings (key-value store used by admin call-tone APIs)
+CREATE TABLE IF NOT EXISTS app_settings (
+    `setting_key`   VARCHAR(100) NOT NULL PRIMARY KEY,
+    `setting_value` TEXT         DEFAULT NULL,
+    `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Seed default call-tone settings
+INSERT IGNORE INTO app_settings (`setting_key`, `setting_value`) VALUES
+    ('call_tone_id',          'default'),
+    ('custom_call_tone_url',  ''),
+    ('custom_call_tone_name', '');
+
 -- =============================================================================
 -- 14. USER GALLERY  (photo gallery)
 -- =============================================================================

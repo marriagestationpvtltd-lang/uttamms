@@ -74,13 +74,20 @@ try {
 }
 
 // ── Ensure app_settings table exists ─────────────────────────────────────────
-$pdo->exec("
-    CREATE TABLE IF NOT EXISTS app_settings (
-        `setting_key`   VARCHAR(100) NOT NULL PRIMARY KEY,
-        `setting_value` TEXT,
-        updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-");
+try {
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS app_settings (
+            `setting_key`   VARCHAR(100) NOT NULL PRIMARY KEY,
+            `setting_value` TEXT,
+            updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    ");
+} catch (PDOException $e) {
+    error_log('update_app_settings: failed to ensure app_settings table: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'message' => 'Server configuration error. Please contact support.']);
+    exit;
+}
 
 // ── Helper: upsert a setting ──────────────────────────────────────────────────
 function upsertSetting(PDO $pdo, string $key, ?string $value): void {
