@@ -148,10 +148,11 @@ if ($hasChatMessages) {
         )";
     $lastMsgOrderBy = "last_message_at DESC,";
 } else {
-    $chatMsgSubquery    = "NULL";
-    $chatMsgTypeSubquery = "NULL";
-    $lastMsgAtSubquery  = "NULL";
-    $lastSenderSubquery = "NULL";
+    $SQL_NULL = 'NULL';
+    $chatMsgSubquery    = $SQL_NULL;
+    $chatMsgTypeSubquery = $SQL_NULL;
+    $lastMsgAtSubquery  = $SQL_NULL;
+    $lastSenderSubquery = $SQL_NULL;
     $lastMsgOrderBy     = "";
 }
 
