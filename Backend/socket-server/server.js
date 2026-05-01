@@ -342,6 +342,24 @@ pool.getConnection()
       console.log('✅ Added idx_sender_receiver_time index to chat_messages');
     }
 
+    // Ensure admin_tokens table exists (shared with the PHP backend; required by
+    // requireAdminToken middleware for GET /api/admin/chat-history and similar
+    // admin REST endpoints).  Using IF NOT EXISTS makes this idempotent.
+    await conn.query(`
+      CREATE TABLE IF NOT EXISTS \`admin_tokens\` (
+        \`id\`         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+        \`admin_id\`   INT UNSIGNED NOT NULL,
+        \`token\`      VARCHAR(128) NOT NULL,
+        \`expires_at\` DATETIME NOT NULL,
+        \`created_at\` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY \`uk_admin_token\` (\`token\`),
+        INDEX \`idx_at_admin_id\`   (\`admin_id\`),
+        INDEX \`idx_at_expires_at\` (\`expires_at\`),
+        FOREIGN KEY (\`admin_id\`) REFERENCES \`admins\` (\`id\`) ON DELETE CASCADE
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+    console.log('✅ admin_tokens table ready');
+
     conn.release();
   })
   .catch(err => { console.error('❌ MySQL connection failed:', err.message); });

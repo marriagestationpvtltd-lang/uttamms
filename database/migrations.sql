@@ -465,6 +465,25 @@ INSERT IGNORE INTO app_settings (`setting_key`, `setting_value`) VALUES
     ('custom_call_tone_name', '');
 
 -- =============================================================================
+-- 9c. admin_tokens – bearer tokens issued on admin login
+--     Required by the Node.js socket-server requireAdminToken middleware and by
+--     the PHP admin login endpoint. Databases migrated from the old schema may
+--     not have this table; CREATE TABLE IF NOT EXISTS makes this idempotent.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS admin_tokens (
+    id         INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    admin_id   INT UNSIGNED NOT NULL,
+    token      VARCHAR(128) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_admin_token (token),
+    INDEX idx_at_admin_id   (admin_id),
+    INDEX idx_at_expires_at (expires_at),
+    FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
 -- 10. users – add index on isOnline for fast online-user lookups
 -- =============================================================================
 
