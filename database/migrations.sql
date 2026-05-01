@@ -12,6 +12,11 @@
 --   3. user_activities  – full ENUM + optional columns
 --   4. chat_messages    – add is_unsent column
 --   5. chat_rooms       – normalize participants to string arrays (data fix)
+--   6. user_online_status – add socket_id column + is_online index
+--   7. chat_messages    – add delivered_at, read_at columns + unread index
+--   8. group_call_members – create table for per-member group-call tracking
+--   9. user_settings    – create key-value settings table
+--  10. users            – add isOnline index
 -- =============================================================================
 
 -- =============================================================================
@@ -321,3 +326,140 @@ JOIN (
     GROUP BY base.id
 ) sub ON cr.id = sub.id
 SET cr.participants = sub.new_participants;
+
+-- =============================================================================
+-- 6. user_online_status – add socket_id column
+-- =============================================================================
+
+SET @_add_socket_id = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE user_online_status ADD COLUMN socket_id VARCHAR(255) DEFAULT NULL',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_online_status'
+      AND COLUMN_NAME  = 'socket_id'
+);
+PREPARE _stmt FROM @_add_socket_id;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+-- Add index on is_online for fast online-user lookups.
+SET @_add_uos_online_idx = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE user_online_status ADD INDEX idx_uos_online (is_online)',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_online_status'
+      AND INDEX_NAME   = 'idx_uos_online'
+);
+PREPARE _stmt FROM @_add_uos_online_idx;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+-- =============================================================================
+-- 7. chat_messages – add delivered_at and read_at timestamp columns
+-- =============================================================================
+
+SET @_add_cm_delivered_at = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE chat_messages ADD COLUMN delivered_at DATETIME DEFAULT NULL AFTER is_unsent',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'chat_messages'
+      AND COLUMN_NAME  = 'delivered_at'
+);
+PREPARE _stmt FROM @_add_cm_delivered_at;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+SET @_add_cm_read_at = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE chat_messages ADD COLUMN read_at DATETIME DEFAULT NULL AFTER delivered_at',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'chat_messages'
+      AND COLUMN_NAME  = 'read_at'
+);
+PREPARE _stmt FROM @_add_cm_read_at;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+-- Composite index for fast unread-count queries per receiver.
+SET @_add_cm_receiver_read_idx = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE chat_messages ADD INDEX idx_cm_receiver_read (receiver_id, is_read)',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'chat_messages'
+      AND INDEX_NAME   = 'idx_cm_receiver_read'
+);
+PREPARE _stmt FROM @_add_cm_receiver_read_idx;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
+
+-- =============================================================================
+-- 8. group_call_members – create table for per-member group-call tracking
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS group_call_members (
+    id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    group_call_id BIGINT UNSIGNED NOT NULL,
+    user_id       VARCHAR(50)  NOT NULL,
+    user_name     VARCHAR(200) DEFAULT NULL,
+    joined_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    left_at       DATETIME     DEFAULT NULL,
+    status        ENUM('active','left') NOT NULL DEFAULT 'active',
+    FOREIGN KEY (group_call_id) REFERENCES group_calls(id) ON DELETE CASCADE,
+    INDEX idx_gcm_call (group_call_id),
+    INDEX idx_gcm_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- =============================================================================
+-- 9. user_settings – create key-value settings table
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT UNSIGNED NOT NULL,
+    setting_key   VARCHAR(100) NOT NULL,
+    setting_value TEXT         DEFAULT NULL,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_us_user_key (user_id, setting_key),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_us_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 10. users – add index on isOnline for fast online-user lookups
+-- =============================================================================
+
+SET @_add_users_isonline_idx = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE users ADD INDEX idx_isonline (isOnline)',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'users'
+      AND INDEX_NAME   = 'idx_isonline'
+);
+PREPARE _stmt FROM @_add_users_isonline_idx;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
