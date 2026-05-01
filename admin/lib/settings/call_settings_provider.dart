@@ -35,8 +35,6 @@ class CallSettingsProvider extends ChangeNotifier {
   static const _updateSettingsUrl =
       '$kAdminApi9BaseUrl/update_app_settings.php';
   static const _uploadToneUrl = '$kAdminApi9BaseUrl/upload_call_tone.php';
-  static const _uploadToneAltUrl =
-      '${kAdminApiBaseUrl}/Api9/upload_call_tone.php';
 
   static const List<RingtoneTone> availableTones = [
     RingtoneTone(
@@ -141,7 +139,7 @@ class CallSettingsProvider extends ChangeNotifier {
 
       // Some deployments expose /Api9 (capital A) instead of /api9.
       // Try /api9 first, then fallback to /Api9.
-      final uploadUrls = <String>[_uploadToneUrl, _uploadToneAltUrl];
+      final uploadUrls = <String>[_uploadToneUrl];
       Map<String, dynamic>? decoded;
       int? lastStatusCode;
       String? lastMessage;
