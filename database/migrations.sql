@@ -7,7 +7,7 @@
 -- fully up to date.
 --
 -- Sections (in dependency order):
---   1. admins           – add username column
+--   1. admins           – create table if missing, add username column
 --   2. user_documents   – per-document status tracking
 --   3. user_activities  – full ENUM + optional columns
 --   4. chat_messages    – add is_unsent column
@@ -22,8 +22,34 @@
 -- =============================================================================
 
 -- =============================================================================
--- 1. admins – add username column
+-- 1. admins – create table if missing, then add username column
 -- =============================================================================
+
+-- Step 1-pre: Create the admins table if it does not exist at all.
+--             This makes the migration safe to run on databases that were
+--             initialised from an older schema that pre-dates the admins table.
+CREATE TABLE IF NOT EXISTS admins (
+    id         INT          UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    username   VARCHAR(100) NOT NULL DEFAULT '',
+    email      VARCHAR(255) NOT NULL,
+    password   VARCHAR(255) NOT NULL,
+    name       VARCHAR(200) DEFAULT NULL,
+    role       ENUM('super_admin','admin') NOT NULL DEFAULT 'admin',
+    is_active  TINYINT(1) UNSIGNED NOT NULL DEFAULT 1,
+    last_login DATETIME     DEFAULT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_admin_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Insert default admin if the table was just created (or is empty).
+-- Default credentials: username=admin  email=admin@ms.com  password=Admin@123
+-- ⚠️  Change this password immediately after first deployment.
+INSERT IGNORE INTO admins (id, username, email, password, name, role) VALUES
+    (1, 'admin', 'admin@ms.com',
+     '$2y$10$UgRVAVqW2RmLi.x2UEcYtuBW7yxx3wGq2cGEV/JTtQtX1le40g7eG',
+     'Super Admin', 'super_admin');
 
 -- Step 1a: Add the username column (nullable initially so existing rows don't
 --          violate NOT NULL).  Guard with INFORMATION_SCHEMA so it is idempotent.
