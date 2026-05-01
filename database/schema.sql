@@ -872,10 +872,14 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     is_unsent               TINYINT(1)   NOT NULL DEFAULT 0,
     edited_at               DATETIME,
     replied_to              JSON,
+    liked                   TINYINT(1)   NOT NULL DEFAULT 0,
+    reactions               TEXT         NULL DEFAULT NULL,
     created_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_chat_room_time (chat_room_id, created_at),
-    INDEX idx_cm_sender      (sender_id),
-    INDEX idx_cm_receiver    (receiver_id),
+    INDEX idx_chat_room_time       (chat_room_id, created_at),
+    INDEX idx_created_at           (created_at),
+    INDEX idx_cm_sender            (sender_id),
+    INDEX idx_cm_receiver          (receiver_id),
+    INDEX idx_sender_receiver_time (sender_id, receiver_id, created_at),
     CONSTRAINT fk_msg_room FOREIGN KEY (chat_room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -909,6 +913,21 @@ CREATE TABLE IF NOT EXISTS call_history (
     INDEX idx_ch_caller    (caller_id),
     INDEX idx_ch_recipient (recipient_id),
     INDEX idx_ch_start     (start_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Admin-initiated group call sessions with a dynamic participant list
+CREATE TABLE IF NOT EXISTS group_calls (
+    id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    channel_name VARCHAR(150) NOT NULL UNIQUE,
+    call_type    ENUM('audio', 'video') NOT NULL DEFAULT 'audio',
+    admin_id     VARCHAR(50)  NOT NULL DEFAULT '1',
+    participants JSON         NOT NULL,
+    status       ENUM('active', 'ended') NOT NULL DEFAULT 'active',
+    started_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    ended_at     DATETIME     DEFAULT NULL,
+    INDEX idx_gc_channel (channel_name),
+    INDEX idx_gc_admin   (admin_id),
+    INDEX idx_gc_started (started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
