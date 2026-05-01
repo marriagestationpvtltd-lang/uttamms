@@ -3,11 +3,23 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-// CORS headers
-header("Access-Control-Allow-Origin: *");
+// CORS headers - echo the request origin for allowed origins so credentials work
+$allowedOrigins = [
+    'https://digitallami.com',
+    'https://adminnew.marriagestation.com.np',
+    'https://adminmrz.marriagestation.com.np',
+];
+$requestOrigin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+$isLocalhost   = (bool) preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#i', $requestOrigin);
+if ($requestOrigin && (in_array($requestOrigin, $allowedOrigins, true) || $isLocalhost)) {
+    header("Access-Control-Allow-Origin: {$requestOrigin}");
+    header("Access-Control-Allow-Credentials: true");
+    header("Vary: Origin");
+} else {
+    header("Access-Control-Allow-Origin: *");
+}
 header("Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-header("Access-Control-Allow-Credentials: true");
 header("Access-Control-Max-Age: 3600");
 
 // Handle preflight OPTIONS request

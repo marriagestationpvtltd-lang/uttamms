@@ -461,9 +461,8 @@ const io     = new Server(server, {
     allowedHeaders: CORS_ALLOWED_HEADERS,
     ...(!_hasWildcard && { credentials: true }),
   },
-  // Allow polling fallback for proxies/environments where WebSocket upgrade
-  // intermittently fails (prevents hard 400 handshake failures).
-  transports: ['websocket', 'polling'],
+  // Use WebSocket transport only (polling disabled per configuration).
+  transports: ['websocket'],
   pingTimeout:       60000,
   pingInterval:      25000,
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
