@@ -140,7 +140,8 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE  KEY uk_email (email),
     INDEX   idx_status   (status),
     INDEX   idx_usertype (usertype),
-    INDEX   idx_gender   (gender)
+    INDEX   idx_gender   (gender),
+    INDEX   idx_isonline (isOnline)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
@@ -874,12 +875,15 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     replied_to              JSON,
     liked                   TINYINT(1)   NOT NULL DEFAULT 0,
     reactions               TEXT         NULL DEFAULT NULL,
+    delivered_at            DATETIME     DEFAULT NULL,   -- set when Socket.IO ACK confirms delivery; mirrors is_delivered flag (is_delivered=1 when delivered_at IS NOT NULL); app layer keeps both in sync
+    read_at                 DATETIME     DEFAULT NULL,   -- set when receiver opens the message; mirrors is_read flag (is_read=1 when read_at IS NOT NULL); app layer keeps both in sync
     created_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_chat_room_time       (chat_room_id, created_at),
     INDEX idx_created_at           (created_at),
     INDEX idx_cm_sender            (sender_id),
     INDEX idx_cm_receiver          (receiver_id),
     INDEX idx_sender_receiver_time (sender_id, receiver_id, created_at),
+    INDEX idx_cm_receiver_read     (receiver_id, is_read),   -- unread count lookups
     CONSTRAINT fk_msg_room FOREIGN KEY (chat_room_id) REFERENCES chat_rooms(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -888,7 +892,9 @@ CREATE TABLE IF NOT EXISTS user_online_status (
     user_id             VARCHAR(50)  NOT NULL PRIMARY KEY,
     is_online           TINYINT(1)   NOT NULL DEFAULT 0,
     last_seen           DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    active_chat_room_id VARCHAR(150) DEFAULT NULL
+    active_chat_room_id VARCHAR(150) DEFAULT NULL,
+    socket_id           VARCHAR(255) DEFAULT NULL,   -- current Socket.IO connection ID; cleared to NULL on disconnect / reconnect
+    INDEX idx_uos_online (is_online)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -928,6 +934,20 @@ CREATE TABLE IF NOT EXISTS group_calls (
     INDEX idx_gc_channel (channel_name),
     INDEX idx_gc_admin   (admin_id),
     INDEX idx_gc_started (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Per-member tracking for group calls
+CREATE TABLE IF NOT EXISTS group_call_members (
+    id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    group_call_id BIGINT UNSIGNED NOT NULL,
+    user_id       VARCHAR(50)  NOT NULL,
+    user_name     VARCHAR(200) DEFAULT NULL,
+    joined_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    left_at       DATETIME     DEFAULT NULL,
+    status        ENUM('active','left') NOT NULL DEFAULT 'active',
+    FOREIGN KEY (group_call_id) REFERENCES group_calls(id) ON DELETE CASCADE,
+    INDEX idx_gcm_call (group_call_id),
+    INDEX idx_gcm_user (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- =============================================================================
@@ -1274,6 +1294,24 @@ CREATE TABLE IF NOT EXISTS ac_profile_shares (
     FOREIGN KEY (shared_by)  REFERENCES agent_users(id)          ON DELETE SET NULL,
     INDEX idx_acps_chat    (chat_id),
     INDEX idx_acps_profile (profile_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- =============================================================================
+-- 31. USER SETTINGS  (key-value store for per-user feature preferences)
+--     Designed for extensibility – new settings are just new rows.
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    id            INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT UNSIGNED NOT NULL,
+    setting_key   VARCHAR(100) NOT NULL,   -- e.g. 'notification_sound', 'theme'
+    setting_value TEXT         DEFAULT NULL,
+    created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_us_user_key (user_id, setting_key),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_us_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =============================================================================
