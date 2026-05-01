@@ -149,6 +149,15 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   // ── Scroll (participant strip) ─────────────────────────────────────────────
   final ScrollController _stripScrollCtrl = ScrollController();
 
+  // ── Add-user inline panel ─────────────────────────────────────────────────
+  bool _showingAddUserPanel = false;
+  bool _isLoadingAddUser    = false;
+  List<Map<String, dynamic>> _addableUsers = [];
+
+  // ── Participant-actions inline panel ──────────────────────────────────────
+  bool _showingParticipantActions     = false;
+  _GParticipant? _pendingActionParticipant;
+
   // ─────────────────────────────────────────────────────────────────────────
 
   @override
@@ -580,8 +589,16 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   }
 
   // ─── Add participant flow ──────────────────────────────────────────────────
+  //
+  // Previously used showModalBottomSheet which inserts a Navigator route that
+  // renders BELOW the OverlayEntry hosting this call screen.  We now drive
+  // the user-list entirely from state, rendering it as the top-most child of
+  // the main Stack so it is always visible above the call UI.
 
   Future<void> _addUser() async {
+    if (_isLoadingAddUser) return;
+    setState(() => _isLoadingAddUser = true);
+
     final excludeIds = _participants.map((p) => p.userId).toSet();
     // Use the first non-admin participant's ID for gender-based filtering so
     // the add-user list shows users of the opposite gender (matchmaking rule:
@@ -599,22 +616,27 @@ class _GroupCallScreenState extends State<GroupCallScreen>
       filterByUserId: filterUserId,
     );
     if (!mounted) return;
-    final selected = await showModalBottomSheet<Map<String, String>>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => _AddUserModal(users: users),
-    );
-    if (selected == null || (selected['id'] ?? '').isEmpty) return;
+    setState(() {
+      _addableUsers         = users;
+      _isLoadingAddUser     = false;
+      _showingAddUserPanel  = true;
+    });
+  }
 
-    final newId   = selected['id']!;
-    final newName = _firstName(selected['name'] ?? '');
+  /// Called by the inline add-user panel when the admin selects a user.
+  Future<void> _onAddUserConfirmed(Map<String, String> selected) async {
+    setState(() => _showingAddUserPanel = false);
+
+    final newId = selected['id'] ?? '';
+    if (newId.isEmpty) return;
+    final newName  = _firstName(selected['name'] ?? '');
+    final photoUrl = selected['photoUrl'];
 
     setState(() {
       _participants.add(_GParticipant(
         userId:      newId,
         displayName: newName,
-        photoUrl:    selected['photoUrl'],
+        photoUrl:    photoUrl,
       ));
     });
 
@@ -900,6 +922,22 @@ class _GroupCallScreenState extends State<GroupCallScreen>
                   ),
                 ),
               ),
+
+              // ── Add-user inline panel (always on top of call UI) ────────────
+              // Rendered as the last Stack child so it sits above all other
+              // call-screen content.  Using showModalBottomSheet / showDialog
+              // here would push a Navigator route which lands *below* this
+              // OverlayEntry, making the list invisible.
+              if (_showingAddUserPanel)
+                Positioned.fill(child: _buildAddUserPanelOverlay()),
+
+              // ── Participant-actions inline panel ────────────────────────────
+              if (_showingParticipantActions &&
+                  _pendingActionParticipant != null)
+                Positioned.fill(
+                  child: _buildParticipantActionsOverlay(
+                      _pendingActionParticipant!),
+                ),
             ],
           ),
         ),
@@ -1097,72 +1135,10 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   }
 
   void _showParticipantActions(_GParticipant p) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: _kSlateDark,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (_) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Handle
-              Container(
-                width: 38,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 12),
-                decoration: BoxDecoration(
-                  color: Colors.white24,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.person, color: Colors.white70),
-                title: Text(
-                  p.displayName,
-                  style: const TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.w600),
-                ),
-                subtitle: Text(
-                  p.agoraUid != null ? 'In call' : 'Invited',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-              ),
-              const Divider(color: Colors.white12),
-              ListTile(
-                leading: Icon(
-                  p.micMuted ? Icons.mic : Icons.mic_off,
-                  color: _kAmber,
-                ),
-                title: Text(
-                  p.micMuted ? 'Unmute' : 'Mute',
-                  style: const TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _muteParticipant(p);
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.person_remove, color: _kRose),
-                title: const Text(
-                  'Remove from call',
-                  style: TextStyle(color: _kRose),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _removeParticipant(p);
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        ),
-      ),
-    );
+    setState(() {
+      _pendingActionParticipant    = p;
+      _showingParticipantActions   = true;
+    });
   }
 
   // ─── Controls bar ─────────────────────────────────────────────────────────
@@ -1225,13 +1201,15 @@ class _GroupCallScreenState extends State<GroupCallScreen>
 
   Widget _buildAddUserFab() {
     return GestureDetector(
-      onTap: _addUser,
+      onTap: _isLoadingAddUser ? null : _addUser,
       child: Container(
         width: 52,
         height: 52,
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [_kPrimary, _kViolet],
+          gradient: LinearGradient(
+            colors: _isLoadingAddUser
+                ? [_kPrimary.withOpacity(0.6), _kViolet.withOpacity(0.6)]
+                : const [_kPrimary, _kViolet],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
@@ -1245,7 +1223,16 @@ class _GroupCallScreenState extends State<GroupCallScreen>
           ],
         ),
         alignment: Alignment.center,
-        child: const Icon(Icons.person_add_alt_1, color: Colors.white, size: 24),
+        child: _isLoadingAddUser
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                  color: Colors.white,
+                  strokeWidth: 2.5,
+                ),
+              )
+            : const Icon(Icons.person_add_alt_1, color: Colors.white, size: 24),
       ),
     );
   }
@@ -1299,6 +1286,173 @@ class _GroupCallScreenState extends State<GroupCallScreen>
 
   static String _formatDuration(Duration d) =>
       '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+
+  // ─── Inline overlay panels ─────────────────────────────────────────────────
+  //
+  // Both panels are rendered as Positioned.fill children at the END of the
+  // main Stack, guaranteeing they appear on top of every other call-screen
+  // element.  Because this whole screen lives inside an OverlayEntry,
+  // showModalBottomSheet / showDialog cannot be used — those push Navigator
+  // routes that land below the OverlayEntry in the Flutter rendering tree.
+
+  /// Full-screen dimmed backdrop + slide-up add-user sheet.
+  Widget _buildAddUserPanelOverlay() {
+    void close() => setState(() => _showingAddUserPanel = false);
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1.0, end: 0.0),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+      builder: (_, t, __) {
+        return Stack(
+          children: [
+            // Dimmed backdrop – tap to dismiss
+            GestureDetector(
+              onTap: close,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                color: Colors.black.withOpacity(0.65 * (1 - t)),
+              ),
+            ),
+            // Slide-up panel
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Transform.translate(
+                offset: Offset(
+                    0, MediaQuery.of(context).size.height * 0.35 * t),
+                child: GestureDetector(
+                  // Prevent backdrop-tap from propagating through the panel.
+                  onTap: () {},
+                  child: Material(
+                    color: Colors.transparent,
+                    child: _AddUserModal(
+                      users: _addableUsers,
+                      onSelected: _onAddUserConfirmed,
+                      onClose: close,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Full-screen dimmed backdrop + slide-up participant-actions sheet.
+  Widget _buildParticipantActionsOverlay(_GParticipant p) {
+    void close() => setState(() {
+          _showingParticipantActions    = false;
+          _pendingActionParticipant     = null;
+        });
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 1.0, end: 0.0),
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOut,
+      builder: (_, t, __) {
+        return Stack(
+          children: [
+            // Dimmed backdrop – tap to dismiss
+            GestureDetector(
+              onTap: close,
+              behavior: HitTestBehavior.opaque,
+              child: Container(
+                color: Colors.black.withOpacity(0.65 * (1 - t)),
+              ),
+            ),
+            // Slide-up actions panel
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Transform.translate(
+                offset: Offset(
+                    0, MediaQuery.of(context).size.height * 0.25 * t),
+                child: GestureDetector(
+                  onTap: () {},
+                  child: Material(
+                    color: Colors.transparent,
+                    child: SafeArea(
+                      top: false,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: _kSlateDark,
+                          borderRadius: const BorderRadius.vertical(
+                              top: Radius.circular(22)),
+                        ),
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Drag handle
+                            Container(
+                              width: 38,
+                              height: 4,
+                              margin: const EdgeInsets.only(bottom: 12),
+                              decoration: BoxDecoration(
+                                color: Colors.white24,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.person,
+                                  color: Colors.white70),
+                              title: Text(
+                                p.displayName,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              subtitle: Text(
+                                p.agoraUid != null ? 'In call' : 'Invited',
+                                style: const TextStyle(
+                                    color: Colors.white54, fontSize: 12),
+                              ),
+                            ),
+                            const Divider(color: Colors.white12),
+                            ListTile(
+                              leading: Icon(
+                                p.micMuted ? Icons.mic : Icons.mic_off,
+                                color: _kAmber,
+                              ),
+                              title: Text(
+                                p.micMuted ? 'Unmute' : 'Mute',
+                                style:
+                                    const TextStyle(color: Colors.white),
+                              ),
+                              onTap: () {
+                                close();
+                                _muteParticipant(p);
+                              },
+                            ),
+                            ListTile(
+                              leading: const Icon(Icons.person_remove,
+                                  color: _kRose),
+                              title: const Text(
+                                'Remove from call',
+                                style: TextStyle(color: _kRose),
+                              ),
+                              onTap: () {
+                                close();
+                                _removeParticipant(p);
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 
   @override
   void dispose() {
@@ -1535,11 +1689,22 @@ class _MinimiseButton extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────────────────────
 //  Add User Modal
 //  Shows online users first. Displays first name only (privacy).
+//
+//  Uses callbacks (onSelected / onClose) instead of Navigator.pop so that it
+//  can be embedded directly inside the call-screen Stack without needing to
+//  push a Navigator route (which would appear *behind* the OverlayEntry).
 // ─────────────────────────────────────────────────────────────────────────────
 
 class _AddUserModal extends StatefulWidget {
   final List<Map<String, dynamic>> users;
-  const _AddUserModal({required this.users});
+  final void Function(Map<String, String> selected) onSelected;
+  final VoidCallback onClose;
+
+  const _AddUserModal({
+    required this.users,
+    required this.onSelected,
+    required this.onClose,
+  });
 
   @override
   State<_AddUserModal> createState() => _AddUserModalState();
@@ -1649,7 +1814,7 @@ class _AddUserModalState extends State<_AddUserModal> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white70),
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: widget.onClose,
                   ),
                 ],
               ),
@@ -1713,7 +1878,7 @@ class _AddUserModalState extends State<_AddUserModal> {
                       itemCount: filtered.length,
                       separatorBuilder: (_, __) =>
                           const Divider(height: 1, indent: 72),
-                      itemBuilder: (ctx, idx) {
+                      itemBuilder: (_, idx) {
                         final u = filtered[idx];
                         final userId = u['id']?.toString() ?? '';
                         final name = _displayName(u);
@@ -1805,7 +1970,7 @@ class _AddUserModalState extends State<_AddUserModal> {
                               ),
                             ),
                           ),
-                          onTap: () => Navigator.pop(ctx, {
+                          onTap: () => widget.onSelected({
                             'id': userId,
                             'name': name,
                             'photoUrl': photo ?? '',

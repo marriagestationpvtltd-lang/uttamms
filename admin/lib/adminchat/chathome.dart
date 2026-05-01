@@ -2394,11 +2394,30 @@ class _ChatWindowState extends State<ChatWindow> {
       return null;
     }
 
-    return await showDialog<Map<String, String>>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => _AddParticipantDialog(allUsers: allUsers),
+    // Insert directly into the Overlay (above the call OverlayEntry) instead
+    // of using showDialog, which would push a Navigator route that renders
+    // below the manually-inserted call OverlayEntry.
+    final overlay = Overlay.of(context);
+    final completer = Completer<Map<String, String>?>();
+    late OverlayEntry entry;
+    entry = OverlayEntry(
+      builder: (_) => Material(
+        color: Colors.transparent,
+        child: _AddParticipantDialog(
+          allUsers: allUsers,
+          onSelected: (result) {
+            entry.remove();
+            if (!completer.isCompleted) completer.complete(result);
+          },
+          onClose: () {
+            entry.remove();
+            if (!completer.isCompleted) completer.complete(null);
+          },
+        ),
+      ),
     );
+    overlay.insert(entry);
+    return completer.future;
   }
 
   /// Shows a multi-select participant picker for starting a group call.
@@ -10275,11 +10294,20 @@ class _ActionTile extends StatelessWidget {
 }
 
 // ── Add Participant Dialog ────────────────────────────────────────────────────
-/// Searchable, photo-enabled dialog to pick a user for a conference call.
-/// Returns `{'id': userId, 'name': userName}` on selection.
+/// Searchable, photo-enabled panel to pick a user for a conference call.
+/// Uses [onSelected] / [onClose] callbacks so it can be rendered directly
+/// inside an OverlayEntry (above the call overlay) without needing a
+/// Navigator route, which would appear *behind* the call overlay.
 class _AddParticipantDialog extends StatefulWidget {
   final List<Map<String, dynamic>> allUsers;
-  const _AddParticipantDialog({required this.allUsers});
+  final void Function(Map<String, String> result) onSelected;
+  final VoidCallback onClose;
+
+  const _AddParticipantDialog({
+    required this.allUsers,
+    required this.onSelected,
+    required this.onClose,
+  });
 
   @override
   State<_AddParticipantDialog> createState() => _AddParticipantDialogState();
@@ -10322,223 +10350,277 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered;
-    return Dialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      clipBehavior: Clip.antiAlias,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 600),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // ── Header ──────────────────────────────────────────────────────
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 20, 8, 16),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.group_add, color: Colors.white, size: 26),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Add to Call',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        Text(
-                          'Online users first',
-                          style: TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white70),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ],
-              ),
-            ),
-
-            // ── Search bar ──────────────────────────────────────────────────
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: TextField(
-                controller: _searchCtrl,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'Search by name…',
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  contentPadding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 16,
-                  ),
-                  filled: true,
-                  fillColor: Colors.grey.shade100,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                  suffixIcon: _query.isNotEmpty
-                      ? IconButton(
-                          icon: const Icon(Icons.clear, size: 18),
-                          onPressed: () {
-                            _searchCtrl.clear();
-                            setState(() => _query = '');
-                          },
-                        )
-                      : null,
-                ),
-                onChanged: (v) => setState(() => _query = v),
-              ),
-            ),
-
-            // ── User list ───────────────────────────────────────────────────
-            Flexible(
-              child: filtered.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(32),
+    // Wrap in a Stack so we can provide a tap-to-dismiss barrier behind the
+    // dialog card.  Previously this was handled by showDialog's barrier;
+    // now that we insert directly into the Overlay we manage it ourselves.
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: 1.0),
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOut,
+      builder: (_, t, __) => Stack(
+        children: [
+          // Barrier
+          GestureDetector(
+            onTap: widget.onClose,
+            behavior: HitTestBehavior.opaque,
+            child: Container(color: Colors.black.withOpacity(0.55 * t)),
+          ),
+          // Dialog card
+          Center(
+            child: Transform.scale(
+              scale: 0.85 + 0.15 * t,
+              child: Opacity(
+                opacity: t,
+                child: GestureDetector(
+                  onTap: () {},
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                        maxWidth: 420, maxHeight: 600),
+                    child: Material(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      clipBehavior: Clip.antiAlias,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(
-                            Icons.search_off,
-                            size: 52,
-                            color: Colors.grey.shade400,
-                          ),
-                          const SizedBox(height: 12),
-                          Text(
-                            _query.isEmpty
-                                ? 'No users available'
-                                : 'No users match "$_query"',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: 14,
+                          // ── Header ─────────────────────────────────────────
+                          Container(
+                            padding:
+                                const EdgeInsets.fromLTRB(20, 20, 8, 16),
+                            decoration: const BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [
+                                  Color(0xFF6366F1),
+                                  Color(0xFF8B5CF6),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.group_add,
+                                    color: Colors.white, size: 26),
+                                const SizedBox(width: 12),
+                                const Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Add to Call',
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Online users first',
+                                        style: TextStyle(
+                                            color: Colors.white70,
+                                            fontSize: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close,
+                                      color: Colors.white70),
+                                  onPressed: widget.onClose,
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    )
-                  : ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: filtered.length,
-                      separatorBuilder: (_, __) =>
-                          const Divider(height: 1, indent: 72),
-                      itemBuilder: (ctx, idx) {
-                        final user = filtered[idx];
-                        final userId = user['id']?.toString() ?? '';
-                        // Show only first name in the participant list (privacy).
-                        final displayName = _displayName(user);
-                        final photoUrl = user['profile_picture']?.toString();
-                        final isOnline = _isUserOnline(user);
-                        final initial = displayName.isNotEmpty
-                            ? displayName[0].toUpperCase()
-                            : '?';
 
-                        return ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 4,
-                          ),
-                          leading: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              CircleAvatar(
-                                radius: 24,
-                                backgroundColor: const Color(
-                                  0xFF6366F1,
-                                ).withOpacity(0.15),
-                                backgroundImage:
-                                    (photoUrl != null && photoUrl.isNotEmpty)
-                                    ? NetworkImage(photoUrl)
-                                    : null,
-                                child: (photoUrl == null || photoUrl.isEmpty)
-                                    ? Text(
-                                        initial,
-                                        style: const TextStyle(
-                                          color: Color(0xFF6366F1),
-                                          fontWeight: FontWeight.w700,
-                                          fontSize: 16,
-                                        ),
+                          // ── Search bar ─────────────────────────────────────
+                          Padding(
+                            padding:
+                                const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                            child: TextField(
+                              controller: _searchCtrl,
+                              autofocus: true,
+                              decoration: InputDecoration(
+                                hintText: 'Search by name…',
+                                prefixIcon:
+                                    const Icon(Icons.search, size: 20),
+                                contentPadding:
+                                    const EdgeInsets.symmetric(
+                                        vertical: 10, horizontal: 16),
+                                filled: true,
+                                fillColor: Colors.grey.shade100,
+                                border: OutlineInputBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                                suffixIcon: _query.isNotEmpty
+                                    ? IconButton(
+                                        icon: const Icon(Icons.clear,
+                                            size: 18),
+                                        onPressed: () {
+                                          _searchCtrl.clear();
+                                          setState(() => _query = '');
+                                        },
                                       )
                                     : null,
                               ),
-                              if (isOnline)
-                                Positioned(
-                                  bottom: 0,
-                                  right: 0,
-                                  child: Container(
-                                    width: 11,
-                                    height: 11,
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFF22C55E),
-                                      shape: BoxShape.circle,
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 2,
-                                      ),
+                              onChanged: (v) =>
+                                  setState(() => _query = v),
+                            ),
+                          ),
+
+                          // ── User list ──────────────────────────────────────
+                          Flexible(
+                            child: filtered.isEmpty
+                                ? Padding(
+                                    padding: const EdgeInsets.all(32),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.search_off,
+                                            size: 52,
+                                            color: Colors.grey.shade400),
+                                        const SizedBox(height: 12),
+                                        Text(
+                                          _query.isEmpty
+                                              ? 'No users available'
+                                              : 'No users match "$_query"',
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Colors.grey.shade500,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                      ],
                                     ),
+                                  )
+                                : ListView.separated(
+                                    shrinkWrap: true,
+                                    itemCount: filtered.length,
+                                    separatorBuilder: (_, __) =>
+                                        const Divider(
+                                            height: 1, indent: 72),
+                                    itemBuilder: (ctx, idx) {
+                                      final user = filtered[idx];
+                                      final userId =
+                                          user['id']?.toString() ?? '';
+                                      final displayName =
+                                          _displayName(user);
+                                      final photoUrl = user[
+                                              'profile_picture']
+                                          ?.toString();
+                                      final isOnline =
+                                          _isUserOnline(user);
+                                      final initial =
+                                          displayName.isNotEmpty
+                                              ? displayName[0]
+                                                  .toUpperCase()
+                                              : '?';
+
+                                      return ListTile(
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 16,
+                                                vertical: 4),
+                                        leading: Stack(
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            CircleAvatar(
+                                              radius: 24,
+                                              backgroundColor:
+                                                  const Color(0xFF6366F1)
+                                                      .withOpacity(0.15),
+                                              backgroundImage: (photoUrl !=
+                                                          null &&
+                                                      photoUrl.isNotEmpty)
+                                                  ? NetworkImage(photoUrl)
+                                                  : null,
+                                              child: (photoUrl == null ||
+                                                      photoUrl.isEmpty)
+                                                  ? Text(
+                                                      initial,
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                            0xFF6366F1),
+                                                        fontWeight:
+                                                            FontWeight.w700,
+                                                        fontSize: 16,
+                                                      ),
+                                                    )
+                                                  : null,
+                                            ),
+                                            if (isOnline)
+                                              Positioned(
+                                                bottom: 0,
+                                                right: 0,
+                                                child: Container(
+                                                  width: 11,
+                                                  height: 11,
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(
+                                                        0xFF22C55E),
+                                                    shape: BoxShape.circle,
+                                                    border: Border.all(
+                                                        color: Colors.white,
+                                                        width: 2),
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        title: Text(
+                                          displayName,
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          isOnline ? 'Online' : 'Offline',
+                                          style: TextStyle(
+                                            color: isOnline
+                                                ? const Color(0xFF22C55E)
+                                                : Colors.grey.shade400,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        trailing: Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 14, vertical: 7),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF6366F1)
+                                                .withOpacity(0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(20),
+                                          ),
+                                          child: const Text(
+                                            'Add',
+                                            style: TextStyle(
+                                              color: Color(0xFF6366F1),
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ),
+                                        onTap: () => widget.onSelected({
+                                          'id': userId,
+                                          'name': displayName,
+                                        }),
+                                      );
+                                    },
                                   ),
-                                ),
-                            ],
                           ),
-                          title: Text(
-                            displayName,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                            ),
-                          ),
-                          subtitle: Text(
-                            isOnline ? 'Online' : 'Offline',
-                            style: TextStyle(
-                              color: isOnline
-                                  ? const Color(0xFF22C55E)
-                                  : Colors.grey.shade400,
-                              fontSize: 12,
-                            ),
-                          ),
-                          trailing: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF6366F1).withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: const Text(
-                              'Add',
-                              style: TextStyle(
-                                color: Color(0xFF6366F1),
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                          onTap: () => Navigator.pop(ctx, {
-                            'id': userId,
-                            'name': displayName,
-                          }),
-                        );
-                      },
+                        ],
+                      ),
                     ),
+                  ),
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
