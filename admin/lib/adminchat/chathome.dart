@@ -7206,9 +7206,7 @@ class _ChatWindowState extends State<ChatWindow> {
 
     // Generate a stable messageId now so the optimistic entry can be matched
     // by the socket echo when the server confirms delivery.
-    final String msgId = imagesToSend.length == 1
-        ? 'image_${DateTime.now().millisecondsSinceEpoch}_$senderId'
-        : 'gallery_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+    final String msgId = const Uuid().v4();
     final String msgType =
         imagesToSend.length == 1 ? 'image' : 'image_gallery';
 
