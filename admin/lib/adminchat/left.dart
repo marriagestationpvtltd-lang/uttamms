@@ -274,15 +274,30 @@ class _ChatSidebarState extends State<ChatSidebar> {
             // Sync ChatProvider so the ChatWindow shows the selected user immediately.
             _updateSelectedChat();
           }
-          await _refreshChatRooms();
         }
 
-        if (mounted) setState(() => _hasFetchError = false);
+        // Show the list immediately after API data is loaded.
+        // _refreshChatRooms() is intentionally NOT awaited — it can block for
+        // up to kAdminSocketTimeout (15 s) when the socket server is slow to
+        // connect, which would keep the loading spinner visible long after the
+        // users data is ready. Firing it without await lets the list render
+        // right away while the socket re-sorts by conversation time in the bg.
+        if (mounted) {
+          setState(() {
+            _hasFetchError = false;
+            _isInitialLoading = false;
+          });
+        }
         _applyFilters();
         _handleExternalSelection();
         // Persist page-1 results so subsequent visits show content immediately
         if (reset && _searchQuery.isEmpty) {
           _saveCachedUsers();
+        }
+        // Fire chat-rooms refresh in the background to re-sort by conversation
+        // time once the socket connection is established.
+        if (reset) {
+          _refreshChatRooms(); // intentionally no await
         }
       } else {
         debugPrint('get.php returned status ${response.statusCode}');
