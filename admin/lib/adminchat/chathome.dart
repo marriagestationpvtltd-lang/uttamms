@@ -10502,7 +10502,7 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                     separatorBuilder: (_, __) =>
                                         const Divider(
                                             height: 1, indent: 72),
-                                    itemBuilder: (ctx, idx) {
+                                    itemBuilder: (_, idx) {
                                       final user = filtered[idx];
                                       final userId =
                                           user['id']?.toString() ?? '';

@@ -155,7 +155,7 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   List<Map<String, dynamic>> _addableUsers = [];
 
   // ── Participant-actions inline panel ──────────────────────────────────────
-  bool _showingParticipantActions     = false;
+  bool _showingParticipantActions  = false;
   _GParticipant? _pendingActionParticipant;
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -1344,8 +1344,8 @@ class _GroupCallScreenState extends State<GroupCallScreen>
   /// Full-screen dimmed backdrop + slide-up participant-actions sheet.
   Widget _buildParticipantActionsOverlay(_GParticipant p) {
     void close() => setState(() {
-          _showingParticipantActions    = false;
-          _pendingActionParticipant     = null;
+          _showingParticipantActions   = false;
+          _pendingActionParticipant    = null;
         });
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 1.0, end: 0.0),
