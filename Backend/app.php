@@ -1,4 +1,26 @@
 <?php
+// CORS headers - echo the request origin for allowed origins so credentials work
+$allowedOrigins = [
+    'https://digitallami.com',
+    'https://adminnew.marriagestation.com.np',
+    'https://adminmrz.marriagestation.com.np',
+];
+$requestOrigin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
+$isLocalhost   = (bool) preg_match('#^https?://(localhost|127\.0\.0\.1)(:\d+)?$#i', $requestOrigin);
+if ($requestOrigin && (in_array($requestOrigin, $allowedOrigins, true) || $isLocalhost)) {
+    header("Access-Control-Allow-Origin: {$requestOrigin}");
+    header("Access-Control-Allow-Credentials: true");
+    header("Vary: Origin");
+} else {
+    header("Access-Control-Allow-Origin: *");
+}
+header("Access-Control-Allow-Methods: GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
 header('Content-Type: application/json');
 
 // Database configuration
