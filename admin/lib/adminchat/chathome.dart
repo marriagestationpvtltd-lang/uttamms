@@ -3376,6 +3376,7 @@ class _ChatWindowState extends State<ChatWindow> {
                                                         canMutate,
                                                         replyPayload,
                                                         bubbleReportData,
+                                                        data['isUploading'] == true,
                                                       ),
                                                     ),
                                                     if (reactions.isNotEmpty)
@@ -3937,6 +3938,7 @@ class _ChatWindowState extends State<ChatWindow> {
     bool canMutate = false,
     Map<String, dynamic>? replyPayload,
     Map<String, dynamic>? reportData,
+    bool isUploading = false,
   ]) {
     const kPrimary = Color(0xFF7B61FF);
     const kText = Color(0xFF1E293B);
@@ -4037,7 +4039,9 @@ class _ChatWindowState extends State<ChatWindow> {
       );
     }
 
-    if (type == 'image' && imageUrl != null) {
+    if (type == 'image' && (imageUrl != null || isUploading)) {
+      final String resolvedImageUrl = imageUrl ?? '';
+      final double imgSize = MediaQuery.of(context).size.width * 0.24;
       final bubble = Column(
         crossAxisAlignment: isSentByMe
             ? CrossAxisAlignment.end
@@ -4062,9 +4066,38 @@ class _ChatWindowState extends State<ChatWindow> {
                 ),
               ),
             )
+          else if (isUploading)
+            Container(
+              width: imgSize,
+              height: imgSize,
+              margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const CircularProgressIndicator(
+                    color: kPrimary,
+                    strokeWidth: 2,
+                  ),
+                  Positioned(
+                    bottom: 8,
+                    child: Text(
+                      'Uploading...',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            )
           else
             GestureDetector(
-              onTap: () => _openAdminGalleryViewer([imageUrl], 0),
+              onTap: () => _openAdminGalleryViewer([resolvedImageUrl], 0),
               child: Container(
                 margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
                 decoration: BoxDecoration(
@@ -4080,13 +4113,11 @@ class _ChatWindowState extends State<ChatWindow> {
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: CachedNetworkImage(
-                    imageUrl: imageUrl,
-                    width: MediaQuery.of(context).size.width * 0.24,
-                    height: MediaQuery.of(context).size.width * 0.24,
-                    memCacheWidth: (MediaQuery.of(context).size.width * 0.24)
-                        .toInt(),
-                    memCacheHeight: (MediaQuery.of(context).size.width * 0.24)
-                        .toInt(),
+                    imageUrl: resolvedImageUrl,
+                    width: imgSize,
+                    height: imgSize,
+                    memCacheWidth: imgSize.toInt(),
+                    memCacheHeight: imgSize.toInt(),
                     fit: BoxFit.cover,
                     fadeInDuration: const Duration(milliseconds: 150),
                     placeholder: (context, url) => Container(
@@ -4131,15 +4162,65 @@ class _ChatWindowState extends State<ChatWindow> {
         bubble: bubble,
         isSentByMe: isSentByMe,
         canEdit: false,
-        canMutate: canMutate,
+        canMutate: isUploading ? false : canMutate,
         messageId: messageId,
         replyPayload: replyPayload,
-        onForward: () => _forwardImage(imageUrl, 'image'),
-        onCopy: () => _copyToClipboard(imageUrl),
+        onForward: isUploading ? null : () => _forwardImage(resolvedImageUrl, 'image'),
+        onCopy: isUploading ? null : () => _copyToClipboard(resolvedImageUrl),
       );
     }
 
     if (type == 'image_gallery') {
+      // Show a loading placeholder while the images are being uploaded.
+      if (isUploading) {
+        final double imgSize = MediaQuery.of(context).size.width * 0.24;
+        final uploadingBubble = Column(
+          crossAxisAlignment:
+              isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (replyPreview != null) replyPreview,
+            Container(
+              width: imgSize,
+              height: imgSize,
+              margin: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade200,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const CircularProgressIndicator(
+                    color: kPrimary,
+                    strokeWidth: 2,
+                  ),
+                  Positioned(
+                    bottom: 8,
+                    child: Text(
+                      'Uploading...',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            footer(),
+          ],
+        );
+        return _buildMessageWithActions(
+          bubble: uploadingBubble,
+          isSentByMe: isSentByMe,
+          canEdit: false,
+          canMutate: false,
+          messageId: messageId,
+          replyPayload: replyPayload,
+        );
+      }
+
       List<String> galleryUrls;
       try {
         final decoded = jsonDecode(message);
@@ -4198,9 +4279,9 @@ class _ChatWindowState extends State<ChatWindow> {
       );
     }
 
-    if (type == 'voice' && imageUrl != null) {
+    if (type == 'voice' && (imageUrl != null || isUploading)) {
       // imageUrl field holds the voice URL for voice messages in this schema
-      final voiceUrl = imageUrl;
+      final voiceUrl = imageUrl ?? '';
       final isCurrentlyPlaying =
           _playingVoiceMessageId == messageId && _voiceIsPlaying;
       final isCurrentMessage = _playingVoiceMessageId == messageId;
@@ -4243,7 +4324,7 @@ class _ChatWindowState extends State<ChatWindow> {
             )
           else
             GestureDetector(
-              onTap: () => _toggleVoicePlayback(messageId!, voiceUrl),
+              onTap: isUploading ? null : () => _toggleVoicePlayback(messageId!, voiceUrl),
               child: Container(
                 width: 200,
                 padding: const EdgeInsets.symmetric(
@@ -4273,11 +4354,21 @@ class _ChatWindowState extends State<ChatWindow> {
                             : kPrimary.withOpacity(0.12),
                         shape: BoxShape.circle,
                       ),
-                      child: Icon(
-                        isCurrentlyPlaying ? Icons.pause : Icons.play_arrow,
-                        color: isSentByMe ? Colors.white : kPrimary,
-                        size: 18,
-                      ),
+                      child: isUploading
+                          ? Padding(
+                              padding: const EdgeInsets.all(7),
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  isSentByMe ? Colors.white : kPrimary,
+                                ),
+                              ),
+                            )
+                          : Icon(
+                              isCurrentlyPlaying ? Icons.pause : Icons.play_arrow,
+                              color: isSentByMe ? Colors.white : kPrimary,
+                              size: 18,
+                            ),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
@@ -4288,7 +4379,7 @@ class _ChatWindowState extends State<ChatWindow> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
-                              value: progressValue,
+                              value: isUploading ? null : progressValue,
                               minHeight: 3,
                               backgroundColor: Colors.grey.withOpacity(0.25),
                               valueColor: AlwaysStoppedAnimation<Color>(
@@ -6299,10 +6390,52 @@ class _ChatWindowState extends State<ChatWindow> {
       final receiverId = chatProvider.id?.toString();
       if (receiverId == null) return;
 
-      final voiceUrl = await _uploadVoiceMessage(path);
       final String messageId = const Uuid().v4();
       final String roomId = AdminSocketService.chatRoomId(receiverId);
 
+      // Step 1: Show optimistic message immediately so admin sees it right away.
+      setState(() {
+        _messages.add({
+          'messageId': messageId,
+          'senderid': senderId.toString(),
+          'receiverid': receiverId,
+          'message': '🎤 Voice message',
+          'type': 'voice',
+          'imageUrl': '',
+          'seen': false,
+          'deleted': false,
+          'unsent': false,
+          'edited': false,
+          'liked': false,
+          'reactions': <String, dynamic>{},
+          'replyto': null,
+          'callDuration': 0,
+          'timestamp': DateTime.now().toIso8601String(),
+          'isUploading': true,
+        });
+      });
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scrollToBottom();
+      });
+
+      // Step 2: Upload in background.
+      final voiceUrl = await _uploadVoiceMessage(path);
+
+      if (!mounted) return;
+
+      // Step 3: Update optimistic message with the real URL.
+      setState(() {
+        final idx = _messages.indexWhere((m) => m['messageId'] == messageId);
+        if (idx != -1) {
+          _messages[idx] = {
+            ..._messages[idx],
+            'imageUrl': voiceUrl,
+            'isUploading': false,
+          };
+        }
+      });
+
+      // Step 4: Notify server/receiver via socket or HTTP fallback.
       final connected = await _socketService.ensureConnected();
       if (connected) {
         _socketService.sendMessage(
@@ -7071,13 +7204,47 @@ class _ChatWindowState extends State<ChatWindow> {
       _selectedImages = [];
     });
 
+    // Generate a stable messageId now so the optimistic entry can be matched
+    // by the socket echo when the server confirms delivery.
+    final String msgId = imagesToSend.length == 1
+        ? 'image_${DateTime.now().millisecondsSinceEpoch}_$senderId'
+        : 'gallery_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+    final String msgType =
+        imagesToSend.length == 1 ? 'image' : 'image_gallery';
+
+    // Show optimistic message immediately before upload completes.
+    setState(() {
+      _messages.add({
+        'messageId': msgId,
+        'senderid': senderId.toString(),
+        'receiverid': receiverId,
+        'message': msgType == 'image' ? 'Image' : 'Images',
+        'type': msgType,
+        'imageUrl': '',
+        'seen': false,
+        'deleted': false,
+        'unsent': false,
+        'edited': false,
+        'liked': false,
+        'reactions': <String, dynamic>{},
+        'replyto': null,
+        'callDuration': 0,
+        'timestamp': DateTime.now().toIso8601String(),
+        'isUploading': true,
+      });
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _scrollToBottom();
+    });
+
     // Upload and send in background without blocking the UI
-    _uploadImagesInBackground(imagesToSend, receiverId);
+    _uploadImagesInBackground(imagesToSend, receiverId, msgId);
   }
 
   Future<void> _uploadImagesInBackground(
     List<PlatformFile> images,
     String receiverId,
+    String msgId,
   ) async {
     try {
       // Compress and upload all images in parallel for speed
@@ -7101,8 +7268,18 @@ class _ChatWindowState extends State<ChatWindow> {
       final bool connected = await _socketService.ensureConnected();
 
       if (urls.length == 1) {
-        final msgId =
-            'image_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+        // Update the optimistic message with the real image URL.
+        setState(() {
+          final idx = _messages.indexWhere((m) => m['messageId'] == msgId);
+          if (idx != -1) {
+            _messages[idx] = {
+              ..._messages[idx],
+              'imageUrl': urls.first,
+              'isUploading': false,
+            };
+          }
+        });
+
         if (connected) {
           _socketService.sendMessage(
             chatRoomId: roomId,
@@ -7132,8 +7309,18 @@ class _ChatWindowState extends State<ChatWindow> {
           extraData: {'chatId': receiverId, 'screen': 'chat'},
         );
       } else {
-        final msgId =
-            'gallery_${DateTime.now().millisecondsSinceEpoch}_$senderId';
+        // Update the optimistic gallery message with the real URLs.
+        setState(() {
+          final idx = _messages.indexWhere((m) => m['messageId'] == msgId);
+          if (idx != -1) {
+            _messages[idx] = {
+              ..._messages[idx],
+              'message': jsonEncode(urls),
+              'isUploading': false,
+            };
+          }
+        });
+
         if (connected) {
           _socketService.sendMessage(
             chatRoomId: roomId,
@@ -7165,7 +7352,11 @@ class _ChatWindowState extends State<ChatWindow> {
       }
     } catch (e) {
       debugPrint('Failed to send image(s): $e');
+      // Remove the optimistic message on failure.
       if (mounted) {
+        setState(() {
+          _messages.removeWhere((m) => m['messageId'] == msgId);
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text("Failed to send images. Please try again."),
