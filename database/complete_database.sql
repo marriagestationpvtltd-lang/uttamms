@@ -1543,7 +1543,7 @@ CREATE TABLE IF NOT EXISTS `delete_request` (
   `engagement_date` date DEFAULT NULL,
   `app_experience` enum('Yes','No') DEFAULT 'Yes',
   `feedback` text,
-  `delete_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb3_general_ci,
+  `delete_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
   `status` enum('pending','accepted','rejected') DEFAULT 'pending',
   `created_at` timestamp NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -2433,22 +2433,58 @@ CREATE TABLE IF NOT EXISTS `app_settings` (
 -- Run this script if your admins table was created from the old schema
 -- (before the username column was added).
 
--- Step 1: Add the username column (nullable initially so existing rows don't violate NOT NULL)
-ALTER TABLE admins
-    ADD COLUMN username VARCHAR(100) NULL
-        AFTER id;
+DROP PROCEDURE IF EXISTS _migration_add_admin_username;
 
--- Step 2: Back-fill username from the email local-part for any existing rows
-UPDATE admins
-SET username = SUBSTRING_INDEX(email, '@', 1)
-WHERE username IS NULL;
+DELIMITER $$
+CREATE PROCEDURE _migration_add_admin_username()
+BEGIN
+    -- Step 1: Add the username column only if it does not yet exist
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'admins'
+          AND COLUMN_NAME  = 'username'
+    ) THEN
+        ALTER TABLE admins
+            ADD COLUMN username VARCHAR(100) NULL AFTER id;
 
--- Step 3: Make the column NOT NULL and add the unique constraint
-ALTER TABLE admins
-    MODIFY COLUMN username VARCHAR(100) NOT NULL,
-    ADD CONSTRAINT uk_admin_username UNIQUE (username);
+        -- Step 2: Back-fill username from the email local-part for existing rows
+        UPDATE admins
+        SET username = SUBSTRING_INDEX(email, '@', 1)
+        WHERE username IS NULL;
 
--- Step 4: Update the default admin row to set the standard username
+        -- Step 3: Remove any duplicate back-filled usernames by appending the id
+        UPDATE admins a
+        JOIN (
+            SELECT MIN(id) AS keep_id, username
+            FROM admins
+            GROUP BY username
+            HAVING COUNT(*) > 1
+        ) dup ON a.username = dup.username AND a.id <> dup.keep_id
+        SET a.username = CONCAT(a.username, '_', a.id);
+
+        -- Step 4: Make the column NOT NULL
+        ALTER TABLE admins
+            MODIFY COLUMN username VARCHAR(100) NOT NULL;
+    END IF;
+
+    -- Step 5: Add the unique constraint only if it does not yet exist
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME   = 'admins'
+          AND INDEX_NAME   = 'uk_admin_username'
+    ) THEN
+        ALTER TABLE admins
+            ADD CONSTRAINT uk_admin_username UNIQUE (username);
+    END IF;
+END$$
+DELIMITER ;
+
+CALL _migration_add_admin_username();
+DROP PROCEDURE IF EXISTS _migration_add_admin_username;
+
+-- Step 6: Update the default admin row to set the standard username
 --         (skip if the row does not exist or username is already set correctly)
 UPDATE admins
 SET username = 'admin'
@@ -2672,8 +2708,20 @@ DEALLOCATE PREPARE _stmt;
 
 -- 4. Add composite unique key so one user can have one row per document type
 --    but cannot duplicate the same type.
-ALTER TABLE user_documents
-    ADD UNIQUE KEY uk_userid_doctype (userid, documenttype);
+SET @_add_uk_doctype = (
+    SELECT IF(
+        COUNT(*) = 0,
+        'ALTER TABLE user_documents ADD UNIQUE KEY uk_userid_doctype (userid, documenttype)',
+        'SELECT 1'
+    )
+    FROM INFORMATION_SCHEMA.STATISTICS
+    WHERE TABLE_SCHEMA = DATABASE()
+      AND TABLE_NAME   = 'user_documents'
+      AND INDEX_NAME   = 'uk_userid_doctype'
+);
+PREPARE _stmt FROM @_add_uk_doctype;
+EXECUTE _stmt;
+DEALLOCATE PREPARE _stmt;
 
 -- 5. Remove legacy new-schema columns that are replaced by the above
 --    (safe to drop if they exist; harmless if they do not)
