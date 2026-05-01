@@ -70,13 +70,32 @@ if ($params) {
 $countStmt->execute();
 $totalRecords = intval($countStmt->get_result()->fetch_assoc()['total'] ?? 0);
 
-// ── Detect whether the is_unsent column exists (added by the socket server) ───
-$unsentCheck = $conn->query(
-    "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
-     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_messages' AND COLUMN_NAME = 'is_unsent'
+// ── Detect whether chat_messages table exists ────────────────────────────────
+$chatMsgTableCheck = $conn->query(
+    "SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_messages'
      LIMIT 1"
 );
-$hasUnsentCol = $unsentCheck && $unsentCheck->num_rows > 0;
+$hasChatMessages = $chatMsgTableCheck && $chatMsgTableCheck->num_rows > 0;
+
+// ── Detect whether the is_unsent column exists (added by the socket server) ───
+$hasUnsentCol = false;
+if ($hasChatMessages) {
+    $unsentCheck = $conn->query(
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_messages' AND COLUMN_NAME = 'is_unsent'
+         LIMIT 1"
+    );
+    $hasUnsentCol = $unsentCheck && $unsentCheck->num_rows > 0;
+}
+
+// ── Detect whether chat_unread_counts table exists ────────────────────────────
+$unreadTableCheck = $conn->query(
+    "SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'chat_unread_counts'
+     LIMIT 1"
+);
+$hasChatUnreadCounts = $unreadTableCheck && $unreadTableCheck->num_rows > 0;
 
 // ── Main query — single round-trip, no N+1 ────────────────────────────────────
 // chat_room_id between admin (id=1) and any user (id > 1) is always "1_<userId>"
@@ -86,6 +105,65 @@ $unsentFilter  = $hasUnsentCol ? 'AND  cm.is_unsent  = 0' : '';
 $unsentFilter2 = $hasUnsentCol ? 'AND  cm2.is_unsent = 0' : '';
 $unsentFilter3 = $hasUnsentCol ? 'AND  cm3.is_unsent = 0' : '';
 $unsentFilter4 = $hasUnsentCol ? 'AND  cm4.is_unsent = 0' : '';
+
+// Build optional subqueries only when the backing tables exist.
+// If chat_messages is absent (not yet created by the socket server) we fall
+// back to NULL / 0 so the users table can always be queried successfully.
+if ($hasChatMessages) {
+    $chatMsgSubquery = "
+        (
+            SELECT cm.message
+            FROM   chat_messages cm
+            WHERE  cm.chat_room_id = CONCAT('1_', u.id)
+              $unsentFilter
+            ORDER  BY cm.created_at DESC
+            LIMIT  1
+        )";
+    $chatMsgTypeSubquery = "
+        (
+            SELECT cm4.message_type
+            FROM   chat_messages cm4
+            WHERE  cm4.chat_room_id = CONCAT('1_', u.id)
+              $unsentFilter4
+            ORDER  BY cm4.created_at DESC
+            LIMIT  1
+        )";
+    $lastMsgAtSubquery = "
+        (
+            SELECT cm2.created_at
+            FROM   chat_messages cm2
+            WHERE  cm2.chat_room_id = CONCAT('1_', u.id)
+              $unsentFilter2
+            ORDER  BY cm2.created_at DESC
+            LIMIT  1
+        )";
+    $lastSenderSubquery = "
+        (
+            SELECT cm3.sender_id
+            FROM   chat_messages cm3
+            WHERE  cm3.chat_room_id = CONCAT('1_', u.id)
+              $unsentFilter3
+            ORDER  BY cm3.created_at DESC
+            LIMIT  1
+        )";
+    $lastMsgOrderBy = "last_message_at DESC,";
+} else {
+    $chatMsgSubquery    = "NULL";
+    $chatMsgTypeSubquery = "NULL";
+    $lastMsgAtSubquery  = "NULL";
+    $lastSenderSubquery = "NULL";
+    $lastMsgOrderBy     = "";
+}
+
+$unreadSubquery = $hasChatUnreadCounts
+    ? "COALESCE((
+            SELECT uc.unread_count
+            FROM   chat_unread_counts uc
+            WHERE  uc.chat_room_id = CONCAT('1_', u.id)
+              AND  uc.user_id = '1'
+            LIMIT  1
+        ), 0)"
+    : "0";
 
 $mainSQL = "
     SELECT
@@ -98,50 +176,16 @@ $mainSQL = "
         u.isOnline,
         u.usertype,
         u.isVerified,
-        (
-            SELECT cm.message
-            FROM   chat_messages cm
-            WHERE  cm.chat_room_id = CONCAT('1_', u.id)
-              $unsentFilter
-            ORDER  BY cm.created_at DESC
-            LIMIT  1
-        ) AS chat_message,
-        (
-            SELECT cm4.message_type
-            FROM   chat_messages cm4
-            WHERE  cm4.chat_room_id = CONCAT('1_', u.id)
-              $unsentFilter4
-            ORDER  BY cm4.created_at DESC
-            LIMIT  1
-        ) AS chat_message_type,
-        (
-            SELECT cm2.created_at
-            FROM   chat_messages cm2
-            WHERE  cm2.chat_room_id = CONCAT('1_', u.id)
-              $unsentFilter2
-            ORDER  BY cm2.created_at DESC
-            LIMIT  1
-        ) AS last_message_at,
-        (
-            SELECT cm3.sender_id
-            FROM   chat_messages cm3
-            WHERE  cm3.chat_room_id = CONCAT('1_', u.id)
-              $unsentFilter3
-            ORDER  BY cm3.created_at DESC
-            LIMIT  1
-        ) AS last_sender_id,
-        COALESCE((
-            SELECT uc.unread_count
-            FROM   chat_unread_counts uc
-            WHERE  uc.chat_room_id = CONCAT('1_', u.id)
-              AND  uc.user_id = '1'
-            LIMIT  1
-        ), 0) AS unread_count
+        $chatMsgSubquery    AS chat_message,
+        $chatMsgTypeSubquery AS chat_message_type,
+        $lastMsgAtSubquery  AS last_message_at,
+        $lastSenderSubquery AS last_sender_id,
+        $unreadSubquery     AS unread_count
     FROM  users u
     $whereSQL
     ORDER BY
         CASE WHEN u.isOnline = 1 THEN 0 ELSE 1 END ASC,
-        last_message_at DESC,
+        $lastMsgOrderBy
         u.lastLogin DESC
 ";
 
