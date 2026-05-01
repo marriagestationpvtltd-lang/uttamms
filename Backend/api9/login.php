@@ -42,10 +42,14 @@ if (!$email || !$password) {
 
 try {
     $pdo = new PDO(
-        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME,
+        "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4",
         DB_USER,
         DB_PASS,
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+        [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ]
     );
 
     $stmt = $pdo->prepare("
@@ -55,7 +59,7 @@ try {
         LIMIT 1
     ");
     $stmt->execute(['email' => $email]);
-    $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+    $admin = $stmt->fetch();
 
     if (!$admin) {
         response(false, 'Invalid credentials', [], 401);
@@ -69,17 +73,17 @@ try {
         response(false, 'Invalid credentials', [], 401);
     }
 
-    // 🔐 Simple Token (JWT-like)
-    $payload = [
-        'admin_id' => $admin['id'],
-        'email' => $admin['email'],
-        'role' => $admin['role'],
-        'iat' => time(),
-        'exp' => time() + (60 * 60 * 24) // 24 hours
-    ];
+    // Generate a secure random token (96 hex chars, fits in admin_tokens.token VARCHAR(128))
+    $token     = bin2hex(random_bytes(48));
+    $expiresAt = date('Y-m-d H:i:s', strtotime('+24 hours'));
 
-    $secret = 'CHANGE_THIS_SECRET_KEY';
-    $token = base64_encode(json_encode($payload)) . '.' . hash_hmac('sha256', json_encode($payload), $secret);
+    // Remove expired tokens for this admin to keep the table clean
+    $pdo->prepare("DELETE FROM admin_tokens WHERE admin_id = ? AND expires_at < NOW()")
+        ->execute([$admin['id']]);
+
+    // Store token in admin_tokens so the socket server can validate it
+    $pdo->prepare("INSERT INTO admin_tokens (admin_id, token, expires_at) VALUES (?, ?, ?)")
+        ->execute([$admin['id'], $token, $expiresAt]);
 
     // Update last login
     $pdo->prepare("UPDATE admins SET last_login = NOW() WHERE id = ?")
@@ -88,7 +92,7 @@ try {
     response(true, 'Login successful', [
         'token' => $token,
         'admin' => [
-            'id' => $admin['id'],
+            'id'   => $admin['id'],
             'name' => $admin['name'],
             'email' => $admin['email'],
             'role' => $admin['role']
