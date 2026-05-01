@@ -2,24 +2,51 @@
 -- Marriage Station – Socket Server · Complete Database Schema
 -- ============================================================
 --
--- This single file defines ALL tables required by the Socket.IO
--- real-time server (server.js).  It is safe to run against:
---   • a brand-new empty database (creates all tables from scratch)
---   • an existing database that already has some tables
---     (every statement uses CREATE TABLE IF NOT EXISTS)
+-- ⚙️  SPLIT-SERVER SETUP (Socket Server DB ≠ PHP Backend DB)
+-- ──────────────────────────────────────────────────────────
+-- This file is designed for deployments where the Socket.IO
+-- server runs on a SEPARATE machine from the PHP backend and
+-- therefore needs its OWN MySQL database.
 --
--- HOW TO IMPORT
+-- STEP 1 – Create a new database on the socket server's MySQL:
+--
+--   CREATE DATABASE IF NOT EXISTS `ms_socket`
+--     CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+--
+-- STEP 2 – Import this file into that database (pick one):
+--
 -- Option A (recommended) – MySQL CLI:
---   mysql -u <user> -p <your_database> < socket_server_complete_db.sql
+--   mysql -u <user> -p ms_socket < socket_server_complete_db.sql
 --
 -- Option B – MySQL CLI interactive:
 --   mysql -u <user> -p
---   USE <your_database>;
+--   USE ms_socket;
 --   SOURCE /path/to/socket_server_complete_db.sql
 --
 -- Option C – phpMyAdmin:
---   1. Select your database in the left panel.
---   2. Click "Import" and upload this file.
+--   1. Create the database manually in phpMyAdmin.
+--   2. Select it in the left panel.
+--   3. Click "Import" and upload this file.
+--
+-- STEP 3 – Update the socket server .env:
+--   DB_HOST=<socket_server_mysql_host>
+--   DB_NAME=ms_socket
+--   DB_USER=<db_user>
+--   DB_PASSWORD=<db_password>
+--
+-- STEP 4 – Configure the PHP backend to ALSO write to this DB
+--   for the following tables (the socket server reads them):
+--   • users        – on user register / profile update
+--   • admins       – on admin create / update
+--   • user_tokens  – on user login / logout
+--   • admin_tokens – on admin login / logout
+--   • proposals    – on photo/profile/chat request send/accept/reject
+--   • blocks       – on user block / unblock
+--
+--   The remaining tables (chat_rooms, chat_messages, call_history,
+--   user_activities, agent_users, ac_*) are written exclusively by
+--   the socket server itself – the PHP backend does not need to
+--   touch them.
 --
 -- ── TABLE SUMMARY ──────────────────────────────────────────────
 -- SECTION 1 · Core Application Tables
