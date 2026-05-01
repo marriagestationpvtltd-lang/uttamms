@@ -719,23 +719,47 @@ class SocketService {
   }
 
   /// Fetch the user's chat room list (request-response via Socket.IO ack).
+  /// Falls back to the HTTP REST endpoint when the socket is unavailable or
+  /// returns an empty list (e.g. due to connection problems).
   Future<List<dynamic>> getChatRooms(String userId) async {
-    final completer = Completer<List<dynamic>>();
-    _socket?.emitWithAck(
-      'get_chat_rooms',
-      {'userId': userId},
-      ack: (response) {
-        final map = _toMap(response);
-        final rooms = map['chatRooms'];
-        if (!completer.isCompleted) {
-          completer.complete(rooms is List ? rooms : []);
+    // ── 1. Try Socket.IO ack ─────────────────────────────────────────────────
+    if (_socket != null && isConnected) {
+      final completer = Completer<List<dynamic>>();
+      _socket!.emitWithAck(
+        'get_chat_rooms',
+        {'userId': userId},
+        ack: (response) {
+          final map = _toMap(response);
+          final rooms = map['chatRooms'];
+          if (!completer.isCompleted) {
+            completer.complete(rooms is List ? rooms : []);
+          }
+        },
+      );
+      Future.delayed(kRequestTimeout, () {
+        if (!completer.isCompleted) completer.complete([]);
+      });
+      final socketRooms = await completer.future;
+      if (socketRooms.isNotEmpty) return socketRooms;
+    }
+
+    // ── 2. HTTP fallback ─────────────────────────────────────────────────────
+    try {
+      final uri = Uri.parse(kSocketServerUrl).replace(
+        path: '/api/chat-rooms',
+        query: 'userId=${Uri.encodeComponent(userId)}',
+      );
+      final resp = await http.get(uri).timeout(kRequestTimeout);
+      if (resp.statusCode == 200) {
+        final decoded = jsonDecode(resp.body);
+        if (decoded is Map && decoded['chatRooms'] is List) {
+          return decoded['chatRooms'] as List;
         }
-      },
-    );
-    Future.delayed(kRequestTimeout, () {
-      if (!completer.isCompleted) completer.complete([]);
-    });
-    return completer.future;
+      }
+    } catch (_) {
+      // HTTP fallback also failed — return empty list
+    }
+    return [];
   }
 
   // ── Media upload ──────────────────────────────────────────────────────────
