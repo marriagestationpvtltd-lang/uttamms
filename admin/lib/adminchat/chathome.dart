@@ -2811,20 +2811,27 @@ class _ChatWindowState extends State<ChatWindow> {
                     CircleAvatar(
                       radius: 18,
                       backgroundColor: const Color(0xFFF1F5F9),
-                      backgroundImage:
+                      child:
                           chatProvider.profilePicture != null &&
                               chatProvider.profilePicture!.isNotEmpty
-                          ? NetworkImage(chatProvider.profilePicture!)
-                          : null,
-                      child:
-                          chatProvider.profilePicture == null ||
-                              chatProvider.profilePicture!.isEmpty
-                          ? Icon(
+                          ? ClipOval(
+                              child: CachedNetworkImage(
+                                imageUrl: chatProvider.profilePicture!,
+                                width: 36,
+                                height: 36,
+                                fit: BoxFit.cover,
+                                errorWidget: (context, url, error) => Icon(
+                                  Icons.person,
+                                  size: 18,
+                                  color: Colors.grey[400],
+                                ),
+                              ),
+                            )
+                          : Icon(
                               Icons.person,
                               size: 18,
                               color: Colors.grey[400],
-                            )
-                          : null,
+                            ),
                     ),
                   ],
                 ),
@@ -3607,20 +3614,28 @@ class _ChatWindowState extends State<ChatWindow> {
                         CircleAvatar(
                           radius: 16,
                           backgroundColor: const Color(0xFFF1F5F9),
-                          backgroundImage:
+                          child:
                               match['profile_picture'] != null &&
                                   match['profile_picture'].toString().isNotEmpty
-                              ? NetworkImage(match['profile_picture'])
-                              : null,
-                          child:
-                              match['profile_picture'] == null ||
-                                  match['profile_picture'].toString().isEmpty
-                              ? Icon(
+                              ? ClipOval(
+                                  child: CachedNetworkImage(
+                                    imageUrl: match['profile_picture']
+                                        .toString(),
+                                    width: 32,
+                                    height: 32,
+                                    fit: BoxFit.cover,
+                                    errorWidget: (context, url, error) => Icon(
+                                      Icons.person,
+                                      size: 16,
+                                      color: Colors.grey[400],
+                                    ),
+                                  ),
+                                )
+                              : Icon(
                                   Icons.person,
                                   size: 16,
                                   color: Colors.grey[400],
-                                )
-                              : null,
+                                ),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -3700,16 +3715,22 @@ class _ChatWindowState extends State<ChatWindow> {
                       leading: CircleAvatar(
                         radius: 20,
                         backgroundColor: Colors.grey[300],
-                        backgroundImage:
+                        child:
                             match['profile_picture'] != null &&
                                 match['profile_picture'].toString().isNotEmpty
-                            ? NetworkImage(match['profile_picture'])
-                            : null,
-                        child:
-                            match['profile_picture'] == null ||
-                                match['profile_picture'].toString().isEmpty
-                            ? Icon(Icons.person, color: Colors.grey[700])
-                            : null,
+                            ? ClipOval(
+                                child: CachedNetworkImage(
+                                  imageUrl: match['profile_picture'].toString(),
+                                  width: 40,
+                                  height: 40,
+                                  fit: BoxFit.cover,
+                                  errorWidget: (context, url, error) => Icon(
+                                    Icons.person,
+                                    color: Colors.grey[700],
+                                  ),
+                                ),
+                              )
+                            : Icon(Icons.person, color: Colors.grey[700]),
                       ),
                       title: Text(match['name']?.toString() ?? 'Unknown'),
                       subtitle: Text('Match: ${match['percentage'] ?? 'N/A'}%'),
