@@ -10,10 +10,24 @@ Real-time chat server for the Marriage Station Flutter app, replacing Firebase F
 ## Setup
 
 ### 1. Database
-Run the migration SQL on your MySQL server:
+
+#### Fresh installation (recommended)
+Run the **complete** schema that covers all 18 tables the socket server needs
+(core app tables, auth tokens, proposals, chat, calls, admin panel):
+```bash
+mysql -u root -p marriagestation < sql/socket_server_complete_db.sql
+```
+
+#### Existing database — chat tables only
+If the main application database already exists and you only need to add the
+socket-server-specific tables (chat rooms, messages, calls, admin chat panel):
 ```bash
 mysql -u root -p marriagestation < sql/chat_tables.sql
 ```
+
+> **Note:** `socket_server_complete_db.sql` uses `CREATE TABLE IF NOT EXISTS`
+> and `ALTER TABLE … ADD … IF NOT EXISTS` throughout, so it is safe to re-run
+> against an existing database without losing data.
 
 ### 2. Environment
 ```bash
