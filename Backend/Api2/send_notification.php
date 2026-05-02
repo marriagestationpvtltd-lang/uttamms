@@ -1,16 +1,12 @@
 <?php
 header("Content-Type: application/json");
 require 'common_fcm.php';
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-header("Content-Type: application/json");
 
 // Database connection
 $host = "localhost";
 $db   = "ms";
-$user = "ms";
-$pass = "ms";
+$user = "root";
+$pass = "";
 
 $conn = new mysqli($host, $user, $pass, $db);
 if ($conn->connect_error) {

@@ -27,6 +27,7 @@ Future<http.StreamedResponse> uploadMultipartPost({
   required String filename,
   MediaType? contentType,
   Map<String, String>? extraHeaders,
+  Map<String, String>? fields,
 }) async {
   // Build a dart:io HttpClient that will NOT auto-follow redirects.
   final innerClient = HttpClient()
@@ -40,6 +41,7 @@ Future<http.StreamedResponse> uploadMultipartPost({
     for (int hop = 0; hop <= _maxRedirects; hop++) {
       final request = http.MultipartRequest('POST', Uri.parse(uploadUrl));
       if (extraHeaders != null) request.headers.addAll(extraHeaders);
+      if (fields != null) request.fields.addAll(fields);
       request.files.add(
         http.MultipartFile.fromBytes(
           fieldName,
@@ -72,6 +74,7 @@ Future<http.StreamedResponse> uploadMultipartPost({
     // Fallback: send one final attempt at the last resolved URL.
     final finalRequest = http.MultipartRequest('POST', Uri.parse(uploadUrl));
     if (extraHeaders != null) finalRequest.headers.addAll(extraHeaders);
+    if (fields != null) finalRequest.fields.addAll(fields);
     finalRequest.files.add(
       http.MultipartFile.fromBytes(
         fieldName,

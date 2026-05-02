@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
@@ -25,6 +24,8 @@ class SocketService {
 
   IO.Socket? _socket;
   String? _connectedUserId;
+  String? _connectedToken;
+  bool _hasRetriedWithoutToken = false;
 
   /// Default timeout for Socket.IO request-response (ack) calls.
   static const Duration kRequestTimeout = Duration(seconds: 15);
@@ -42,6 +43,8 @@ class SocketService {
   final _messageDeletedCtrl =
       StreamController<Map<String, dynamic>>.broadcast();
   final _messageUnsentCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _messageBlockedCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _userBlockedCtrl = StreamController<String>.broadcast();
   final _messageLikedCtrl = StreamController<Map<String, dynamic>>.broadcast();
   final _messageReactionCtrl =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -72,6 +75,12 @@ class SocketService {
   final _switchToVideoResponseCtrl =
       StreamController<Map<String, dynamic>>.broadcast();
 
+  // ── Proposal / request streams ─────────────────────────────────────────
+
+  final _newProposalCtrl = StreamController<Map<String, dynamic>>.broadcast();
+  final _proposalAcceptedCtrl =
+      StreamController<Map<String, dynamic>>.broadcast();
+
   // ── Conference call streams ───────────────────────────────────────────────
 
   final _addedToCallCtrl = StreamController<Map<String, dynamic>>.broadcast();
@@ -89,6 +98,12 @@ class SocketService {
   Stream<Map<String, dynamic>> get onMessageDeleted =>
       _messageDeletedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageUnsent => _messageUnsentCtrl.stream;
+    Stream<Map<String, dynamic>> get onMessageBlocked =>
+      _messageBlockedCtrl.stream;
+  /// Fires locally (no socket round-trip) with the blocked user's ID after
+  /// a successful block_user HTTP call.  Chat list uses this to immediately
+  /// remove the conversation row.
+  Stream<String> get onUserBlocked => _userBlockedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageLiked => _messageLikedCtrl.stream;
   Stream<Map<String, dynamic>> get onMessageReaction =>
       _messageReactionCtrl.stream;
@@ -128,6 +143,14 @@ class SocketService {
   Stream<Map<String, dynamic>> get onSwitchToVideoResponse =>
       _switchToVideoResponseCtrl.stream;
 
+  // Proposal / request streams
+  /// Emitted when this user receives a new proposal/request from another user.
+  Stream<Map<String, dynamic>> get onNewProposal => _newProposalCtrl.stream;
+
+  /// Emitted when a proposal/request this user sent has been accepted.
+  Stream<Map<String, dynamic>> get onProposalAccepted =>
+      _proposalAcceptedCtrl.stream;
+
   // Conference call streams
   Stream<Map<String, dynamic>> get onAddedToCall => _addedToCallCtrl.stream;
   Stream<Map<String, dynamic>> get onParticipantAddedToCall =>
@@ -138,6 +161,9 @@ class SocketService {
       _participantRejectedCallCtrl.stream;
 
   bool get isConnected => _socket?.connected == true;
+
+  /// The userId this socket is authenticated as.
+  String? get currentUserId => _connectedUserId;
 
   // ── Connect / Disconnect ──────────────────────────────────────────────────
 
@@ -157,6 +183,8 @@ class SocketService {
     }
 
     _connectedUserId = userId;
+    _connectedToken = token;
+    _hasRetriedWithoutToken = false;
 
     _socket = IO.io(
       kSocketServerUrl,
@@ -188,6 +216,30 @@ class SocketService {
       _connectionCtrl.add(false);
     });
 
+    _socket!.on('authenticated', (_) {
+      _hasRetriedWithoutToken = false;
+    });
+
+    _socket!.on('authentication_error', (data) {
+      _connectionCtrl.add(false);
+      if (_hasRetriedWithoutToken ||
+          _connectedToken == null ||
+          _connectedToken!.isEmpty) {
+        return;
+      }
+
+      _hasRetriedWithoutToken = true;
+      _connectedToken = null;
+      final socket = _socket;
+      if (socket == null) return;
+
+      final options = socket.io.options ?? <String, dynamic>{};
+      options['auth'] = {'userId': userId};
+      socket.io.options = options;
+      socket.disconnect();
+      socket.connect();
+    });
+
     _socket!.onConnectError((err) => print('❌ Socket connect error: $err'));
 
     // ── Register event listeners ────────────────────────────────────────────
@@ -206,6 +258,10 @@ class SocketService {
 
     _socket!.on('message_unsent', (data) {
       _messageUnsentCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('message_blocked', (data) {
+      _messageBlockedCtrl.add(_toMap(data));
     });
 
     _socket!.on('message_liked', (data) {
@@ -335,6 +391,15 @@ class SocketService {
       _participantRejectedCallCtrl.add(_toMap(data));
     });
 
+    // ── Proposal / request events ─────────────────────────────────────────
+    _socket!.on('new_proposal', (data) {
+      _newProposalCtrl.add(_toMap(data));
+    });
+
+    _socket!.on('proposal_accepted', (data) {
+      _proposalAcceptedCtrl.add(_toMap(data));
+    });
+
     _socket!.on('error', (data) {
       print('🔴 Socket error event: $data');
     });
@@ -347,6 +412,15 @@ class SocketService {
     _socket?.disconnect();
     _socket = null;
     _connectedUserId = null;
+  }
+
+  /// Notify the app that the current user has blocked [blockedUserId].
+  /// Called by the UI after a successful block_user HTTP response so that
+  /// listeners (e.g. ChatListScreen) can refresh immediately.
+  void notifyUserBlocked(String blockedUserId) {
+    if (!_userBlockedCtrl.isClosed) {
+      _userBlockedCtrl.add(blockedUserId);
+    }
   }
 
   // ── Emit helpers ──────────────────────────────────────────────────────────
@@ -453,6 +527,42 @@ class SocketService {
   ///
   /// Call this fire-and-forget after every successful user action, alongside
   /// [ActivityService.instance.log] (which handles the DB insert via PHP).
+  /// Emit a new_proposal event so the receiver sees the request immediately.
+  void emitNewProposal({
+    required String receiverId,
+    required String senderId,
+    String senderName = '',
+    String requestType = 'Chat',
+    String proposalId = '',
+  }) {
+    if (receiverId.isEmpty || senderId.isEmpty) return;
+    _socket?.emit('new_proposal', {
+      'receiverId': receiverId,
+      'senderId': senderId,
+      'senderName': senderName,
+      'requestType': requestType,
+      'proposalId': proposalId,
+    });
+  }
+
+  /// Emit a proposal_accepted event so the original sender's Sent tab updates.
+  void emitProposalAccepted({
+    required String originalSenderId,
+    required String acceptorId,
+    String acceptorName = '',
+    String requestType = 'Chat',
+    String proposalId = '',
+  }) {
+    if (originalSenderId.isEmpty || acceptorId.isEmpty) return;
+    _socket?.emit('proposal_accepted', {
+      'originalSenderId': originalSenderId,
+      'acceptorId': acceptorId,
+      'acceptorName': acceptorName,
+      'requestType': requestType,
+      'proposalId': proposalId,
+    });
+  }
+
   void emitNewActivity({
     required String userId,
     required String activityType,
@@ -627,12 +737,14 @@ class SocketService {
     required String adminId,
     required String channelName,
     required String acceptedById,
+    String? callType,
     String? existingParticipantId,
   }) {
     _socket?.emit('participant_call_accept', {
       'adminId': adminId,
       'channelName': channelName,
       'acceptedById': acceptedById,
+      if (callType != null) 'callType': callType,
       if (existingParticipantId != null)
         'existingParticipantId': existingParticipantId,
     });
@@ -651,6 +763,18 @@ class SocketService {
       'rejectedById': rejectedById,
       if (existingParticipantId != null)
         'existingParticipantId': existingParticipantId,
+    });
+  }
+
+  /// A participant voluntarily leaves an ongoing group/conference call.
+  /// Notifies remaining participants without ending the entire call.
+  void emitLeaveGroupCall({
+    required String channelName,
+    required String userId,
+  }) {
+    _socket?.emit('leave_group_call', {
+      'channelName': channelName,
+      'userId': userId,
     });
   }
 
@@ -920,6 +1044,9 @@ class SocketService {
     _newMessageCtrl.close();
     _messageEditedCtrl.close();
     _messageDeletedCtrl.close();
+    _messageUnsentCtrl.close();
+    _messageBlockedCtrl.close();
+    _userBlockedCtrl.close();
     _messageLikedCtrl.close();
     _messageReactionCtrl.close();
     _typingStartCtrl.close();

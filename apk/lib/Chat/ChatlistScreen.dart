@@ -89,6 +89,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   bool _chatRoomsInitialized = false;
   StreamSubscription? _chatRoomsUpdateSubscription;
   StreamSubscription? _newMessageSubscription;
+  StreamSubscription? _userBlockedSubscription;
 
   // Tracks when the chat rooms were last fetched to avoid redundant refreshes.
   DateTime? _lastChatRoomsFetch;
@@ -123,6 +124,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     _onlineStatusSubscription?.cancel();
     _chatRoomsUpdateSubscription?.cancel();
     _newMessageSubscription?.cancel();
+    _userBlockedSubscription?.cancel();
     _adminStatusSubscription?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
@@ -551,6 +553,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     // getChatRooms is in-flight are not silently dropped by the broadcast stream.
     _startChatRoomsUpdateListener();
     _startNewMessageListener();
+    _startUserBlockedListener();
     _startOnlineStatusListeners();
 
     // Load from cache first so the list appears instantly without a spinner
@@ -591,6 +594,30 @@ class _ChatListScreenState extends State<ChatListScreen>
         // Seed initial online status from room data before real-time events arrive
         _updateOnlineStatusesFromRooms(parsedRooms);
       });
+    });
+  }
+
+  /// Listen for local user_blocked notifications so the conversation is
+  /// removed from the list immediately after a successful block action,
+  /// without waiting for the next chat_rooms_update push.
+  void _startUserBlockedListener() {
+    _userBlockedSubscription?.cancel();
+    _userBlockedSubscription =
+        SocketService().onUserBlocked.listen((blockedUserId) {
+      if (!mounted) return;
+      setState(() {
+        _socketChatRooms.removeWhere((room) {
+          final p1 = room['user1Id']?.toString() ?? '';
+          final p2 = room['user2Id']?.toString() ?? '';
+          return p1 == blockedUserId || p2 == blockedUserId;
+        });
+        final nonAdminRooms =
+            _socketChatRooms.where((r) => !_isAdminRoom(r)).toList();
+        _cachedTotalRooms = nonAdminRooms.length;
+      });
+      _saveChatRoomsToCache(_socketChatRooms);
+      // Full refresh so server-side hidden state is respected
+      _refreshChatRooms();
     });
   }
 
@@ -781,6 +808,32 @@ class _ChatListScreenState extends State<ChatListScreen>
     return Map<String, String>.fromEntries(
       raw.entries
           .map((e) => MapEntry(e.key.toString(), e.value?.toString() ?? '')),
+    );
+  }
+
+  // User-side public label: MS user ID + last name (first name hidden).
+  String _publicIdentityFromIds({String? userId, String? lastName}) {
+    final String u = (userId ?? '').trim();
+    final String idPart = u.isEmpty ? 'MS ID' : 'MS$u';
+    final String ln = (lastName ?? '').trim();
+    if (ln.isEmpty) return idPart;
+    return '$idPart $ln';
+  }
+
+  String _extractLastName(String rawName) {
+    final parts = rawName
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '';
+    return parts.last;
+  }
+
+  String _publicNameForProposal(ProposalModel req) {
+    return _publicIdentityFromIds(
+      userId: (req.senderId ?? req.receiverId),
+      lastName: req.lastName,
     );
   }
 
@@ -1259,7 +1312,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       builder: (ctx) => AlertDialog(
         title: const Text("Accept Chat Request"),
         content: Text(
-          "${proposal.firstName ?? ''} ${proposal.lastName ?? ''} wants to chat with you. Accept?",
+          "${_publicNameForProposal(proposal)} wants to chat with you. Accept?",
         ),
         actions: [
           TextButton(
@@ -1293,8 +1346,7 @@ class _ChatListScreenState extends State<ChatListScreen>
         // Create chat room via Socket.IO and send "Ok Let's Talk" message
         try {
           final senderId = proposal.senderId ?? '';
-          final senderName =
-              '${proposal.firstName ?? ''} ${proposal.lastName ?? ''}'.trim();
+          final senderName = _publicNameForProposal(proposal);
           final senderImage = resolveApiImageUrl(proposal.profilePicture ?? '');
 
           if (senderId.isNotEmpty) {
@@ -1317,7 +1369,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             // Send notification to the request sender
             await NotificationService.sendChatNotification(
               recipientUserId: senderId,
-              senderName: name,
+              senderName: _publicIdentityFromIds(userId: userId),
               senderId: userId,
               message: "Ok Let's Talk",
             );
@@ -1415,7 +1467,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void _showChatRequestActionSheet(ProposalModel req) {
-    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = _publicNameForProposal(req);
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
@@ -1448,7 +1500,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              displayName.isEmpty ? 'User' : displayName,
+              displayName,
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -1557,7 +1609,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
-    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = _publicNameForProposal(req);
 
     return InkWell(
       onTap: () {
@@ -1620,7 +1672,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    displayName.isEmpty ? 'User' : displayName,
+                    displayName,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -1652,8 +1704,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 Semantics(
-                  label:
-                      'Accept chat request from ${displayName.isEmpty ? 'User' : displayName}',
+                  label: 'Accept chat request from $displayName',
                   button: true,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -1680,8 +1731,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 ),
                 const SizedBox(height: 6),
                 Semantics(
-                  label:
-                      'Reject chat request from ${displayName.isEmpty ? 'User' : displayName}',
+                  label: 'Reject chat request from $displayName',
                   button: true,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -1718,7 +1768,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
-    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = _publicNameForProposal(req);
 
     return InkWell(
       onTap: () => _showSentChatRequestSheet(req),
@@ -1766,7 +1816,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    displayName.isEmpty ? 'User' : displayName,
+                    displayName,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -1816,7 +1866,7 @@ class _ChatListScreenState extends State<ChatListScreen>
   }
 
   void _showSentChatRequestSheet(ProposalModel req) {
-    final displayName = '${req.firstName ?? ''} ${req.lastName ?? ''}'.trim();
+    final displayName = _publicNameForProposal(req);
     final imageUrl = req.profilePicture?.isNotEmpty == true
         ? req.profilePicture!
         : 'https://static.vecteezy.com/system/resources/previews/022/997/791/non_2x/contact-person-icon-transparent-blur-glass-effect-icon-free-vector.jpg';
@@ -1849,7 +1899,7 @@ class _ChatListScreenState extends State<ChatListScreen>
             ),
             const SizedBox(height: 12),
             Text(
-              displayName.isEmpty ? 'User' : displayName,
+              displayName,
               style: const TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
@@ -2304,17 +2354,72 @@ class _ChatListScreenState extends State<ChatListScreen>
   Widget _buildWebDetailPanel() {
     final sel = _webSelectedChatData;
     if (sel == null) {
-      return const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.chat_bubble_outline, size: 72, color: Colors.grey),
-            SizedBox(height: 16),
-            Text(
-              'Select a conversation to start chatting',
-              style: TextStyle(fontSize: 16, color: Colors.grey),
+      return Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [Color(0xFFF8FAFF), Color(0xFFF3F6FC), Color(0xFFEFF2F8)],
+          ),
+        ),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 24),
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 32),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.88),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: const Color(0xFFE5EAF2)),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withOpacity(0.08),
+                    blurRadius: 28,
+                    offset: const Offset(0, 14),
+                  ),
+                ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 84,
+                    height: 84,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFFEEF3FF),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 42,
+                      color: Color(0xFF3056D3),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Your conversations live here',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Select any chat from the left panel to open messages, calls, and media in one place.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.45,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ],
+          ),
         ),
       );
     }
@@ -2613,7 +2718,10 @@ class _ChatListScreenState extends State<ChatListScreen>
             if (participantId.trim() != userId.trim()) {
               otherParticipantId = participantId;
               final rawName = participantNames[otherParticipantId] ?? '';
-              otherPersonName = rawName.isNotEmpty ? rawName : 'Unknown';
+              otherPersonName = _publicIdentityFromIds(
+                userId: otherParticipantId,
+                lastName: _extractLastName(rawName),
+              );
               break;
             }
           }
@@ -2622,9 +2730,10 @@ class _ChatListScreenState extends State<ChatListScreen>
             for (final entry in participantNames.entries) {
               if (entry.key.trim() != userId.trim()) {
                 otherParticipantId = entry.key.trim();
-                otherPersonName = entry.value.trim().isNotEmpty
-                    ? entry.value.trim()
-                    : 'Unknown';
+                otherPersonName = _publicIdentityFromIds(
+                  userId: otherParticipantId,
+                  lastName: _extractLastName(entry.value),
+                );
                 break;
               }
             }
@@ -2656,12 +2765,8 @@ class _ChatListScreenState extends State<ChatListScreen>
           }
 
           if (otherPersonName.isEmpty) {
-            final rawName = participantNames[otherParticipantId] ?? '';
-            otherPersonName = rawName.isNotEmpty
-                ? rawName
-                : (otherParticipantId.isNotEmpty
-                    ? 'User $otherParticipantId'
-                    : 'Unknown');
+            otherPersonName =
+                _publicIdentityFromIds(userId: otherParticipantId);
           }
 
           // Determine if last message was sent by me

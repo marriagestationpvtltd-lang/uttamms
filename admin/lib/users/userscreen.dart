@@ -70,12 +70,22 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   String _formatDate(String? dateStr) {
-    if (dateStr == null || dateStr.isEmpty || dateStr == 'null') return '—';
+    if (dateStr == null || dateStr.isEmpty || dateStr == 'null') return 'ΓÇö';
     try {
       final dt = DateTime.parse(dateStr);
       const months = [
-        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'May',
+        'Jun',
+        'Jul',
+        'Aug',
+        'Sep',
+        'Oct',
+        'Nov',
+        'Dec',
       ];
       return '${dt.day} ${months[dt.month - 1]} ${dt.year}';
     } catch (_) {
@@ -91,8 +101,8 @@ class _UsersPageState extends State<UsersPage> {
   /// Normalises a profile-picture path that may be either a full URL or a
   /// server-relative path (e.g. "/uploads/photo.jpg").  The chat section uses
   /// ${kAdminApiBaseUrl}/get.php which returns full URLs; the admin API
-  /// may return relative paths – we handle both here.
-  static const _kImgBase = '${kAdminApiBaseUrl}';
+  /// may return relative paths ΓÇô we handle both here.
+  static final _kImgBase = kAdminApiBaseUrl;
 
   String? _normaliseImageUrl(String? raw) {
     if (raw == null || raw.isEmpty || raw == 'null') return null;
@@ -137,7 +147,7 @@ class _UsersPageState extends State<UsersPage> {
     }
   }
 
-  // ─── Verification badge ──────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ Verification badge ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _verifiedBadge(bool isVerified) {
     return Container(
@@ -212,7 +222,7 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── Communication button ────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ Communication button ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _commBtn({
     required IconData icon,
@@ -238,7 +248,7 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── User Card ───────────────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ User Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _buildUserCard(User user, UserProvider provider) {
     provider.preloadActivity(user.id);
@@ -264,7 +274,7 @@ class _UsersPageState extends State<UsersPage> {
         gradient: LinearGradient(
           colors: [
             cardBg,
-            isDark ? const Color(0xFF0B1222) : Colors.grey.shade50
+            isDark ? const Color(0xFF0B1222) : Colors.grey.shade50,
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -274,8 +284,8 @@ class _UsersPageState extends State<UsersPage> {
           color: isSelected
               ? _kPrimary.withOpacity(0.7)
               : (isDark
-                  ? Colors.white.withOpacity(0.06)
-                  : Colors.grey.shade200),
+                    ? Colors.white.withOpacity(0.06)
+                    : Colors.grey.shade200),
           width: isSelected ? 1.4 : 1,
         ),
         boxShadow: [
@@ -297,11 +307,11 @@ class _UsersPageState extends State<UsersPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── THREE-COLUMN LAYOUT ───────────────────────────────────
+                // ΓöÇΓöÇ THREE-COLUMN LAYOUT ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ── LEFT: Checkbox + Photo + Status ──────────────────
+                    // ΓöÇΓöÇ LEFT: Checkbox + Photo + Status ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
@@ -316,8 +326,8 @@ class _UsersPageState extends State<UsersPage> {
                               color: isSelected
                                   ? _kPrimary.withOpacity(0.12)
                                   : (isDark
-                                      ? Colors.white.withOpacity(0.04)
-                                      : Colors.grey.shade100),
+                                        ? Colors.white.withOpacity(0.04)
+                                        : Colors.grey.shade100),
                               borderRadius: BorderRadius.circular(7),
                               border: Border.all(
                                 color: isSelected
@@ -352,37 +362,58 @@ class _UsersPageState extends State<UsersPage> {
                               PopupMenuItem(
                                 value: 'approve',
                                 height: 40,
-                                child: Row(children: [
-                                  Icon(Icons.check_circle_outline,
-                                      color: _kEmerald, size: 17),
-                                  const SizedBox(width: 8),
-                                  const Text('Approve Photo',
-                                      style: TextStyle(fontSize: 13)),
-                                ]),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.check_circle_outline,
+                                      color: _kEmerald,
+                                      size: 17,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Approve Photo',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                  ],
+                                ),
                               ),
                             if (hasPhoto && user.status != 'rejected')
                               PopupMenuItem(
                                 value: 'reject',
                                 height: 40,
-                                child: Row(children: [
-                                  Icon(Icons.cancel_outlined,
-                                      color: _kRose, size: 17),
-                                  const SizedBox(width: 8),
-                                  const Text('Reject Photo',
-                                      style: TextStyle(fontSize: 13)),
-                                ]),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.cancel_outlined,
+                                      color: _kRose,
+                                      size: 17,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Reject Photo',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                  ],
+                                ),
                               ),
                             if (hasPhoto) const PopupMenuDivider(height: 1),
                             PopupMenuItem(
                               value: 'view',
                               height: 40,
-                              child: Row(children: [
-                                Icon(Icons.person_outline,
-                                    color: _kPrimary, size: 17),
-                                const SizedBox(width: 8),
-                                const Text('View Profile',
-                                    style: TextStyle(fontSize: 13)),
-                              ]),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.person_outline,
+                                    color: _kPrimary,
+                                    size: 17,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'View Profile',
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                ],
+                              ),
                             ),
                           ],
                           child: Stack(
@@ -397,11 +428,11 @@ class _UsersPageState extends State<UsersPage> {
                                     colors: isFemale
                                         ? [
                                             const Color(0xFFFCE7F3),
-                                            const Color(0xFFFFF1F2)
+                                            const Color(0xFFFFF1F2),
                                           ]
                                         : [
                                             const Color(0xFFE0F2FE),
-                                            const Color(0xFFEEF2FF)
+                                            const Color(0xFFEEF2FF),
                                           ],
                                     begin: Alignment.topLeft,
                                     end: Alignment.bottomRight,
@@ -434,8 +465,9 @@ class _UsersPageState extends State<UsersPage> {
                                         width: 20,
                                         height: 20,
                                         child: CircularProgressIndicator(
-                                            strokeWidth: 2,
-                                            color: Colors.white),
+                                          strokeWidth: 2,
+                                          color: Colors.white,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -453,9 +485,9 @@ class _UsersPageState extends State<UsersPage> {
                                       shape: BoxShape.circle,
                                       boxShadow: [
                                         BoxShadow(
-                                            color:
-                                                Colors.black.withOpacity(0.08),
-                                            blurRadius: 4)
+                                          color: Colors.black.withOpacity(0.08),
+                                          blurRadius: 4,
+                                        ),
                                       ],
                                     ),
                                     child: Container(
@@ -467,7 +499,9 @@ class _UsersPageState extends State<UsersPage> {
                                             : Colors.grey.shade400,
                                         shape: BoxShape.circle,
                                         border: Border.all(
-                                            color: Colors.white, width: 1.5),
+                                          color: Colors.white,
+                                          width: 1.5,
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -479,26 +513,30 @@ class _UsersPageState extends State<UsersPage> {
                         // Photo status label
                         Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 3),
+                            horizontal: 6,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: statusColor.withOpacity(0.10),
                             borderRadius: BorderRadius.circular(6),
                             border: Border.all(
-                                color: statusColor.withOpacity(0.30)),
+                              color: statusColor.withOpacity(0.30),
+                            ),
                           ),
                           child: Text(
                             user.status.replaceAll('_', ' ').toUpperCase(),
                             style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w700,
-                                color: statusColor),
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: statusColor,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ),
                       ],
                     ),
                     const SizedBox(width: 12),
-                    // ── MIDDLE: Identity + Contact + Info chips ───────────
+                    // ΓöÇΓöÇ MIDDLE: Identity + Contact + Info chips ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
                     Expanded(
                       flex: 5,
                       child: Column(
@@ -532,15 +570,21 @@ class _UsersPageState extends State<UsersPage> {
                             spacing: 5,
                             runSpacing: 4,
                             children: [
-                              _softChip('#${user.id}',
-                                  icon: Icons.badge_outlined, color: _kPrimary),
-                              _softChip(user.gender,
-                                  icon: isFemale ? Icons.female : Icons.male,
-                                  color: genderAccentColor),
                               _softChip(
-                                  'Active: ${_formatDate(user.lastLogin)}',
-                                  icon: Icons.access_time,
-                                  color: _kSky),
+                                '#${user.id}',
+                                icon: Icons.badge_outlined,
+                                color: _kPrimary,
+                              ),
+                              _softChip(
+                                user.gender,
+                                icon: isFemale ? Icons.female : Icons.male,
+                                color: genderAccentColor,
+                              ),
+                              _softChip(
+                                'Active: ${_formatDate(user.lastLogin)}',
+                                icon: Icons.access_time,
+                                color: _kSky,
+                              ),
                             ],
                           ),
                           const SizedBox(height: 6),
@@ -570,9 +614,10 @@ class _UsersPageState extends State<UsersPage> {
                             runSpacing: 4,
                             children: [
                               _infoChip(
-                                  Icons.calendar_today_outlined,
-                                  'Reg: ${_formatDate(user.registrationDate)}',
-                                  _kEmerald),
+                                Icons.calendar_today_outlined,
+                                'Reg: ${_formatDate(user.registrationDate)}',
+                                _kEmerald,
+                              ),
                               _infoChip(
                                 user.isOnline == 1
                                     ? Icons.wifi_tethering
@@ -581,11 +626,12 @@ class _UsersPageState extends State<UsersPage> {
                                 user.isOnline == 1 ? _kEmerald : Colors.grey,
                               ),
                               _infoChip(
-                                  Icons.verified_outlined,
-                                  user.isVerified == 1
-                                      ? 'Verified'
-                                      : 'Needs Review',
-                                  user.isVerified == 1 ? _kEmerald : _kRose),
+                                Icons.verified_outlined,
+                                user.isVerified == 1
+                                    ? 'Verified'
+                                    : 'Needs Review',
+                                user.isVerified == 1 ? _kEmerald : _kRose,
+                              ),
                               _infoChip(
                                 user.usertype == 'paid'
                                     ? Icons.workspace_premium
@@ -600,25 +646,29 @@ class _UsersPageState extends State<UsersPage> {
                                   user.expiryDate!.isNotEmpty &&
                                   user.expiryDate != 'null')
                                 _infoChip(
-                                    Icons.event_outlined,
-                                    'Exp: ${_formatDate(user.expiryDate)}',
-                                    _kViolet),
+                                  Icons.event_outlined,
+                                  'Exp: ${_formatDate(user.expiryDate)}',
+                                  _kViolet,
+                                ),
                             ],
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(width: 10),
-                    // ── RIGHT: Compact activity stats ─────────────────────
+                    // ΓöÇΓöÇ RIGHT: Compact activity stats ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
                     Expanded(
                       flex: 3,
                       child: _buildCompactActivityGrid(
-                          activity, isActivityLoading, isDark),
+                        activity,
+                        isActivityLoading,
+                        isDark,
+                      ),
                     ),
                   ],
                 ),
 
-                // ── DIVIDER + ACTION BUTTONS ──────────────────────────────
+                // ΓöÇΓöÇ DIVIDER + ACTION BUTTONS ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
                 const SizedBox(height: 10),
                 _divider(isDark),
                 const SizedBox(height: 8),
@@ -671,7 +721,10 @@ class _UsersPageState extends State<UsersPage> {
                         isActioning
                             ? null
                             : () => _handleCardPhotoAction(
-                                'approve', user, provider),
+                                'approve',
+                                user,
+                                provider,
+                              ),
                       ),
                       _actionIconBtn(
                         Icons.cancel_outlined,
@@ -680,9 +733,26 @@ class _UsersPageState extends State<UsersPage> {
                         isActioning
                             ? null
                             : () => _handleCardPhotoAction(
-                                'reject', user, provider),
+                                'reject',
+                                user,
+                                provider,
+                              ),
                       ),
                     ],
+                    _actionIconBtn(
+                      user.isActive == 1
+                          ? Icons.pause_circle_outline
+                          : Icons.play_circle_outline,
+                      user.isActive == 1 ? 'Suspend' : 'Unsuspend',
+                      user.isActive == 1 ? _kAmber : _kEmerald,
+                      () => _handleSuspendTap(user, provider),
+                    ),
+                    _actionIconBtn(
+                      Icons.delete_outline_rounded,
+                      'Delete',
+                      _kRose,
+                      () => _handleDeleteTap(user, provider),
+                    ),
                   ],
                 ),
               ],
@@ -693,7 +763,7 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ── New helpers for 3-column card ─────────────────────────────────────────
+  // ΓöÇΓöÇ New helpers for 3-column card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _contactRow({
     required IconData icon,
@@ -721,9 +791,7 @@ class _UsersPageState extends State<UsersPage> {
               fontSize: 12,
               color: missing
                   ? Colors.grey.shade500
-                  : (isDark
-                      ? Colors.grey.shade200
-                      : const Color(0xFF1F2937)),
+                  : (isDark ? Colors.grey.shade200 : const Color(0xFF1F2937)),
               fontWeight: FontWeight.w600,
             ),
             maxLines: 1,
@@ -736,7 +804,10 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   Widget _buildCompactActivityGrid(
-      ActivityStats? stats, bool loading, bool isDark) {
+    ActivityStats? stats,
+    bool loading,
+    bool isDark,
+  ) {
     final s = stats ?? ActivityStats.empty();
     return Container(
       padding: const EdgeInsets.all(10),
@@ -755,9 +826,10 @@ class _UsersPageState extends State<UsersPage> {
               const Text(
                 'Activity',
                 style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 11,
-                    color: _kPrimary),
+                  fontWeight: FontWeight.w700,
+                  fontSize: 11,
+                  color: _kPrimary,
+                ),
               ),
               if (loading) ...[
                 const Spacer(),
@@ -765,29 +837,53 @@ class _UsersPageState extends State<UsersPage> {
                   height: 11,
                   width: 11,
                   child: CircularProgressIndicator(
-                      strokeWidth: 1.5,
-                      valueColor:
-                          AlwaysStoppedAnimation<Color>(_kPrimary)),
+                    strokeWidth: 1.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(_kPrimary),
+                  ),
                 ),
               ],
             ],
           ),
           const SizedBox(height: 7),
-          _miniStatRow('Sent', s.requestsSent, _kPrimary, 'Rcvd',
-              s.requestsReceived, _kViolet),
+          _miniStatRow(
+            'Sent',
+            s.requestsSent,
+            _kPrimary,
+            'Rcvd',
+            s.requestsReceived,
+            _kViolet,
+          ),
           const SizedBox(height: 4),
-          _miniStatRow('Chat', s.chatRequestsSent, _kSky, 'Acc\'d',
-              s.chatRequestsAccepted, _kEmerald),
+          _miniStatRow(
+            'Chat',
+            s.chatRequestsSent,
+            _kSky,
+            'Acc\'d',
+            s.chatRequestsAccepted,
+            _kEmerald,
+          ),
           const SizedBox(height: 4),
-          _miniStatRow('Views', s.profileViews, _kAmber, 'Match',
-              s.matchesCount, _kRose),
+          _miniStatRow(
+            'Views',
+            s.profileViews,
+            _kAmber,
+            'Match',
+            s.matchesCount,
+            _kRose,
+          ),
         ],
       ),
     );
   }
 
   Widget _miniStatRow(
-      String l1, int v1, Color c1, String l2, int v2, Color c2) {
+    String l1,
+    int v1,
+    Color c1,
+    String l2,
+    int v2,
+    Color c2,
+  ) {
     return Row(
       children: [
         Expanded(child: _miniStat(l1, v1, c1)),
@@ -810,18 +906,20 @@ class _UsersPageState extends State<UsersPage> {
           Text(
             '$value',
             style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w800,
-                color: color),
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
           ),
           const SizedBox(width: 3),
           Expanded(
             child: Text(
               label,
               style: TextStyle(
-                  fontSize: 10,
-                  color: color.withOpacity(0.75),
-                  fontWeight: FontWeight.w600),
+                fontSize: 10,
+                color: color.withOpacity(0.75),
+                fontWeight: FontWeight.w600,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -832,7 +930,10 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   Future<void> _handleCardPhotoAction(
-      String action, User user, UserProvider provider) async {
+    String action,
+    User user,
+    UserProvider provider,
+  ) async {
     if (action == 'view') {
       _navigateToUser(user);
       return;
@@ -840,15 +941,18 @@ class _UsersPageState extends State<UsersPage> {
     if (action == 'approve') {
       final ok = await provider.approvePhoto(user.id, 'approve');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(ok ? 'Photo approved' : 'Failed to approve photo'),
-          backgroundColor: ok ? _kEmerald : _kRose,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          duration: const Duration(seconds: 3),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ok ? 'Photo approved' : 'Failed to approve photo'),
+            backgroundColor: ok ? _kEmerald : _kRose,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
       return;
     }
@@ -862,8 +966,7 @@ class _UsersPageState extends State<UsersPage> {
             controller: ctrl,
             maxLines: 3,
             autofocus: true,
-            decoration:
-                const InputDecoration(hintText: 'Reason for rejection'),
+            decoration: const InputDecoration(hintText: 'Reason for rejection'),
           ),
           actions: [
             TextButton(
@@ -880,20 +983,187 @@ class _UsersPageState extends State<UsersPage> {
       );
       ctrl.dispose();
       if (reason == null || reason.isEmpty) return;
-      final ok =
-          await provider.approvePhoto(user.id, 'reject', reason: reason);
+      final ok = await provider.approvePhoto(user.id, 'reject', reason: reason);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(ok ? 'Photo rejected' : 'Failed to reject photo'),
-          backgroundColor: ok ? _kAmber : _kRose,
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-          duration: const Duration(seconds: 3),
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(ok ? 'Photo rejected' : 'Failed to reject photo'),
+            backgroundColor: ok ? _kAmber : _kRose,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.all(16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            duration: const Duration(seconds: 3),
+          ),
+        );
       }
     }
+  }
+
+  Future<void> _handleSuspendTap(User user, UserProvider provider) async {
+    final isSuspended = user.isActive == 0;
+    final action = isSuspended ? 'unsuspend' : 'suspend';
+    final label = isSuspended ? 'Unsuspend' : 'Suspend';
+    final color = isSuspended ? _kEmerald : _kAmber;
+    final icon = isSuspended
+        ? Icons.play_circle_outline
+        : Icons.pause_circle_outline;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(icon, color: color, size: 20),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              '$label User',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        content: Text(
+          isSuspended
+              ? 'Unsuspend ${user.fullName}? They will regain full access.'
+              : 'Suspend ${user.fullName}? They will lose access until unsuspended.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: Icon(icon, size: 16),
+            label: Text(label),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: color,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await provider.suspendUser(user.id, context, action: action);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              ok ? Icons.check_circle_outline : Icons.error_outline,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Text(ok ? '${user.fullName} ${action}ed' : 'Failed to $action'),
+          ],
+        ),
+        backgroundColor: ok ? color : Colors.grey.shade700,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _handleDeleteTap(User user, UserProvider provider) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _kRose.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.delete_outline_rounded,
+                color: _kRose,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'Delete User',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Delete ${user.fullName} (MS${user.id})?',
+              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'This cannot be undone. All data will be permanently removed.',
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () => Navigator.pop(context, true),
+            icon: const Icon(Icons.delete_forever_rounded, size: 16),
+            label: const Text('Delete'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _kRose,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final ok = await provider.deleteUser(user.id, context);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              ok ? Icons.check_circle_outline : Icons.error_outline,
+              color: Colors.white,
+              size: 18,
+            ),
+            const SizedBox(width: 8),
+            Text(ok ? '${user.fullName} deleted' : 'Failed to delete'),
+          ],
+        ),
+        backgroundColor: ok ? _kRose : Colors.grey.shade700,
+        behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   Widget _avatarIcon(bool isFemale) {
@@ -991,7 +1261,11 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   Widget _actionIconBtn(
-      IconData icon, String label, Color color, VoidCallback? onTap) {
+    IconData icon,
+    String label,
+    Color color,
+    VoidCallback? onTap,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bool disabled = onTap == null;
     final Color textColor = isDark
@@ -1035,12 +1309,12 @@ class _UsersPageState extends State<UsersPage> {
                     letterSpacing: 0.2,
                   ),
                 ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
   }
 
   Widget _divider(bool isDark) {
@@ -1051,7 +1325,11 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  Widget _softChip(String label, {required IconData icon, required Color color}) {
+  Widget _softChip(
+    String label, {
+    required IconData icon,
+    required Color color,
+  }) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -1127,7 +1405,7 @@ class _UsersPageState extends State<UsersPage> {
                         ),
                       )
                     : Text(
-                        value != null ? value.toString() : '—',
+                        value != null ? value.toString() : 'ΓÇö',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w800,
@@ -1152,7 +1430,9 @@ class _UsersPageState extends State<UsersPage> {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF0F172A) : _kPrimary.withOpacity(0.04),
+            color: isDark
+                ? const Color(0xFF0F172A)
+                : _kPrimary.withOpacity(0.04),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: _kPrimary.withOpacity(0.12)),
           ),
@@ -1167,8 +1447,11 @@ class _UsersPageState extends State<UsersPage> {
                       color: _kPrimary.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    child:
-                        const Icon(Icons.timeline_outlined, color: _kPrimary, size: 18),
+                    child: const Icon(
+                      Icons.timeline_outlined,
+                      color: _kPrimary,
+                      size: 18,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   const Text(
@@ -1253,12 +1536,13 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── Filter chips row ────────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ Filter chips row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _buildFilterRow(UserProvider provider) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor =
-        isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200;
+    final borderColor = isDark
+        ? Colors.white.withOpacity(0.08)
+        : Colors.grey.shade200;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1294,11 +1578,9 @@ class _UsersPageState extends State<UsersPage> {
             ];
           }),
           _filterDivider(isDark),
-          ...[
-            ('all', 'All Plans'),
-            ('paid', 'Paid'),
-            ('free', 'Free'),
-          ].expand((e) {
+          ...[('all', 'All Plans'), ('paid', 'Paid'), ('free', 'Free')].expand((
+            e,
+          ) {
             final (key, label) = e;
             return [
               _filterChip(
@@ -1311,7 +1593,7 @@ class _UsersPageState extends State<UsersPage> {
           }),
           if (provider.statusFilter != 'all' ||
               provider.userTypeFilter != 'all')
-            _filterChip('✕ Clear', true, _kRose, provider.clearFilters),
+            _filterChip('Γ£ò Clear', true, _kRose, provider.clearFilters),
         ],
       ),
     );
@@ -1348,9 +1630,7 @@ class _UsersPageState extends State<UsersPage> {
       width: 1,
       height: 18,
       margin: const EdgeInsets.symmetric(horizontal: 2),
-      color: isDark
-          ? Colors.white.withOpacity(0.16)
-          : Colors.grey.shade300,
+      color: isDark ? Colors.white.withOpacity(0.16) : Colors.grey.shade300,
     );
   }
 
@@ -1365,17 +1645,25 @@ class _UsersPageState extends State<UsersPage> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: allSelected ? _kPrimary.withOpacity(0.12) : (isDark ? const Color(0xFF1C2339) : Colors.grey.shade100),
+          color: allSelected
+              ? _kPrimary.withOpacity(0.12)
+              : (isDark ? const Color(0xFF1C2339) : Colors.grey.shade100),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: allSelected ? _kPrimary.withOpacity(0.8) : (isDark ? Colors.white.withOpacity(0.15) : Colors.grey.shade300),
+            color: allSelected
+                ? _kPrimary.withOpacity(0.8)
+                : (isDark
+                      ? Colors.white.withOpacity(0.15)
+                      : Colors.grey.shade300),
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              allSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank,
+              allSelected
+                  ? Icons.check_box_rounded
+                  : Icons.check_box_outline_blank,
               size: 14,
               color: allSelected ? _kPrimary : Colors.grey,
             ),
@@ -1384,7 +1672,9 @@ class _UsersPageState extends State<UsersPage> {
               'All',
               style: TextStyle(
                 fontSize: 12,
-                color: allSelected ? _kPrimary : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
+                color: allSelected
+                    ? _kPrimary
+                    : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
                 fontWeight: allSelected ? FontWeight.w600 : FontWeight.w400,
               ),
             ),
@@ -1395,7 +1685,11 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   Widget _filterChip(
-      String label, bool selected, Color color, VoidCallback onTap) {
+    String label,
+    bool selected,
+    Color color,
+    VoidCallback onTap,
+  ) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
@@ -1403,17 +1697,25 @@ class _UsersPageState extends State<UsersPage> {
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: selected ? color.withOpacity(0.14) : (isDark ? const Color(0xFF263248) : Colors.grey.shade100),
+          color: selected
+              ? color.withOpacity(0.14)
+              : (isDark ? const Color(0xFF263248) : Colors.grey.shade100),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: selected ? color.withOpacity(0.45) : (isDark ? Colors.white.withOpacity(0.15) : Colors.grey.shade300),
+            color: selected
+                ? color.withOpacity(0.45)
+                : (isDark
+                      ? Colors.white.withOpacity(0.15)
+                      : Colors.grey.shade300),
           ),
         ),
         child: Text(
           label,
           style: TextStyle(
             fontSize: 12,
-            color: selected ? color : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
+            color: selected
+                ? color
+                : (isDark ? Colors.grey.shade300 : Colors.grey.shade700),
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
           ),
         ),
@@ -1421,73 +1723,90 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── Bulk action bar ─────────────────────────────────────────────────────
+  // ΓöÇΓöÇΓöÇ Bulk action bar ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _buildBulkActionBar(UserProvider provider) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final count = provider.selectedCount;
     return AnimatedSize(
       duration: const Duration(milliseconds: 250),
       curve: Curves.easeInOut,
-      child: provider.selectedCount > 0
+      child: count > 0
           ? Container(
               margin: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF111827) : _kPrimary.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: _kPrimary.withOpacity(0.25)),
+                gradient: LinearGradient(
+                  colors: [
+                    _kPrimary.withOpacity(0.10),
+                    _kViolet.withOpacity(0.08),
+                  ],
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                ),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: _kPrimary.withOpacity(0.22),
+                  width: 1,
+                ),
               ),
               child: Row(
                 children: [
                   Container(
-                    width: 8,
-                    height: 8,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      shape: BoxShape.circle,
                       color: _kPrimary,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '$count',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    '${provider.selectedCount} selected',
-                    style: const TextStyle(
+                  const Text(
+                    'selected',
+                    style: TextStyle(
                       fontWeight: FontWeight.w600,
                       color: _kPrimary,
                       fontSize: 13,
                     ),
                   ),
                   const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => provider.suspendSelectedUsers(context),
-                    icon: const Icon(Icons.pause_circle_outline, size: 15),
-                    label: const Text('Suspend'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.orange,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
+                  _bulkActionBtn(
+                    icon: Icons.pause_circle_outline,
+                    label: 'Suspend',
+                    color: _kAmber,
+                    onTap: () => provider.suspendSelectedUsers(context),
                   ),
-                  const SizedBox(width: 2),
-                  TextButton.icon(
-                    onPressed: () => provider.deleteSelectedUsers(context),
-                    icon: const Icon(Icons.delete_outline, size: 15),
-                    label: const Text('Delete'),
-                    style: TextButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 6),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
+                  const SizedBox(width: 6),
+                  _bulkActionBtn(
+                    icon: Icons.delete_outline_rounded,
+                    label: 'Delete',
+                    color: _kRose,
+                    onTap: () => provider.deleteSelectedUsers(context),
                   ),
-                  const SizedBox(width: 4),
+                  const SizedBox(width: 8),
                   GestureDetector(
                     onTap: provider.clearSelection,
-                    child: Icon(Icons.close,
-                        size: 18, color: Colors.grey.shade600),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.close,
+                        size: 16,
+                        color: Colors.grey.shade600,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1496,7 +1815,41 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── Empty state ─────────────────────────────────────────────────────────
+  Widget _bulkActionBtn({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.10),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withOpacity(0.35), width: 1),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 15, color: color),
+            const SizedBox(width: 5),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ΓöÇΓöÇΓöÇ Empty state ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _buildEmptyState(UserProvider provider) {
     return Center(
@@ -1505,8 +1858,11 @@ class _UsersPageState extends State<UsersPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.person_search_outlined,
-                size: 64, color: Colors.grey.shade300),
+            Icon(
+              Icons.person_search_outlined,
+              size: 64,
+              color: Colors.grey.shade300,
+            ),
             const SizedBox(height: 16),
             Text(
               provider.searchQuery.isNotEmpty
@@ -1529,12 +1885,13 @@ class _UsersPageState extends State<UsersPage> {
     );
   }
 
-  // ─── Top section: title + search + stats + filters ───────────────────────
+  // ΓöÇΓöÇΓöÇ Top section: title + search + stats + filters ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
   Widget _buildTopSection(UserProvider provider) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final borderColor =
-        isDark ? Colors.white.withOpacity(0.08) : Colors.grey.shade200;
+    final borderColor = isDark
+        ? Colors.white.withOpacity(0.08)
+        : Colors.grey.shade200;
 
     return Container(
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 6),
@@ -1556,7 +1913,7 @@ class _UsersPageState extends State<UsersPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Compact title row ──────────────────────────────────────────
+          // ΓöÇΓöÇ Compact title row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
           Row(
             children: [
               Container(
@@ -1570,8 +1927,11 @@ class _UsersPageState extends State<UsersPage> {
                   ),
                   borderRadius: BorderRadius.circular(9),
                 ),
-                child: const Icon(Icons.people_alt_rounded,
-                    color: Colors.white, size: 17),
+                child: const Icon(
+                  Icons.people_alt_rounded,
+                  color: Colors.white,
+                  size: 17,
+                ),
               ),
               const SizedBox(width: 8),
               Text(
@@ -1583,8 +1943,11 @@ class _UsersPageState extends State<UsersPage> {
                 ),
               ),
               const Spacer(),
-              _statPill('Total', provider.totalCount,
-                  isDark ? Colors.white70 : _kPrimaryDark),
+              _statPill(
+                'Total',
+                provider.totalCount,
+                isDark ? Colors.white70 : _kPrimaryDark,
+              ),
               const SizedBox(width: 6),
               _statPill('Shown', provider.filteredCount, _kEmerald),
               if (provider.selectedCount > 0) ...[
@@ -1610,16 +1973,18 @@ class _UsersPageState extends State<UsersPage> {
                             : _kPrimary.withOpacity(0.25),
                       ),
                     ),
-                    child: Icon(Icons.refresh_rounded,
-                        size: 16,
-                        color: isDark ? Colors.white : _kPrimaryDark),
+                    child: Icon(
+                      Icons.refresh_rounded,
+                      size: 16,
+                      color: isDark ? Colors.white : _kPrimaryDark,
+                    ),
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          // ── Compact search bar ─────────────────────────────────────────
+          // ΓöÇΓöÇ Compact search bar ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
           Container(
             decoration: BoxDecoration(
               color: isDark
@@ -1635,26 +2000,31 @@ class _UsersPageState extends State<UsersPage> {
                 fontSize: 13,
               ),
               decoration: InputDecoration(
-                hintText: 'Search by name, email, phone or ID…',
+                hintText: 'Search by name, email, phone or IDΓÇª',
                 hintStyle: TextStyle(
                   fontSize: 13,
                   color: isDark
                       ? Colors.white.withOpacity(0.5)
                       : Colors.grey.shade500,
                 ),
-                prefixIcon: Icon(Icons.search_rounded,
-                    color: isDark ? Colors.white70 : _kPrimaryDark, size: 17),
+                prefixIcon: Icon(
+                  Icons.search_rounded,
+                  color: isDark ? Colors.white70 : _kPrimaryDark,
+                  size: 17,
+                ),
                 border: InputBorder.none,
                 isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 10,
+                  horizontal: 12,
+                ),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
-                        icon: Icon(Icons.clear_rounded,
-                            size: 15,
-                            color: isDark
-                                ? Colors.white70
-                                : Colors.grey.shade500),
+                        icon: Icon(
+                          Icons.clear_rounded,
+                          size: 15,
+                          color: isDark ? Colors.white70 : Colors.grey.shade500,
+                        ),
                         onPressed: () {
                           setState(() {});
                           _searchController.clear();
@@ -1675,7 +2045,6 @@ class _UsersPageState extends State<UsersPage> {
       ),
     );
   }
-
 
   Widget _statPill(String label, int count, Color color) {
     return Container(
@@ -1698,10 +2067,7 @@ class _UsersPageState extends State<UsersPage> {
             ),
             TextSpan(
               text: label,
-              style: TextStyle(
-                fontSize: 11,
-                color: color.withOpacity(0.8),
-              ),
+              style: TextStyle(fontSize: 11, color: color.withOpacity(0.8)),
             ),
           ],
         ),
@@ -1713,23 +2079,23 @@ class _UsersPageState extends State<UsersPage> {
   Widget build(BuildContext context) {
     final provider = context.watch<UserProvider>();
 
-    // Handle session expiry — redirect to login.
+    // Handle session expiry ΓÇö redirect to login.
     if (provider.isSessionExpired) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) context.read<AuthProvider>().logout();
       });
     }
 
-    // Plain Column — no Scaffold/AppBar to avoid duplicating the "Members"
+    // Plain Column ΓÇö no Scaffold/AppBar to avoid duplicating the "Members"
     // title already shown in dashboard.dart's top bar.
     return Column(
       children: [
-        // ── Top section: title + search + stats + filters ─────────────────
+        // ΓöÇΓöÇ Top section: title + search + stats + filters ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         _buildTopSection(provider),
 
         Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
 
-        // ── Scrollable list ──────────────────────────────────────────────
+        // ΓöÇΓöÇ Scrollable list ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
         Expanded(
           child: provider.isLoading
               ? const Center(child: CircularProgressIndicator())
@@ -1738,13 +2104,9 @@ class _UsersPageState extends State<UsersPage> {
                   child: CustomScrollView(
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
-                      SliverToBoxAdapter(
-                        child: _buildBulkActionBar(provider),
-                      ),
+                      SliverToBoxAdapter(child: _buildBulkActionBar(provider)),
                       if (provider.filteredUsers.isEmpty)
-                        SliverToBoxAdapter(
-                          child: _buildEmptyState(provider),
-                        )
+                        SliverToBoxAdapter(child: _buildEmptyState(provider))
                       else ...[
                         SliverPadding(
                           padding: EdgeInsets.zero,

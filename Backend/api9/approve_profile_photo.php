@@ -40,8 +40,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 // ── DB credentials ────────────────────────────────────────────────────────────
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 $input  = json_decode(file_get_contents('php://input'), true) ?? [];

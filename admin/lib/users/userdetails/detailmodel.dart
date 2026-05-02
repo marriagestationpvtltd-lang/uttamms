@@ -67,6 +67,9 @@ class PersonalDetail {
   final String memberId;
   final String heightName;
   final int maritalStatusId;
+  final int religionId;
+  final int communityId;
+  final int subCommunityId;
   final String maritalStatusName;
   final String motherTongue;
   final String aboutMe;
@@ -114,6 +117,9 @@ class PersonalDetail {
     required this.memberId,
     required this.heightName,
     required this.maritalStatusId,
+    required this.religionId,
+    required this.communityId,
+    required this.subCommunityId,
     required this.maritalStatusName,
     required this.motherTongue,
     required this.aboutMe,
@@ -129,6 +135,9 @@ class PersonalDetail {
   });
 
   factory PersonalDetail.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '') ?? 0;
+
     return PersonalDetail(
       photoRequest: json['photo_request']?.toString() ?? '',
       firstName: json['firstName']?.toString() ?? 'Not available',
@@ -137,7 +146,7 @@ class PersonalDetail {
         json['profile_picture']?.toString(),
       ),
       userType: json['usertype']?.toString() ?? '',
-      isVerified: json['isVerified'] is int ? json['isVerified'] : 0,
+      isVerified: parseInt(json['isVerified']),
       privacy: json['privacy']?.toString() ?? '',
       city: json['city']?.toString() ?? 'Not available',
       country: json['country']?.toString() ?? 'Not available',
@@ -154,9 +163,10 @@ class PersonalDetail {
       businessName: json['businessname']?.toString() ?? '',
       memberId: json['memberid']?.toString() ?? 'Not available',
       heightName: json['height_name']?.toString() ?? 'Not available',
-      maritalStatusId: json['maritalStatusId'] is int
-          ? json['maritalStatusId']
-          : 0,
+      maritalStatusId: parseInt(json['maritalStatusId']),
+      religionId: parseInt(json['religionId']),
+      communityId: parseInt(json['communityId']),
+      subCommunityId: parseInt(json['subCommunityId']),
       maritalStatusName:
           json['maritalStatusName']?.toString() ?? 'Not available',
       motherTongue: json['motherTongue']?.toString() ?? 'Not available',
@@ -289,8 +299,11 @@ class FamilyDetail {
   });
 
   factory FamilyDetail.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '') ?? 0;
+
     return FamilyDetail(
-      familyId: json['familyId'] is int ? json['familyId'] : 0,
+      familyId: parseInt(json['familyId']),
       familyType: json['familytype']?.toString() ?? 'Not available',
       familyBackground: json['familybackground']?.toString() ?? 'Not available',
       fatherStatus: json['fatherstatus']?.toString() ?? 'Not available',
@@ -324,8 +337,11 @@ class Lifestyle {
   });
 
   factory Lifestyle.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '') ?? 0;
+
     return Lifestyle(
-      lifestyleId: json['lifestyleId'] is int ? json['lifestyleId'] : 0,
+      lifestyleId: parseInt(json['lifestyleId']),
       smokeType: json['smoketype']?.toString() ?? 'Not available',
       diet: json['diet']?.toString() ?? 'Not available',
       drinks: json['drinks']?.toString() ?? 'Not available',
@@ -395,11 +411,14 @@ class PartnerPreference {
   });
 
   factory PartnerPreference.fromJson(Map<String, dynamic> json) {
+    int parseInt(dynamic value) =>
+        value is int ? value : int.tryParse(value?.toString() ?? '') ?? 0;
+
     return PartnerPreference(
-      minAge: json['minage'] is int ? json['minage'] : 0,
-      maxAge: json['maxage'] is int ? json['maxage'] : 0,
-      minHeight: json['minheight'] is int ? json['minheight'] : 0,
-      maxHeight: json['maxheight'] is int ? json['maxheight'] : 0,
+      minAge: parseInt(json['minage']),
+      maxAge: parseInt(json['maxage']),
+      minHeight: parseInt(json['minheight']),
+      maxHeight: parseInt(json['maxheight']),
       maritalStatus: json['maritalstatus']?.toString() ?? 'Not available',
       profileWithChild: json['profilewithchild']?.toString() ?? 'Not available',
       familyType: json['familytype']?.toString() ?? 'Not available',

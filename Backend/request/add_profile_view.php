@@ -6,8 +6,8 @@ header("Access-Control-Allow-Origin: *");
 // DB Config
 $host = "localhost";
 $db_name = "ms";
-$username = "ms";
-$password = "ms";
+$username = "root";
+$password = "";
 
 try {
     $conn = new PDO(

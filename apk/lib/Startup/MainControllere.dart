@@ -11,6 +11,7 @@ import '../Chat/ChatlistScreen.dart';
 import '../core/user_state.dart';
 import '../profile/myprofile.dart';
 import '../service/socket_service.dart';
+import '../service/message_tone_service.dart';
 import '../utils/responsive_layout.dart';
 
 class MainControllerScreen extends StatefulWidget {
@@ -83,6 +84,9 @@ class _MainControllerScreenState extends State<MainControllerScreen> {
   void _listenUnreadCounts(String userId) {
     _unreadSubscription?.cancel();
     _newMsgSubscription?.cancel();
+
+    // Start the global message tone listener for this user.
+    MessageToneService.instance.init(userId);
 
     // Listen to chat_rooms_update from Socket.IO to count rooms with unread messages
     _unreadSubscription = SocketService().onChatRoomsUpdate.listen((rooms) {

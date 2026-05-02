@@ -89,6 +89,10 @@ class _CallSettingsScreenState extends State<CallSettingsScreen> {
   }
 
   Future<void> _pickAndUploadCustomTone() async {
+    await _pickAndUploadCustomToneFor(AppSoundToneType.outgoingCall);
+  }
+
+  Future<void> _pickAndUploadCustomToneFor(AppSoundToneType type) async {
     final result = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: _kAllowedCustomToneExtensions,
@@ -102,15 +106,18 @@ class _CallSettingsScreenState extends State<CallSettingsScreen> {
     final file = result.files.single;
 
     try {
-      await provider.uploadCustomTone(
+      await provider.uploadCustomToneFor(
+            type: type,
             fileName: file.name,
             bytes: file.bytes,
             path: file.path,
           );
+      if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(content: Text('Custom ringtone uploaded.')),
+        SnackBar(content: Text('${_soundTypeTitle(type)} tone uploaded.')),
       );
     } catch (e) {
+      if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(content: Text('Upload failed: $e')),
       );
@@ -118,22 +125,138 @@ class _CallSettingsScreenState extends State<CallSettingsScreen> {
   }
 
   Future<void> _removeCustomTone() async {
+    await _removeCustomToneFor(AppSoundToneType.outgoingCall);
+  }
+
+  Future<void> _removeCustomToneFor(AppSoundToneType type) async {
     final messenger = ScaffoldMessenger.of(context);
     final provider = context.read<CallSettingsProvider>();
     try {
-      await provider.clearCustomTone();
-      if (mounted && _playingToneId == 'custom') {
+      await provider.clearCustomToneFor(type);
+      if (!mounted) return;
+      final playingKey = 'custom_${type.name}';
+      if (mounted && _playingToneId == playingKey) {
         await _previewPlayer.stop();
         setState(() => _playingToneId = null);
       }
       messenger.showSnackBar(
-        const SnackBar(content: Text('Custom ringtone removed.')),
+        SnackBar(content: Text('${_soundTypeTitle(type)} tone removed.')),
       );
     } catch (e) {
+      if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(content: Text('Remove failed: $e')),
       );
     }
+  }
+
+  String _soundTypeTitle(AppSoundToneType type) {
+    switch (type) {
+      case AppSoundToneType.outgoingCall:
+        return 'Outgoing call';
+      case AppSoundToneType.incomingCall:
+        return 'Incoming call';
+      case AppSoundToneType.message:
+        return 'Message';
+      case AppSoundToneType.typing:
+        return 'Typing';
+    }
+  }
+
+  Future<void> _previewCustomToneFor(AppSoundToneType type, String url) async {
+    await _previewSource('custom_${type.name}', () => _previewPlayer.play(UrlSource(url), volume: 1.0));
+  }
+
+  Widget _buildCustomToneCard({
+    required CallSettingsProvider settings,
+    required bool isDark,
+    required Color cardBg,
+    required Color labelColor,
+    required Color mutedColor,
+    required AppSoundToneType type,
+    required String title,
+    required String subtitle,
+  }) {
+    final tone = settings.toneState(type);
+    final playingKey = 'custom_${type.name}';
+
+    return _card(
+      isDark: isDark,
+      cardBg: cardBg,
+      divColor: _kSlate200,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: labelColor,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(subtitle, style: TextStyle(fontSize: 12, color: mutedColor)),
+            const SizedBox(height: 12),
+            if (tone.hasCustom) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      tone.customName.isEmpty ? 'Uploaded custom tone' : tone.customName,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: labelColor,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: settings.isUploadingCustomTone
+                        ? null
+                        : () => _previewCustomToneFor(type, tone.customUrl),
+                    icon: Icon(
+                      _playingToneId == playingKey
+                          ? Icons.stop_rounded
+                          : Icons.play_arrow_rounded,
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: settings.isUploadingCustomTone
+                        ? null
+                        : () => _removeCustomToneFor(type),
+                    icon: const Icon(Icons.delete_outline_rounded),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+            ],
+            SizedBox(
+              height: 40,
+              child: FilledButton.icon(
+                onPressed: settings.isUploadingCustomTone
+                    ? null
+                    : () => _pickAndUploadCustomToneFor(type),
+                icon: settings.isUploadingCustomTone
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.upload_rounded, size: 18),
+                label: Text(tone.hasCustom ? 'Replace tone' : 'Upload tone'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _kPrimary,
+                  foregroundColor: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -281,6 +404,40 @@ class _CallSettingsScreenState extends State<CallSettingsScreen> {
                 ],
               ),
             ),
+          ),
+          const SizedBox(height: 24),
+          _sectionHeader('Other App Sounds', Icons.graphic_eq_rounded, labelColor),
+          _buildCustomToneCard(
+            settings: settings,
+            isDark: isDark,
+            cardBg: cardBg,
+            labelColor: labelColor,
+            mutedColor: mutedColor,
+            type: AppSoundToneType.incomingCall,
+            title: 'Incoming Ringtone',
+            subtitle: 'Plays for the receiver when a call arrives.',
+          ),
+          const SizedBox(height: 12),
+          _buildCustomToneCard(
+            settings: settings,
+            isDark: isDark,
+            cardBg: cardBg,
+            labelColor: labelColor,
+            mutedColor: mutedColor,
+            type: AppSoundToneType.message,
+            title: 'Message Tone',
+            subtitle: 'Plays when a new message arrives in chat.',
+          ),
+          const SizedBox(height: 12),
+          _buildCustomToneCard(
+            settings: settings,
+            isDark: isDark,
+            cardBg: cardBg,
+            labelColor: labelColor,
+            mutedColor: mutedColor,
+            type: AppSoundToneType.typing,
+            title: 'Typing Tone',
+            subtitle: 'Plays repeatedly while the other user is typing.',
           ),
           const SizedBox(height: 24),
           _sectionHeader('Repeat Interval', Icons.repeat_rounded, labelColor),

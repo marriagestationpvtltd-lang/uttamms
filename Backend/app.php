@@ -26,8 +26,8 @@ header('Content-Type: application/json');
 // Database configuration
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 try {
     // Create PDO connection

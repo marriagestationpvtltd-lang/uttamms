@@ -6,8 +6,8 @@ header("Access-Control-Allow-Headers: Content-Type");
 
 // ----------------- DATABASE CONNECTION -----------------
 $host = "localhost";
-$user = "ms";
-$pass = "ms";
+$user = "root";
+$pass = "";
 $dbname = "ms";
 
 $conn = new mysqli($host, $user, $pass, $dbname);

@@ -6,8 +6,8 @@ require_once __DIR__ . '/activity_helper.php';
 
 // ==== CONFIG ====
 $dbHost = 'localhost';
-$dbUser = 'ms';
-$dbPass = 'ms';
+$dbUser = 'root';
+$dbPass = '';
 $dbName = 'ms';
 // ================
 

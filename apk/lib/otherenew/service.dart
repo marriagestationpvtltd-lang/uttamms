@@ -9,20 +9,20 @@ import '../pushnotification/pushservice.dart';
 import '../otherenew/modelfile.dart' as models;
 import '../utils/access_control.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import '../service/socket_service.dart';
 
 class ProfileService {
   static const String baseUrl = '${kApiBaseUrl}/Api2';
 
   /// Fetch profile data from API
-  Future<models.ProfileResponse> fetchProfile({
-    required dynamic myId,
-    required dynamic userId
-  }) async {
+  Future<models.ProfileResponse> fetchProfile(
+      {required dynamic myId, required dynamic userId}) async {
     // Ensure both are converted to strings explicitly
     final String myIdStr = myId.toString();
     final String userIdStr = userId.toString();
 
-    final url = Uri.parse('$baseUrl/other_profile_new.php?myid=$myIdStr&userid=$userIdStr');
+    final url = Uri.parse(
+        '$baseUrl/other_profile_new.php?myid=$myIdStr&userid=$userIdStr');
 
     try {
       final response = await http.get(url);
@@ -33,16 +33,17 @@ class ProfileService {
         if (jsonResponse['status'] == 'success') {
           return models.ProfileResponse.fromJson(jsonResponse);
         } else {
-          throw Exception('API returned error status: ${jsonResponse['status']}');
+          throw Exception(
+              'API returned error status: ${jsonResponse['status']}');
         }
       } else {
-        throw Exception('Failed to load profile. Status code: ${response.statusCode}');
+        throw Exception(
+            'Failed to load profile. Status code: ${response.statusCode}');
       }
     } catch (e) {
       throw Exception('Error fetching profile: $e');
     }
   }
-
 
   // In ProfileService class
   Future<Map<String, dynamic>> blockUser({
@@ -131,7 +132,7 @@ class ProfileService {
 
       final data = jsonDecode(response.body);
       return {
-        'is_blocked':    data['is_blocked']    == true,
+        'is_blocked': data['is_blocked'] == true,
         'is_blocked_by': data['is_blocked_by'] == true,
         'either_blocked': data['either_blocked'] == true,
       };
@@ -177,7 +178,8 @@ class ProfileService {
         final jsonResponse = json.decode(response.body);
 
         if (jsonResponse['success'] == true) {
-          final List<dynamic> matchedUsersJson = jsonResponse['matched_users'] ?? [];
+          final List<dynamic> matchedUsersJson =
+              jsonResponse['matched_users'] ?? [];
           final matchedProfiles = matchedUsersJson
               .map((json) => models.MatchedProfile.fromJson(json))
               .toList();
@@ -211,7 +213,8 @@ class ProfileService {
     if (!canSend) {
       return {
         'status': 'error',
-        'message': 'You must be verified and have an active membership to send requests',
+        'message':
+            'You must be verified and have an active membership to send requests',
       };
     }
 
@@ -220,18 +223,15 @@ class ProfileService {
 
       final response = await http.post(
         url,
-        body: {
-          'myid': myId,
-          'userid': userId,
-          'request_type': 'Photo'
-        },
+        body: {'myid': myId, 'userid': userId, 'request_type': 'Photo'},
       );
 
       if (response.statusCode == 200) {
         final result = Map<String, dynamic>.from(json.decode(response.body));
         if (result['status'] == 'success') {
           try {
-            final senderName = await NotificationInboxService.getCurrentUserDisplayName();
+            final senderName =
+                await NotificationInboxService.getCurrentUserDisplayName();
             await NotificationService.sendRequestNotification(
               recipientUserId: userId,
               senderName: senderName,
@@ -243,8 +243,17 @@ class ProfileService {
               requestType: 'Photo',
               recipientName: 'MS:$userId',
             );
+            // Emit real-time event so photo view request appears instantly.
+            SocketService().emitNewProposal(
+              receiverId: userId,
+              senderId: myId,
+              senderName: senderName,
+              requestType: 'Photo',
+              proposalId: result['proposal_id']?.toString() ?? '',
+            );
           } catch (notifError, stackTrace) {
-            debugPrint('⚠️ Photo request sent but notification failed: $notifError\n$stackTrace');
+            debugPrint(
+                '⚠️ Photo request sent but notification failed: $notifError\n$stackTrace');
           }
         }
         return result;
@@ -276,7 +285,8 @@ class ProfileService {
     if (!canSend) {
       return {
         'status': 'error',
-        'message': 'You must be verified and have an active membership to send requests',
+        'message':
+            'You must be verified and have an active membership to send requests',
       };
     }
 
@@ -285,18 +295,15 @@ class ProfileService {
 
       final response = await http.post(
         url,
-        body: {
-          'myid': myId,
-          'userid': userId,
-          'request_type': "Chat"
-        },
+        body: {'myid': myId, 'userid': userId, 'request_type': "Chat"},
       );
 
       if (response.statusCode == 200) {
         final result = Map<String, dynamic>.from(json.decode(response.body));
         if (result['status'] == 'success') {
           try {
-            final senderName = await NotificationInboxService.getCurrentUserDisplayName();
+            final senderName =
+                await NotificationInboxService.getCurrentUserDisplayName();
             await NotificationService.sendRequestNotification(
               recipientUserId: userId,
               senderName: senderName,
@@ -308,8 +315,18 @@ class ProfileService {
               requestType: 'Chat',
               recipientName: 'MS:$userId',
             );
+            // Emit real-time socket event so the receiver's Proposals screen
+            // refreshes instantly without waiting for a manual pull-to-refresh.
+            SocketService().emitNewProposal(
+              receiverId: userId,
+              senderId: myId,
+              senderName: senderName,
+              requestType: 'Chat',
+              proposalId: result['proposal_id']?.toString() ?? '',
+            );
           } catch (notifError, stackTrace) {
-            debugPrint('⚠️ Chat request sent but notification failed: $notifError\n$stackTrace');
+            debugPrint(
+                '⚠️ Chat request sent but notification failed: $notifError\n$stackTrace');
           }
         }
         return result;
@@ -371,7 +388,8 @@ class ProfileService {
 
     final result = Map<String, dynamic>.from(json.decode(response.body));
     if (result['status'] == 'success') {
-      final senderName = await NotificationInboxService.getCurrentUserDisplayName();
+      final senderName =
+          await NotificationInboxService.getCurrentUserDisplayName();
       await NotificationService.sendRequestAccepted(
         recipientUserId: senderId,
         senderName: senderName,
@@ -403,7 +421,8 @@ class ProfileService {
 
     final result = Map<String, dynamic>.from(json.decode(response.body));
     if (result['status'] == 'success') {
-      final senderName = await NotificationInboxService.getCurrentUserDisplayName();
+      final senderName =
+          await NotificationInboxService.getCurrentUserDisplayName();
       await NotificationService.sendRequestRejected(
         recipientUserId: senderId,
         senderName: senderName,

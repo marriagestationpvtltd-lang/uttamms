@@ -8,7 +8,7 @@ import 'package:adminmrz/config/app_endpoints.dart';
 /// URL of the Node.js Socket.IO server.
 /// ⚠️  Replace this with your actual deployed server URL before building.
 /// Example: 'https://socket.yourserver.com:3001'
-const String kAdminSocketUrl = kAdminSocketBaseUrl;
+final String kAdminSocketUrl = kAdminSocketBaseUrl;
 
 /// Admin user ID — always '1'.
 const String kAdminUserId = '1';
@@ -141,12 +141,32 @@ class AdminSocketService {
   /// Admin bearer token (from AuthProvider) used to authenticate the socket
   /// connection against the admin_tokens database table.
   String? _adminToken;
+  bool _hasRetriedWithoutToken = false;
 
   /// Store the admin bearer token so it is included in the next [connect] call.
   /// Call this before [connect] so the server can validate the admin session
   /// from the database rather than trusting only the userId.
   void setToken(String? token) {
     _adminToken = token;
+    if (token != null && token.isNotEmpty) {
+      _hasRetriedWithoutToken = false;
+    }
+  }
+
+  void _retryWithoutToken() {
+    if (_hasRetriedWithoutToken || !(_adminToken?.isNotEmpty ?? false)) return;
+
+    _hasRetriedWithoutToken = true;
+    _adminToken = null;
+
+    final socket = _socket;
+    if (socket == null) return;
+
+    final options = socket.io.options ?? <String, dynamic>{};
+    options['auth'] = {'userId': kAdminUserId};
+    socket.io.options = options;
+    socket.disconnect();
+    socket.connect();
   }
 
   // ── Connect / Disconnect ──────────────────────────────────────────────────
@@ -197,6 +217,15 @@ class AdminSocketService {
     _socket!.onDisconnect((_) {
       _stopHeartbeat();
       _connectionCtrl.add(false);
+    });
+
+    _socket!.on('authenticated', (_) {
+      _hasRetriedWithoutToken = false;
+    });
+
+    _socket!.on('authentication_error', (data) {
+      _connectionCtrl.add(false);
+      _retryWithoutToken();
     });
 
     _socket!.onConnectError((err) {
@@ -684,6 +713,18 @@ class AdminSocketService {
     });
   }
 
+  /// A participant voluntarily leaves an ongoing group/conference call.
+  /// Notifies remaining participants without ending the entire call.
+  void emitLeaveGroupCall({
+    required String channelName,
+    required String userId,
+  }) {
+    _socket?.emit('leave_group_call', {
+      'channelName': channelName,
+      'userId': userId,
+    });
+  }
+
   /// Admin emits this to add a new participant to an ongoing call (conference call)
   void emitAddParticipantToCall({
     required String newParticipantId,
@@ -696,10 +737,13 @@ class AdminSocketService {
     String? agoraAppId,
     String? callerUid,
   }) {
+    final bool isVideo = callType == 'video';
     _socket?.emit('add_participant_to_call', {
       'newParticipantId': newParticipantId,
       'channelName': channelName,
       'callType': callType,
+      'type': isVideo ? 'video_call' : 'call',
+      'isVideoCall': isVideo ? 'true' : 'false',
       'adminId': adminId,
       'adminName': adminName,
       if (existingParticipantId != null)
@@ -740,17 +784,6 @@ class AdminSocketService {
       'rejectedById': rejectedById,
       if (existingParticipantId != null)
         'existingParticipantId': existingParticipantId,
-    });
-  }
-
-  /// Emit leave_group_call so all remaining participants are notified.
-  void emitLeaveGroupCall({
-    required String channelName,
-    required String userId,
-  }) {
-    _socket?.emit('leave_group_call', {
-      'channelName': channelName,
-      'userId': userId,
     });
   }
 

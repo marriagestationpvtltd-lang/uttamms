@@ -88,7 +88,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         });
         // Keep UserState in sync with the data already fetched above –
         // avoids a separate masterdata.php call just for verification/usertype.
-        context.read<UserState>().updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
+        context.read<UserState>().updateFromMasterData(
+            user.docStatus, user.isVerified, user.usertype);
       }
     } catch (e) {
       print("Error: $e");
@@ -270,7 +271,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
           children: [
             Flexible(
               child: Text(
-                "MS: ${widget.data.memberid ?? ''} ${widget.data.lastName ?? ''}".trim(),
+                "MS: ${widget.data.memberid ?? ''} ${widget.data.lastName ?? ''}"
+                    .trim(),
                 style: const TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 15,
@@ -296,8 +298,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         _buildDetailRow(
             Icons.location_on_outlined, widget.data.city ?? 'Kathmandu'),
         const SizedBox(height: 2),
-        _buildDetailRow(
-            Icons.work_outline, widget.data.occupation ?? 'N/A'),
+        _buildDetailRow(Icons.work_outline, widget.data.occupation ?? 'N/A'),
         _buildDetailRow(
             Icons.favorite_border, widget.data.maritalstatus ?? 'Single'),
       ],
@@ -358,14 +359,16 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
 
       return _actionButton(
         label: hasPackage ? 'Open Chat' : 'Upgrade',
-        icon: hasPackage ? Icons.chat_bubble_outline_rounded : Icons.lock_outline,
+        icon:
+            hasPackage ? Icons.chat_bubble_outline_rounded : Icons.lock_outline,
         color: hasPackage ? const Color(0xFF1565C0) : const Color(0xFFF57C00),
         onTap: _handleChatNavigation,
       );
     }
 
     // For accepted profile requests
-    if (widget.data.status == 'accepted' && widget.data.requestType == 'Profile') {
+    if (widget.data.status == 'accepted' &&
+        widget.data.requestType == 'Profile') {
       return _actionButton(
         label: 'Profile',
         icon: Icons.person_outline_rounded,
@@ -375,7 +378,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
     }
 
     // For accepted photo requests
-    if (widget.data.status == 'accepted' && widget.data.requestType == 'Photo') {
+    if (widget.data.status == 'accepted' &&
+        widget.data.requestType == 'Photo') {
       return _actionButton(
         label: 'Photos',
         icon: Icons.photo_library_outlined,
@@ -530,7 +534,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
     // Step 1: Check document verification
     if (!await VerificationService.requireVerification(context)) return;
 
-    // Step 2: Confirm and accept
+    // Step 2: Confirm dialog
     bool confirm = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -551,65 +555,120 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       ),
     );
 
-    if (confirm) {
-      try {
-        bool success = await ProposalService.acceptProposal(
-          widget.data.proposalId.toString(),
-          widget.userid,
+    if (!confirm) return;
+
+    // Step 3: Optimistic UI update — remove card immediately (no loader wait)
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Request accepted successfully"),
+        backgroundColor: Colors.green,
+        duration: Duration(seconds: 2),
+      ),
+    );
+    widget.onActionComplete?.call();
+
+    // Step 4: Perform API call + side effects in background
+    final senderId = widget.data.senderId ?? '';
+    final requestType = widget.data.requestType ?? 'Request';
+    final proposalId = widget.data.proposalId?.toString() ?? '';
+
+    try {
+      bool success =
+          await ProposalService.acceptProposal(proposalId, widget.userid);
+
+      if (success) {
+        // Notify admin panel
+        ActivityService.instance.log(
+          userId: widget.userid,
+          activityType: ActivityType.requestAccepted,
+          targetUserId: senderId,
+          description: '$requestType request accepted',
+        );
+        SocketService().emitNewActivity(
+          userId: widget.userid,
+          activityType: ActivityType.requestAccepted,
+          description: '$requestType request accepted',
+          targetId: senderId,
         );
 
-        if (success) {
-          // Log request_accepted activity (fire-and-forget)
-          ActivityService.instance.log(
-            userId: widget.userid,
-            activityType: ActivityType.requestAccepted,
-            targetUserId: widget.data.senderId ?? '',
-            description: '${widget.data.requestType ?? 'Request'} request accepted',
-          );
-          // Notify admin panel in real-time via socket
-          SocketService().emitNewActivity(
-            userId:       widget.userid,
-            activityType: ActivityType.requestAccepted,
-            description:  '${widget.data.requestType ?? 'Request'} request accepted',
-            targetId:     widget.data.senderId ?? '',
-          );
-          final senderName = await NotificationInboxService.getCurrentUserDisplayName();
-          await NotificationService.sendRequestAccepted(
-            recipientUserId: widget.data.senderId ?? '',
-            senderName: senderName,
-            senderId: widget.userid,
-            requestType: widget.data.requestType ?? 'Request',
-          );
-          await NotificationInboxService.markRequestResolved(
-            peerUserId: widget.data.senderId ?? '',
-            requestType: widget.data.requestType ?? 'Request',
-            status: 'accepted',
-          );
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Request accepted successfully"),
-              backgroundColor: Colors.green,
-            ),
-          );
+        // Notify the original sender that their request was accepted
+        SocketService().emitProposalAccepted(
+          originalSenderId: senderId,
+          acceptorId: widget.userid,
+          requestType: requestType,
+          proposalId: proposalId,
+        );
 
-          widget.onActionComplete?.call();
-        } else {
+        final acceptorName =
+            await NotificationInboxService.getCurrentUserDisplayName();
+        await NotificationService.sendRequestAccepted(
+          recipientUserId: senderId,
+          senderName: acceptorName,
+          senderId: widget.userid,
+          requestType: requestType,
+        );
+        await NotificationInboxService.markRequestResolved(
+          peerUserId: senderId,
+          requestType: requestType,
+          status: 'accepted',
+        );
+
+        // Auto-send default welcome message so conversation appears in chat list
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final userDataString = prefs.getString('user_data');
+          if (userDataString != null && senderId.isNotEmpty) {
+            final userData = jsonDecode(userDataString);
+            final acceptingUserId = widget.userid;
+
+            final List<String> sortedIds = [acceptingUserId, senderId]..sort();
+            final chatRoomId = sortedIds.join('_');
+
+            final acceptingUserName =
+                "${userData['id'] ?? ''} ${userData['lastName'] ?? ''}".trim();
+            final acceptingUserImage = resolveApiImageUrl(
+                userData['profile_picture']?.toString() ?? '');
+            final requestingUserName =
+                "MS: ${widget.data.memberid ?? ''} ${widget.data.firstName ?? ''} ${widget.data.lastName ?? ''}"
+                    .trim();
+            final requestingUserImage =
+                resolveApiImageUrl(widget.data.profilePicture ?? '');
+
+            final messageId =
+                '${DateTime.now().millisecondsSinceEpoch}_$acceptingUserId';
+
+            SocketService().sendMessage(
+              chatRoomId: chatRoomId,
+              senderId: acceptingUserId,
+              receiverId: senderId,
+              message:
+                  'Hello! I have accepted your request. Looking forward to getting to know you! 😊',
+              messageType: 'text',
+              messageId: messageId,
+              user1Name: acceptingUserName,
+              user2Name: requestingUserName,
+              user1Image: acceptingUserImage,
+              user2Image: requestingUserImage,
+            );
+          }
+        } catch (e) {
+          print('Error sending welcome message: $e');
+        }
+      } else {
+        // API failed — inform user but don't re-add the card (they can refresh)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Failed to accept request"),
-              backgroundColor: Colors.red,
+              content: Text(
+                  "Accept recorded locally but server sync failed. Please refresh."),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 3),
             ),
           );
         }
-      } catch (e) {
-        print("Error accepting proposal: $e");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Error: $e"),
-            backgroundColor: Colors.red,
-          ),
-        );
       }
+    } catch (e) {
+      print("Error accepting proposal: $e");
     }
   }
 
@@ -768,16 +827,19 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
             userId: widget.userid,
             activityType: ActivityType.requestRejected,
             targetUserId: widget.data.senderId ?? '',
-            description: '${widget.data.requestType ?? 'Request'} request rejected',
+            description:
+                '${widget.data.requestType ?? 'Request'} request rejected',
           );
           // Notify admin panel in real-time via socket
           SocketService().emitNewActivity(
-            userId:       widget.userid,
+            userId: widget.userid,
             activityType: ActivityType.requestRejected,
-            description:  '${widget.data.requestType ?? 'Request'} request rejected',
-            targetId:     widget.data.senderId ?? '',
+            description:
+                '${widget.data.requestType ?? 'Request'} request rejected',
+            targetId: widget.data.senderId ?? '',
           );
-          final senderName = await NotificationInboxService.getCurrentUserDisplayName();
+          final senderName =
+              await NotificationInboxService.getCurrentUserDisplayName();
           await NotificationService.sendRequestRejected(
             recipientUserId: widget.data.senderId ?? '',
             senderName: senderName,
@@ -920,7 +982,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
 
       final userData = jsonDecode(userDataString);
       final currentUserIdStr = widget.userid.toString();
-      final currentUserName = "${userData['id'] ?? ''} ${userData['lastName'] ?? ''}".trim();
+      final currentUserName =
+          "${userData['id'] ?? ''} ${userData['lastName'] ?? ''}".trim();
       final currentUserImage =
           resolveApiImageUrl(userData['profile_picture']?.toString() ?? '');
 
@@ -930,7 +993,9 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
           : (widget.data.senderId ?? '');
 
       // Use the other user's name from widget.data (which already contains the other user's info)
-      final otherUserName = "MS: ${widget.data.memberid.toString() ?? ''} ${widget.data.firstName ?? ''} ${widget.data.lastName ?? ''}".trim();
+      final otherUserName =
+          "MS: ${widget.data.memberid.toString() ?? ''} ${widget.data.firstName ?? ''} ${widget.data.lastName ?? ''}"
+              .trim();
       final otherUserImage =
           resolveApiImageUrl(widget.data.profilePicture ?? '');
 
@@ -947,9 +1012,8 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
           builder: (context) => ChatDetailScreen(
             chatRoomId: chatRoomId,
             receiverId: otherUserId,
-            receiverName: otherUserName.isNotEmpty
-                ? otherUserName
-                : "User $otherUserId",
+            receiverName:
+                otherUserName.isNotEmpty ? otherUserName : "User $otherUserId",
             receiverImage: otherUserImage.isNotEmpty
                 ? otherUserImage
                 : 'https://via.placeholder.com/150',
@@ -1073,7 +1137,11 @@ void showUpgradeDialog(BuildContext context) {
                     child: ElevatedButton(
                       onPressed: () {
                         Navigator.pop(context);
-                        Navigator.push(context, MaterialPageRoute(builder: (context) => SubscriptionPage(),));
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => SubscriptionPage(),
+                            ));
                         // Navigate to upgrade screen
                       },
                       style: ElevatedButton.styleFrom(

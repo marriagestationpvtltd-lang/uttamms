@@ -26,7 +26,6 @@ class IDVerificationScreen extends StatefulWidget {
 
 class _IDVerificationScreenState extends State<IDVerificationScreen>
     with WidgetsBindingObserver {
-
   final ImagePicker _picker = ImagePicker();
   final OCRService _ocrService = OCRService();
   final DocumentScannerService _documentScanner = DocumentScannerService();
@@ -50,6 +49,9 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   // ─── Marital document state ───────────────────────────────────────────────
   /// Marital status loaded from SharedPreferences (set in PersonalDetailsPage).
   String? _maritalStatus;
+
+  /// Required marital document labels as reported by the backend for this user.
+  List<String> _requiredMaritalDocLabels = [];
 
   /// Tracks which required marital document types have been uploaded this session.
   /// Key: document label, Value: true when successfully uploaded.
@@ -83,6 +85,43 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   /// Document type label from the last known identity document (server or upload).
   String? _identityDocType;
   // ─────────────────────────────────────────────────────────────────────────
+
+  String? _normalizeMaritalStatus(String? rawStatus) {
+    final status = rawStatus?.trim();
+    if (status == null || status.isEmpty) return null;
+
+    switch (status.toLowerCase()) {
+      case 'widowed':
+        return 'Widowed';
+      case 'divorced':
+        return 'Divorced';
+      case 'waiting divorce':
+      case 'awaiting divorce':
+        return 'Waiting Divorce';
+      case 'still unmarried':
+      case 'never married':
+        return 'Still Unmarried';
+      default:
+        return status;
+    }
+  }
+
+  Map<String, dynamic> _buildMaritalDocConfig(String label) {
+    switch (label) {
+      case 'Death Certificate':
+        return {'label': label, 'icon': Icons.article_outlined};
+      case 'Divorce Decree':
+        return {'label': label, 'icon': Icons.gavel_rounded};
+      case 'Separation Document':
+        return {'label': label, 'icon': Icons.assignment_outlined};
+      case 'Marriage Certificate':
+        return {'label': label, 'icon': Icons.description_outlined};
+      case 'Court Order':
+        return {'label': label, 'icon': Icons.account_balance_rounded};
+      default:
+        return {'label': label, 'icon': Icons.article_outlined};
+    }
+  }
 
   final List<Map<String, dynamic>> _documentTypes = [
     {'label': 'Passport', 'icon': Icons.book_outlined},
@@ -144,10 +183,15 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         final result = jsonDecode(response.body);
         if (result['success'] == true) {
           final docs = result['documents'] as List<dynamic>? ?? [];
-          // Collect the labels of documents required for this user's marital status.
-          final maritalDocLabels = _getRequiredMaritalDocuments()
-              .map((d) => d['label'] as String)
-              .toSet();
+          final serverMaritalStatus =
+              _normalizeMaritalStatus(result['marital_status']?.toString());
+          final requiredMaritalDocs =
+              (result['required_marital_documents'] as List<dynamic>? ?? [])
+                  .whereType<String>()
+                  .map((docType) => docType.trim())
+                  .where((docType) => docType.isNotEmpty)
+                  .toList();
+          final maritalDocLabels = requiredMaritalDocs.toSet();
 
           String idStatus = 'not_uploaded';
           String idRejectReason = '';
@@ -186,6 +230,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             _documentStatus = idStatus;
             _rejectReason = idRejectReason;
             if (idDocType.isNotEmpty) _identityDocType = idDocType;
+            if (serverMaritalStatus != null) {
+              _maritalStatus = serverMaritalStatus;
+            }
+            _requiredMaritalDocLabels = requiredMaritalDocs;
+            _maritalStatusLoaded = true;
             _maritalDocStates
               ..clear()
               ..addAll(newMaritalStates);
@@ -195,6 +244,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   entry.value['status'] != 'not_uploaded';
             }
           });
+
+          if (serverMaritalStatus != null) {
+            await prefs.setString(
+                'selected_marital_status', serverMaritalStatus);
+          }
         }
       }
     } catch (e) {
@@ -248,7 +302,9 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   /// Also restores any previously uploaded marital-document entries.
   Future<void> _loadMaritalStatus() async {
     final prefs = await SharedPreferences.getInstance();
-    final status = prefs.getString('selected_marital_status');
+    final status = _normalizeMaritalStatus(
+      prefs.getString('selected_marital_status'),
+    );
     final userDataString = prefs.getString('user_data');
     String? userId;
     if (userDataString != null) {
@@ -281,10 +337,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         } catch (_) {}
       }
     }
-    if (mounted) setState(() {
-      _maritalStatus = status;
-      _maritalStatusLoaded = true;
-    });
+    if (mounted)
+      setState(() {
+        _maritalStatus ??= status;
+        _maritalStatusLoaded = true;
+      });
     // Re-check in case _checkDocumentStatus() already completed while we were
     // loading the marital status from SharedPreferences.
     _checkAutoNavigate();
@@ -299,8 +356,10 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       final userData = jsonDecode(userDataString);
       final userId = userData['id']?.toString();
       if (userId == null) return;
-      final uploadedDocTypes =
-          _maritalDocUploaded.entries.where((e) => e.value).map((e) => e.key).toList();
+      final uploadedDocTypes = _maritalDocUploaded.entries
+          .where((e) => e.value)
+          .map((e) => e.key)
+          .toList();
       await prefs.setString(
           'marital_docs_uploaded_$userId', jsonEncode(uploadedDocTypes));
     } catch (_) {}
@@ -308,6 +367,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
 
   /// Returns true when the user's marital status requires supporting documents.
   bool _requiresMaritalDocuments() =>
+      _requiredMaritalDocLabels.isNotEmpty ||
       _maritalStatus == 'Widowed' ||
       _maritalStatus == 'Divorced' ||
       _maritalStatus == 'Waiting Divorce';
@@ -330,6 +390,12 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   /// Returns the ordered list of document types the user must provide based on
   /// their marital status.
   List<Map<String, dynamic>> _getRequiredMaritalDocuments() {
+    if (_requiredMaritalDocLabels.isNotEmpty) {
+      return _requiredMaritalDocLabels
+          .map(_buildMaritalDocConfig)
+          .toList(growable: false);
+    }
+
     switch (_maritalStatus) {
       case 'Widowed':
         return [
@@ -492,21 +558,35 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       request.files.add(imageFile);
 
       final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
       if (!mounted) return;
       if (response.statusCode == 200) {
-        setState(() {
-          _maritalDocUploaded[docType] = true;
-          // Optimistically mark as pending so the UI reflects the upload
-          // immediately while the server processes it.
-          _maritalDocStates[docType] = {
-            'status': 'pending',
-            'reject_reason': '',
-          };
-          // Store photo for preview
-          _maritalDocPhotos[docType] = imagePath;
-        });
-        await _persistMaritalDocUploaded();
-        _showSuccess('"$docType" uploaded successfully!');
+        Map<String, dynamic> result;
+        try {
+          result = jsonDecode(responseBody) as Map<String, dynamic>;
+        } catch (_) {
+          _showError(
+              'Upload failed for "$docType". Unexpected server response.');
+          return;
+        }
+        if (result['status'] == 'success') {
+          setState(() {
+            _maritalDocUploaded[docType] = true;
+            // Optimistically mark as pending so the UI reflects the upload
+            // immediately while the server processes it.
+            _maritalDocStates[docType] = {
+              'status': 'pending',
+              'reject_reason': '',
+            };
+            // Store photo for preview
+            _maritalDocPhotos[docType] = imagePath;
+          });
+          await _persistMaritalDocUploaded();
+          _showSuccess('"$docType" uploaded successfully!');
+        } else {
+          _showError(result['message']?.toString() ??
+              'Upload failed for "$docType". Please try again.');
+        }
       } else {
         _showError('Upload failed for "$docType". Please try again.');
       }
@@ -526,8 +606,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       final userData = jsonDecode(userDataString!);
       final userId = int.tryParse(userData['id'].toString());
 
-      final uri =
-          Uri.parse('${kApiBaseUrl}/Api2/upload_document.php');
+      final uri = Uri.parse('${kApiBaseUrl}/Api2/upload_document.php');
       final request = http.MultipartRequest('POST', uri);
       request.fields['userid'] = userId.toString();
       request.fields['documenttype'] = _selectedDocumentType!;
@@ -539,20 +618,35 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       request.files.add(imageFile);
 
       final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
       if (response.statusCode == 200) {
-        setState(() {
-          _documentStatus = 'pending';
-          _rejectReason = '';
-          _identityDocType = _selectedDocumentType;
-          _identityDocumentPhoto = imagePath; // Store photo for preview
-          _showIdentityUploadForm = false;
-        });
-        _showSuccess("Document submitted! We'll notify you once it's verified.");
-        // Brief pause so the user can read the success snack-bar before
-        // navigating away. The SnackBar default duration is 4 s, but 800 ms
-        // is enough time to notice the confirmation while keeping the UX snappy.
-        await Future.delayed(const Duration(milliseconds: 800));
-        if (mounted) _goToHome();
+        Map<String, dynamic> result;
+        try {
+          result = jsonDecode(responseBody) as Map<String, dynamic>;
+        } catch (_) {
+          _showError('Upload failed. Unexpected server response.');
+          return;
+        }
+        if (result['status'] == 'success') {
+          setState(() {
+            _documentStatus = 'pending';
+            _rejectReason = '';
+            _identityDocType = _selectedDocumentType;
+            _identityDocumentPhoto = imagePath; // Store photo for preview
+            _showIdentityUploadForm = false;
+          });
+          _showSuccess(
+              "Document submitted! We'll notify you once it's verified.");
+          // Only navigate to home when no marital documents are required;
+          // otherwise stay so the user can see and upload the marital docs section.
+          if (!_requiresMaritalDocuments()) {
+            await Future.delayed(const Duration(milliseconds: 800));
+            if (mounted) _goToHome();
+          }
+        } else {
+          _showError(result['message']?.toString() ??
+              'Upload failed. Please try again.');
+        }
       } else {
         _showError('Upload failed. Please try again.');
       }
@@ -584,9 +678,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       child: Scaffold(
         backgroundColor: const Color(0xFFF8F9FA),
         resizeToAvoidBottomInset: true,
-        body: _isLoading
-            ? _buildLoadingScreen()
-            : _buildContent(),
+        body: _isLoading ? _buildLoadingScreen() : _buildContent(),
       ),
     );
   }
@@ -707,9 +799,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 child: Text(
                   'Upload the document below to verify your marital status. Tap the document tile to upload.',
                   style: TextStyle(
-                      fontSize: 12.5,
-                      color: Color(0xFF795548),
-                      height: 1.5),
+                      fontSize: 12.5, color: Color(0xFF795548), height: 1.5),
                 ),
               ),
             ],
@@ -881,12 +971,11 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 GestureDetector(
                   onTap: () => _showMaritalDocSourceSelector(label),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: status == 'rejected'
-                          ? const Color(0xFFC62828)
-                          : null,
+                      color:
+                          status == 'rejected' ? const Color(0xFFC62828) : null,
                       gradient: status == 'rejected'
                           ? null
                           : AppColors.primaryGradient,
@@ -979,7 +1068,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     label: const Text('Change', style: TextStyle(fontSize: 12)),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(
-                          color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                          color: AppColors.primary.withOpacity(0.6),
+                          width: 1.5),
                       foregroundColor: AppColors.primary,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8)),
@@ -1123,9 +1213,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   : Colors.white,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color: isSelected
-                    ? AppColors.primary
-                    : const Color(0xFFE0E0E0),
+                color: isSelected ? AppColors.primary : const Color(0xFFE0E0E0),
                 width: isSelected ? 2 : 1,
               ),
               boxShadow: [
@@ -1152,9 +1240,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 11,
-                    fontWeight: isSelected
-                        ? FontWeight.bold
-                        : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
                     color: isSelected
                         ? AppColors.primary
                         : const Color(0xFF616161),
@@ -1170,8 +1257,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                       color: AppColors.primary,
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.check,
-                        color: Colors.white, size: 11),
+                    child:
+                        const Icon(Icons.check, color: Colors.white, size: 11),
                   ),
                 ],
               ],
@@ -1226,7 +1313,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                             height: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(AppColors.primary),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                  AppColors.primary),
                             ),
                           ),
                         )
@@ -1304,8 +1392,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                       }
                       return const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation(AppColors.primary),
+                          valueColor: AlwaysStoppedAnimation(AppColors.primary),
                         ),
                       );
                     },
@@ -1314,8 +1401,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   top: 10,
                   right: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
                       color: AppColors.success,
                       borderRadius: BorderRadius.circular(20),
@@ -1323,8 +1410,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle,
-                            color: Colors.white, size: 14),
+                        Icon(Icons.check_circle, color: Colors.white, size: 14),
                         SizedBox(width: 4),
                         Text('Photo Ready',
                             style: TextStyle(
@@ -1361,8 +1447,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                 onPressed: _removeImage,
                 icon: const Icon(Icons.delete_outline_rounded,
                     size: 18, color: Colors.red),
-                label: const Text('Remove',
-                    style: TextStyle(color: Colors.red)),
+                label:
+                    const Text('Remove', style: TextStyle(color: Colors.red)),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.red),
                   shape: RoundedRectangleBorder(
@@ -1388,10 +1474,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         'icon': Icons.text_fields_rounded,
         'text': 'All text must be clearly readable'
       },
-      {
-        'icon': Icons.block_rounded,
-        'text': 'No glare, blur, or obstruction'
-      },
+      {'icon': Icons.block_rounded, 'text': 'No glare, blur, or obstruction'},
     ];
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1448,9 +1531,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           color: _hasConsented ? const Color(0xFFF1F8E9) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _hasConsented
-                ? AppColors.success
-                : const Color(0xFFE0E0E0),
+            color: _hasConsented ? AppColors.success : const Color(0xFFE0E0E0),
             width: 2,
           ),
           boxShadow: [
@@ -1516,8 +1597,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       ),
       child: const Row(
         children: [
-          Icon(Icons.info_outline_rounded,
-              color: AppColors.primary, size: 20),
+          Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 20),
           SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -1541,8 +1621,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           backgroundColor: AppColors.primary,
           disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
           padding: const EdgeInsets.symmetric(vertical: 16),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
           elevation: canSubmit ? 4 : 0,
           shadowColor: AppColors.primary.withOpacity(0.4),
         ),
@@ -1598,7 +1678,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           const SizedBox(height: 4),
           const Text(
             'Tap a document type to upload',
-            style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+            style:
+                TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
           ),
           const SizedBox(height: 16),
           _buildDocumentTypeGrid(),
@@ -1609,7 +1690,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             const SizedBox(height: 4),
             const Text(
               'Review and edit if needed',
-              style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+              style: TextStyle(
+                  fontSize: 13, color: Color(0xFF757575), height: 1.4),
             ),
             const SizedBox(height: 16),
             _buildImagePreview(),
@@ -1618,7 +1700,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             const SizedBox(height: 4),
             const Text(
               'Enter your document identification number',
-              style: TextStyle(fontSize: 13, color: Color(0xFF757575), height: 1.4),
+              style: TextStyle(
+                  fontSize: 13, color: Color(0xFF757575), height: 1.4),
             ),
             const SizedBox(height: 16),
             _buildDocumentNumberField(),
@@ -1968,7 +2051,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     label: const Text('Change'),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(
-                          color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                          color: AppColors.primary.withOpacity(0.6),
+                          width: 1.5),
                       foregroundColor: AppColors.primary,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
@@ -1982,8 +2066,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     onPressed: _removeIdentityDocument,
                     icon: const Icon(Icons.delete_outline_rounded,
                         size: 18, color: Colors.red),
-                    label:
-                        const Text('Remove', style: TextStyle(color: Colors.red)),
+                    label: const Text('Remove',
+                        style: TextStyle(color: Colors.red)),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Colors.red, width: 1.5),
                       shape: RoundedRectangleBorder(
@@ -2108,8 +2192,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         return Container(
           decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius:
-                BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -2126,8 +2209,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
               const SizedBox(height: 20),
               const Text(
                 'Choose Upload Method',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -2220,9 +2302,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                gradient: isRecommended
-                    ? AppColors.primaryGradient
-                    : null,
+                gradient: isRecommended ? AppColors.primaryGradient : null,
                 color: isRecommended ? null : const Color(0xFF9E9E9E),
                 shape: BoxShape.circle,
               ),
@@ -2237,8 +2317,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             const SizedBox(height: 4),
             Text(subtitle,
                 textAlign: TextAlign.center,
-                style:
-                    const TextStyle(fontSize: 12, color: Colors.grey)),
+                style: const TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
       ),
@@ -2246,6 +2325,14 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   }
 
   Future<void> _scanDocument() async {
+    if (kIsWeb) {
+      _showError(
+        'Document scanner is not available on web. Please use Gallery or Camera.',
+      );
+      await _selectFromGallery();
+      return;
+    }
+
     try {
       final scannedPaths = await _documentScanner.scanDocument(
         numberOfPages: 1,
@@ -2264,7 +2351,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       _showError('Failed to scan document: $e');
     }
   }
-
 
   Future<void> _selectFromGallery() async {
     try {
@@ -2342,7 +2428,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           duration: const Duration(seconds: 2),
           backgroundColor: AppColors.primary,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
       );
     }
@@ -2353,7 +2440,8 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
         final File imageFile = _scannedImagePath != null
             ? File(_scannedImagePath!)
             : File(_selectedImage!.path);
-        final String? extractedText = await _ocrService.extractDocumentId(imageFile);
+        final String? extractedText =
+            await _ocrService.extractDocumentId(imageFile);
         setState(() => _isScanning = false);
         if (extractedText != null && extractedText.isNotEmpty) {
           _showScanResultDialog(extractedText);
@@ -2367,20 +2455,23 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                     Icon(Icons.info_outline, color: Colors.white, size: 20),
                     SizedBox(width: 12),
                     Expanded(
-                      child: Text('No document number detected. You can enter it manually below.'),
+                      child: Text(
+                          'No document number detected. You can enter it manually below.'),
                     ),
                   ],
                 ),
                 backgroundColor: Colors.orange,
                 behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
               ),
             );
           }
         }
       } else {
         setState(() => _isScanning = false);
-        _showError('OCR scanning is not available on web. Please enter the document number manually.');
+        _showError(
+            'OCR scanning is not available on web. Please enter the document number manually.');
       }
     } catch (e) {
       setState(() => _isScanning = false);
@@ -2510,7 +2601,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     );
   }
 
-
   bool _canContinue() =>
       _selectedDocumentType != null &&
       _documentNumberController.text.isNotEmpty &&
@@ -2540,8 +2630,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   void _goToHome() {
     Navigator.pushAndRemoveUntil(
       context,
-      MaterialPageRoute(
-          builder: (context) => const MainControllerScreen()),
+      MaterialPageRoute(builder: (context) => const MainControllerScreen()),
       (route) => false,
     );
   }
@@ -2580,8 +2669,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       ),
       backgroundColor: AppColors.error,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ));
   }
 
@@ -2597,8 +2685,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
       ),
       backgroundColor: AppColors.success,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
     ));
   }
 }

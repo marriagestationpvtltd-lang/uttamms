@@ -33,12 +33,20 @@ class CallToneSettings {
     this.customToneUrl = '',
   });
 
+  /// True when admin has not configured any custom outgoing tone.
+  /// In this case the app should use device/system default ringtone.
+  bool get useSystemDefault =>
+      customToneUrl.trim().isEmpty && toneId == defaultToneId;
+
   String get assetPath => _toneAssets[toneId] ?? defaultAssetPath;
 
   List<CallTonePlaybackSource> get playbackSources {
     final sources = <CallTonePlaybackSource>[];
     if (customToneUrl.isNotEmpty) {
-      sources.add(CallTonePlaybackSource.remote(customToneUrl));
+      final resolvedUrl = resolveCustomToneUrl(customToneUrl);
+      if (resolvedUrl.isNotEmpty) {
+        sources.add(CallTonePlaybackSource.remote(resolvedUrl));
+      }
     }
 
     final primaryAsset = assetPath;
@@ -59,6 +67,38 @@ class CallToneSettings {
   static String normalizeCustomToneUrl(String? customToneUrl) {
     return customToneUrl?.trim() ?? '';
   }
+
+  /// Converts a server-provided tone URL into an absolute playback URL.
+  ///
+  /// Supports:
+  /// - absolute URLs (http/https)
+  /// - root-relative paths like `/uploads/ringtones/...`
+  /// - relative paths like `uploads/ringtones/...`
+  static String resolveCustomToneUrl(String rawUrl) {
+    final url = rawUrl.trim();
+    if (url.isEmpty) return '';
+
+    final parsed = Uri.tryParse(url);
+    if (parsed != null && parsed.hasScheme) {
+      return url;
+    }
+
+    final apiBase = Uri.parse(kApiBaseUrl);
+    final origin = '${apiBase.scheme}://${apiBase.authority}';
+
+    if (url.startsWith('//')) {
+      return '${apiBase.scheme}:$url';
+    }
+
+    if (url.startsWith('/')) {
+      return '$origin$url';
+    }
+
+    final basePath = apiBase.path.endsWith('/')
+        ? apiBase.path.substring(0, apiBase.path.length - 1)
+        : apiBase.path;
+    return '$origin$basePath/$url';
+  }
 }
 
 class CallToneSettingsService {
@@ -66,7 +106,7 @@ class CallToneSettingsService {
 
   static final CallToneSettingsService instance = CallToneSettingsService._();
 
-  static const _settingsUrl = '${kApiBaseUrl}/Api2/app_settings.php';
+  static const _settingsUrl = '$kApiBaseUrl/Api2/app_settings.php';
   static const _cachedToneIdKey = 'cached_call_tone_id';
   static const _cachedCustomToneUrlKey = 'cached_custom_call_tone_url';
 
@@ -82,6 +122,11 @@ class CallToneSettingsService {
   /// Whether a background refresh is already in flight so we don't fire
   /// multiple concurrent HTTP requests.
   bool _refreshing = false;
+
+  /// Returns the in-memory cached settings synchronously, or null if the
+  /// cache has not been populated yet.  Use this to play a ringtone
+  /// immediately without any network I/O.
+  CallToneSettings? get cached => _cached;
 
   /// Pre-warm the cache (e.g. at app startup). Safe to call multiple times.
   Future<void> preload() async => load();
@@ -156,13 +201,11 @@ class CallToneSettingsService {
             final remoteToneId = CallToneSettings.normalizeToneId(
               data['call_tone_id']?.toString(),
             );
-            final remoteCustomToneUrl =
-                CallToneSettings.normalizeCustomToneUrl(
+            final remoteCustomToneUrl = CallToneSettings.normalizeCustomToneUrl(
               data['custom_call_tone_url']?.toString(),
             );
             await prefs.setString(_cachedToneIdKey, remoteToneId);
-            await prefs.setString(
-                _cachedCustomToneUrlKey, remoteCustomToneUrl);
+            await prefs.setString(_cachedCustomToneUrlKey, remoteCustomToneUrl);
             return CallToneSettings(
               toneId: remoteToneId,
               customToneUrl: remoteCustomToneUrl,

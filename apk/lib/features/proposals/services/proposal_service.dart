@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import '../../../config/app_endpoints.dart';
 import '../../../core/api/api_response.dart';
+import '../../../service/socket_service.dart';
 import '../../../utils/access_control.dart';
 import '../models/proposal_model.dart';
 
@@ -93,8 +94,8 @@ class ProposalService {
             url,
             headers: {'Content-Type': 'application/json; charset=UTF-8'},
             body: jsonEncode({
-              'sender_id':    senderId,
-              'receiver_id':  receiverId,
+              'sender_id': senderId,
+              'receiver_id': receiverId,
               'request_type': requestType,
             }),
           )
@@ -102,6 +103,12 @@ class ProposalService {
 
       final json = jsonDecode(response.body);
       if (json['success'] == true) {
+        SocketService().emitNewProposal(
+          receiverId: receiverId,
+          senderId: senderId,
+          requestType: requestType,
+          proposalId: json['proposal_id']?.toString() ?? '',
+        );
         return ApiResponse.success(json['proposal_id']?.toString() ?? '');
       }
       return ApiResponse.error(json['message'] ?? 'Failed to send request');

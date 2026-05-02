@@ -14,8 +14,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // ================= DB CONFIG =================
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 // ================= GET ID =================
 $id = null;

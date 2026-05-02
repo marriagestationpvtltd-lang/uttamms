@@ -13,8 +13,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 // DATABASE CONNECTION --------------------
 $host = "localhost";
-$user = "ms";
-$pass = "ms";
+$user = "root";
+$pass = "";
 $dbname = "ms";
 
 $conn = new mysqli($host, $user, $pass, $dbname);

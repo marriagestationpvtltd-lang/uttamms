@@ -1,11 +1,13 @@
 <?php
 // agora_token_api.php
+// CORS headers are set by Api2/.htaccess (Access-Control-Allow-Origin/Methods/Headers).
+// Do not duplicate them here — Apache + PHP merging causes "multiple values" CORS errors.
 header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, GET");
-header("Access-Control-Allow-Headers: Content-Type");
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') exit(0);
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit(0);
+}
 
 // ✅ Set your Agora App ID and Certificate
 $appId = "7750d283e6794eebba06e7d021e8a01c";

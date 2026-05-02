@@ -8,8 +8,8 @@ $base_url = "https://digitallami.com/Api2/";
 
 $host = "localhost"; 
 $db_name = "ms";
-$username = "ms";
-$password = "ms";
+$username = "root";
+$password = "";
 
 $conn = new mysqli($host, $username, $password, $db_name);
 
@@ -28,6 +28,92 @@ if ($userid <= 0 || $myid <= 0) {
         "status" => "error",
         "message" => "Invalid user ID"
     ]);
+    exit;
+}
+
+/* =============================
+   BLOCK GATE (BIDIRECTIONAL)
+============================= */
+
+$blockStmt = $conn->prepare("\nSELECT blocker_id, blocked_id FROM blocks\nWHERE (blocker_id=? AND blocked_id=?)\n   OR (blocker_id=? AND blocked_id=?)\nLIMIT 1\n");
+$blockStmt->bind_param("iiii", $myid, $userid, $userid, $myid);
+$blockStmt->execute();
+$blockRes = $blockStmt->get_result();
+$blockRow = $blockRes->fetch_assoc();
+$blockStmt->close();
+
+if ($blockRow) {
+    $default = "Hidden";
+    $isBlocked = ((int)$blockRow['blocker_id'] === $myid && (int)$blockRow['blocked_id'] === $userid);
+    $isBlockedBy = ((int)$blockRow['blocker_id'] === $userid && (int)$blockRow['blocked_id'] === $myid);
+
+    echo json_encode([
+        "status" => "success",
+        "blocked_profile" => true,
+        "block_status" => [
+            "is_blocked" => $isBlocked,
+            "is_blocked_by" => $isBlockedBy,
+            "either_blocked" => true,
+        ],
+        "data" => [
+            "personalDetail" => [
+                "photo_request" => "not_sent",
+                "photo_request_type" => "none",
+                "chat_request" => "not_sent",
+                "chat_request_type" => "none",
+                "firstName" => $default,
+                "lastName" => "",
+                "profile_picture" => "",
+                "usertype" => "",
+                "isVerified" => 0,
+                "privacy" => "private",
+                "city" => $default,
+                "country" => $default,
+                "educationmedium" => $default,
+                "educationtype" => $default,
+                "faculty" => $default,
+                "degree" => $default,
+                "areyouworking" => $default,
+                "occupationtype" => $default,
+                "companyname" => $default,
+                "designation" => $default,
+                "workingwith" => $default,
+                "annualincome" => $default,
+                "businessname" => $default,
+                "memberid" => $default,
+                "height_name" => $default,
+                "maritalStatusId" => "",
+                "maritalStatusName" => $default,
+                "motherTongue" => $default,
+                "aboutMe" => $default,
+                "birthDate" => $default,
+                "Disability" => $default,
+                "bloodGroup" => $default,
+                "religionName" => $default,
+                "communityName" => $default,
+                "subCommunityName" => $default,
+                "manglik" => $default,
+                "birthtime" => $default,
+                "birthcity" => $default,
+            ],
+            "familyDetail" => [],
+            "lifestyle" => [],
+            "partner" => [],
+        ],
+        "partner_match" => [
+            "matched_count" => 0,
+            "total_count" => 0,
+            "details" => [],
+        ],
+        "gallery" => [],
+        "access_control" => [
+            "current_user_plan" => "free",
+            "can_view_photo" => false,
+            "can_chat" => false,
+            "can_send_requests" => false,
+        ],
+    ]);
+    $conn->close();
     exit;
 }
 

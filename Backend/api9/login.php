@@ -1,21 +1,11 @@
 <?php
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With");
-header("Access-Control-Max-Age: 86400");
+require_once __DIR__ . '/../cors_headers.php';
 header("Content-Type: application/json; charset=UTF-8");
-
-// ================== PREFLIGHT ==================
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    echo json_encode(['success' => true]);
-    exit;
-}
 
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 function response($success, $message, $data = [], $code = 200) {
     http_response_code($code);

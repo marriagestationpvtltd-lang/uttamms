@@ -1270,6 +1270,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
           color: _kPersonal,
         ),
         rows: [
+          _row('p_first', 'First Name', p.firstName, section: 'personal', apiField: 'firstName', icon: Icons.person_outline, highlight: true),
+          _row('p_last', 'Last Name', p.lastName, section: 'personal', apiField: 'lastName', icon: Icons.person_2_outlined),
+          _row('p_city', 'City', p.city, section: 'personal', apiField: 'city', icon: Icons.location_city),
+          _row('p_country', 'Country', p.country, section: 'personal', apiField: 'country', icon: Icons.public),
           _row('p_height', 'Height', p.heightName, section: 'personal', apiField: 'height_name', icon: Icons.height, highlight: true),
           _row('p_dob', 'Birth Date', p.birthDate, section: 'personal', apiField: 'birthDate', icon: Icons.cake),
           _row('p_birthtime', 'Birth Time', p.birthtime, section: 'personal', apiField: 'birthtime', icon: Icons.access_time),
@@ -1282,7 +1286,6 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
           _row('p_marital', 'Marital Status', p.maritalStatusName, section: 'personal', apiField: 'maritalStatusName', icon: Icons.favorite_border),
           _row('p_manglik', 'Manglik', p.manglik, section: 'personal', apiField: 'manglik', icon: Icons.star_border),
           _row('p_disability', 'Disability', p.disability, section: 'personal', apiField: 'Disability', icon: Icons.accessible),
-          _row('p_photo', 'Photo Request', p.photoRequest, section: 'personal', apiField: 'photo_request', icon: Icons.photo_camera_outlined),
           _row('p_privacy', 'Privacy Setting', p.privacy, section: 'personal', apiField: 'privacy', icon: Icons.lock_outline),
         ],
       );
@@ -1745,8 +1748,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
           color: _kPartner,
         ),
         rows: [
-          _row('pp_age', 'Age Range', pp.ageRange, section: 'partner', apiField: 'age_range', icon: Icons.calendar_today, highlight: true),
-          _row('pp_height', 'Height Range', pp.heightRange, section: 'partner', apiField: 'height_range', icon: Icons.height),
+          _row('pp_min_age', 'Min Age', pp.minAge == 0 ? 'Not available' : pp.minAge.toString(), section: 'partner', apiField: 'minage', icon: Icons.calendar_today, highlight: true),
+          _row('pp_max_age', 'Max Age', pp.maxAge == 0 ? 'Not available' : pp.maxAge.toString(), section: 'partner', apiField: 'maxage', icon: Icons.calendar_today),
+          _row('pp_min_height', 'Min Height', pp.minHeight == 0 ? 'Not available' : pp.minHeight.toString(), section: 'partner', apiField: 'minheight', icon: Icons.height),
+          _row('pp_max_height', 'Max Height', pp.maxHeight == 0 ? 'Not available' : pp.maxHeight.toString(), section: 'partner', apiField: 'maxheight', icon: Icons.height),
           _row('pp_marital', 'Marital Status', pp.maritalStatus, section: 'partner', apiField: 'maritalstatus', icon: Icons.favorite_border),
           _row('pp_child', 'Profile With Child', pp.profileWithChild, section: 'partner', apiField: 'profilewithchild', icon: Icons.child_care),
           _row('pp_family', 'Family Type', pp.familyType, section: 'partner', apiField: 'familytype', icon: Icons.home_outlined),
@@ -1780,6 +1785,10 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
       color: _kPersonal,
       description: 'Quickly adjust core personal fields in a single sheet.',
       fields: [
+        _BulkFieldConfig(key: 'firstName', label: 'First Name', apiField: 'firstName', section: 'personal', initial: p.firstName),
+        _BulkFieldConfig(key: 'lastName', label: 'Last Name', apiField: 'lastName', section: 'personal', initial: p.lastName),
+        _BulkFieldConfig(key: 'city', label: 'City', apiField: 'city', section: 'personal', initial: p.city),
+        _BulkFieldConfig(key: 'country', label: 'Country', apiField: 'country', section: 'personal', initial: p.country),
         _BulkFieldConfig(key: 'height', label: 'Height', apiField: 'height_name', section: 'personal', initial: p.heightName),
         _BulkFieldConfig(key: 'birthDate', label: 'Birth Date', apiField: 'birthDate', section: 'personal', initial: p.birthDate),
         _BulkFieldConfig(key: 'birthTime', label: 'Birth Time', apiField: 'birthtime', section: 'personal', initial: p.birthtime),
@@ -1792,7 +1801,6 @@ class _UserDetailsScreenState extends State<UserDetailsScreen> {
         _BulkFieldConfig(key: 'maritalStatus', label: 'Marital Status', apiField: 'maritalStatusName', section: 'personal', initial: p.maritalStatusName),
         _BulkFieldConfig(key: 'manglik', label: 'Manglik', apiField: 'manglik', section: 'personal', initial: p.manglik),
         _BulkFieldConfig(key: 'disability', label: 'Disability', apiField: 'Disability', section: 'personal', initial: p.disability),
-        _BulkFieldConfig(key: 'photoRequest', label: 'Photo Request', apiField: 'photo_request', section: 'personal', initial: p.photoRequest),
         _BulkFieldConfig(key: 'privacy', label: 'Privacy Setting', apiField: 'privacy', section: 'personal', initial: p.privacy),
       ],
     );

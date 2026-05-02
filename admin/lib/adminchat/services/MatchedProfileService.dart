@@ -36,11 +36,12 @@ class MatchedProfileProvider with ChangeNotifier {
 
   List<MatchedProfile> _matchedProfiles = [];
 
+  List<MatchedProfile> get profiles => List.unmodifiable(_matchedProfiles);
+
   // Getters for the specific fields you want to access
   List<String> get memberiddd =>
       _matchedProfiles.map((profile) => profile.memberid).toList();
-  List<int> get ids =>
-      _matchedProfiles.map((profile) => profile.id).toList();
+  List<int> get ids => _matchedProfiles.map((profile) => profile.id).toList();
   List<String> get firstNames =>
       _matchedProfiles.map((profile) => profile.firstName).toList();
   List<String> get lastNames =>
@@ -61,11 +62,95 @@ class MatchedProfileProvider with ChangeNotifier {
       _matchedProfiles.map((profile) => profile.marit).toList();
   List<String> get gender =>
       _matchedProfiles.map((profile) => profile.gender).toList();
-  List<int> get age =>
-      _matchedProfiles.map((profile) => profile.age).toList();
+  List<int> get age => _matchedProfiles.map((profile) => profile.age).toList();
 
   List<String> get profilePictures =>
       _matchedProfiles.map((profile) => profile.profilePicture).toList();
+
+  bool _asBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value?.toString().trim().toLowerCase() ?? '';
+    return normalized == '1' || normalized == 'true' || normalized == 'yes';
+  }
+
+  List<MatchedProfile> _parseProfileList(dynamic rawList) {
+    final list = rawList as List? ?? [];
+    final out = <MatchedProfile>[];
+    for (final item in list) {
+      if (item is Map) {
+        try {
+          out.add(MatchedProfile.fromJson(Map<String, dynamic>.from(item)));
+        } catch (e) {
+          debugPrint('Skipping malformed matched profile item: $e');
+        }
+      }
+    }
+    return out;
+  }
+
+  List<MatchedProfile> _applyLocalSearchFilter(
+    List<MatchedProfile> profiles,
+    String query,
+  ) {
+    final trimmed = query.trim().toLowerCase();
+    if (trimmed.isEmpty) return profiles;
+    return profiles.where((p) {
+      final fullName = ('${p.firstName} ${p.lastName}').toLowerCase();
+      return fullName.contains(trimmed) ||
+          p.memberid.toLowerCase().contains(trimmed);
+    }).toList();
+  }
+
+  Future<(List<MatchedProfile>, int)> _fetchFromMatchAdmin(
+    int userId, {
+    int page = 1,
+    String? filterTypeOverride,
+  }) async {
+    final response = await http.post(
+      Uri.parse('${kAdminApiBaseUrl}/match_admin.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'user_id': userId,
+        'page': page,
+        'per_page': _perPage,
+        if (_searchQuery.isNotEmpty) 'search': _searchQuery,
+        'filter_type': filterTypeOverride ?? _filterType,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to load matched profiles: ${response.statusCode}',
+      );
+    }
+
+    final data = json.decode(response.body);
+    final pageProfiles = _parseProfileList(data['data']);
+    final totalCount = data['total'] is int
+        ? data['total'] as int
+        : int.tryParse(data['total']?.toString() ?? '') ?? pageProfiles.length;
+
+    return (pageProfiles, totalCount);
+  }
+
+  Future<List<MatchedProfile>> _fetchFromLegacyMatched(int userId) async {
+    final response = await http.post(
+      Uri.parse('${kAdminApiBaseUrl}/matched.php'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'user_id': userId}),
+    );
+
+    if (response.statusCode != 200) return const <MatchedProfile>[];
+
+    final data = json.decode(response.body);
+    if (data is! Map || data['status'] != 'success') {
+      return const <MatchedProfile>[];
+    }
+
+    final parsed = _parseProfileList(data['data']);
+    return _applyLocalSearchFilter(parsed, _searchQuery);
+  }
 
   // Fetch only page 1 – subsequent pages are loaded lazily via fetchMoreProfiles().
   Future<void> fetchMatchedProfiles(
@@ -83,33 +168,50 @@ class MatchedProfileProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http.post(
-        Uri.parse('${kAdminApiBaseUrl}/match_admin.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'user_id': userId,
-          'page': 1,
-          'per_page': _perPage,
-          if (_searchQuery.isNotEmpty) 'search': _searchQuery,
-          'filter_type': _filterType,
-        }),
-      );
+      List<MatchedProfile> pageProfiles = const <MatchedProfile>[];
+      int resolvedTotalCount = 0;
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to load matched profiles: ${response.statusCode}');
+      try {
+        final (profiles, total) = await _fetchFromMatchAdmin(userId, page: 1);
+        pageProfiles = profiles;
+        resolvedTotalCount = total;
+      } catch (e) {
+        debugPrint('match_admin.php request failed: $e');
       }
 
-      final data = json.decode(response.body);
-      final list = data['data'] as List? ?? [];
-      final pageProfiles = list.map((p) => MatchedProfile.fromJson(p)).toList();
+      // Local fallback path:
+      // 1) old matched.php endpoint (historically used in this project)
+      // 2) relaxed filter_type=all if strict matched returns empty
+      if (pageProfiles.isEmpty) {
+        final legacyProfiles = await _fetchFromLegacyMatched(userId);
+        if (legacyProfiles.isNotEmpty) {
+          pageProfiles = legacyProfiles;
+          resolvedTotalCount = legacyProfiles.length;
+        }
+      }
+
+      if (pageProfiles.isEmpty && _filterType == 'matched') {
+        try {
+          final (profiles, total) = await _fetchFromMatchAdmin(
+            userId,
+            page: 1,
+            filterTypeOverride: 'all',
+          );
+          pageProfiles = profiles;
+          resolvedTotalCount = total;
+        } catch (e) {
+          debugPrint('Relaxed all-filter fallback failed: $e');
+        }
+      }
 
       _matchedProfiles = pageProfiles;
 
-      _totalCount = data['total'] is int
-          ? data['total'] as int
-          : int.tryParse(data['total']?.toString() ?? '') ?? pageProfiles.length;
+      _totalCount = resolvedTotalCount > 0
+          ? resolvedTotalCount
+          : pageProfiles.length;
 
-      _hasMore = pageProfiles.length >= _perPage &&
+      _hasMore =
+          pageProfiles.length >= _perPage &&
           _matchedProfiles.length < _totalCount;
       _currentPage = 2;
 
@@ -135,38 +237,25 @@ class MatchedProfileProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final response = await http.post(
-        Uri.parse('${kAdminApiBaseUrl}/match_admin.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'user_id': _currentUserId,
-          'page': _currentPage,
-          'per_page': _perPage,
-          if (_searchQuery.isNotEmpty) 'search': _searchQuery,
-          'filter_type': _filterType,
-        }),
+      final (pageProfiles, total) = await _fetchFromMatchAdmin(
+        _currentUserId!,
+        page: _currentPage,
       );
 
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final list = data['data'] as List? ?? [];
-        final pageProfiles = list.map((p) => MatchedProfile.fromJson(p)).toList();
+      // Deduplicate by id before appending
+      final existingIds = _matchedProfiles.map((p) => p.id).toSet();
+      final newProfiles = pageProfiles
+          .where((p) => !existingIds.contains(p.id))
+          .toList();
 
-        // Deduplicate by id before appending
-        final existingIds = _matchedProfiles.map((p) => p.id).toSet();
-        final newProfiles =
-            pageProfiles.where((p) => !existingIds.contains(p.id)).toList();
+      _matchedProfiles.addAll(newProfiles);
+      _currentPage++;
 
-        _matchedProfiles.addAll(newProfiles);
-        _currentPage++;
+      _totalCount = total > 0 ? total : _matchedProfiles.length;
 
-        _totalCount = data['total'] is int
-            ? data['total'] as int
-            : int.tryParse(data['total']?.toString() ?? '') ?? _matchedProfiles.length;
-
-        _hasMore = pageProfiles.length >= _perPage &&
-            _matchedProfiles.length < _totalCount;
-      }
+      _hasMore =
+          pageProfiles.length >= _perPage &&
+          _matchedProfiles.length < _totalCount;
     } catch (e) {
       debugPrint('Error fetching more profiles: $e');
     } finally {
@@ -237,7 +326,9 @@ class MatchedProfileProvider with ChangeNotifier {
         // Build a lookup map: id -> isOnline
         final Map<int, bool> onlineMap = {
           for (var item in list)
-            (item['id'] ?? 0) as int: (item['is_online'] ?? false) as bool,
+            int.tryParse(item['id']?.toString() ?? '') ?? 0: _asBool(
+              item['is_online'],
+            ),
         };
 
         // Update only isOnline without disturbing order or other fields
@@ -282,21 +373,26 @@ class MatchedProfileProvider with ChangeNotifier {
   void startPresenceListener() {
     _presenceSub?.cancel();
     _socketService.connect();
-    _presenceSub = _socketService.onUserStatusChange.listen((data) {
-      bool changed = false;
-      final int userId = int.tryParse(data['userId']?.toString() ?? '') ?? -1;
-      if (userId == -1) return;
-      final bool isOnline = data['isOnline'] == true;
+    _presenceSub = _socketService.onUserStatusChange.listen(
+      (data) {
+        bool changed = false;
+        final int userId = int.tryParse(data['userId']?.toString() ?? '') ?? -1;
+        if (userId == -1) return;
+        final bool isOnline = data['isOnline'] == true;
 
-      final idx = _matchedProfiles.indexWhere((p) => p.id == userId);
-      if (idx != -1 && _matchedProfiles[idx].isOnline != isOnline) {
-        _matchedProfiles[idx] = _matchedProfiles[idx].copyWith(isOnline: isOnline);
-        changed = true;
-      }
-      if (changed) notifyListeners();
-    }, onError: (e) {
-      debugPrint('MatchedProfile presence listener error: $e');
-    });
+        final idx = _matchedProfiles.indexWhere((p) => p.id == userId);
+        if (idx != -1 && _matchedProfiles[idx].isOnline != isOnline) {
+          _matchedProfiles[idx] = _matchedProfiles[idx].copyWith(
+            isOnline: isOnline,
+          );
+          changed = true;
+        }
+        if (changed) notifyListeners();
+      },
+      onError: (e) {
+        debugPrint('MatchedProfile presence listener error: $e');
+      },
+    );
   }
 
   void stopPresenceListener() {

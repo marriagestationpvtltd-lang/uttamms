@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -34,24 +34,30 @@ import 'constant/app_theme.dart';
 import 'core/user_state.dart';
 import 'navigation/app_navigation.dart';
 import 'online/onlineservice.dart';
+import 'service/socket_service.dart';
 import 'service/connectivity_service.dart';
 import 'service/chat_message_cache.dart';
 import 'Calling/call_tone_settings.dart';
 import 'service/sound_settings_service.dart';
+import 'service/message_tone_service.dart';
+import 'service/app_sound_tone_service.dart';
 import 'widgets/global_connectivity_handler.dart';
+
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-FlutterLocalNotificationsPlugin();
+    FlutterLocalNotificationsPlugin();
 
 // Notification channel IDs
 const String callChannelId = 'calls_channel';
 const String callChannelName = 'Calls';
-const String callChannelDescription = 'Channel for WhatsApp-like call notifications';
+const String callChannelDescription =
+    'Channel for WhatsApp-like call notifications';
 const String messagesChannelId = 'messages_channel';
 const String messagesChannelName = 'Messages';
 const String messagesChannelDescription = 'Channel for chat messages';
 const String generalChannelId = 'general_notifications';
 const String generalChannelName = 'General Notifications';
-const String generalChannelDescription = 'Channel for general app notifications';
+const String generalChannelDescription =
+    'Channel for general app notifications';
 
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
@@ -62,17 +68,21 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   await initLocalNotifications();
 
   final data = message.data;
-  final type = data['type']?.toString() ?? '';
+  final type = _extractNotificationType(data);
+  final normalizedData = {
+    ...data,
+    'type': type,
+  };
 
   // Trigger call response for response notifications.
   // NOTE: This runs in a background Dart isolate – the stream event will NOT
   // reach the main isolate's listeners. We persist the event to SharedPreferences
   // so that the main isolate can process it when the app resumes.
-  NotificationService.triggerCallResponse(data);
+  NotificationService.triggerCallResponse(normalizedData);
 
   // Trigger incoming call for new call notifications (stream call for same reason)
   if (type == 'call' || type == 'video_call') {
-    NotificationService.triggerIncomingCall(data);
+    NotificationService.triggerIncomingCall(normalizedData);
   }
 
   // Persist events that the main isolate must process on resume
@@ -84,7 +94,7 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
       // Save incoming call so CallOverlayWrapper can show the screen on resume
       await prefs.setString(
         'pending_incoming_call',
-        json.encode({...data, '_receivedAt': ts}),
+        json.encode({...normalizedData, '_receivedAt': ts}),
       );
     } else if (type == 'call_response' ||
         type == 'video_call_response' ||
@@ -95,14 +105,14 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
       // Save call termination event so OutgoingCall/VideoCall screens can close on resume
       await prefs.setString(
         'pending_call_event',
-        json.encode({...data, '_receivedAt': ts}),
+        json.encode({...normalizedData, '_receivedAt': ts}),
       );
     }
   } catch (_) {}
 
   // Always record notification in inbox
   await NotificationInboxService.recordIncomingRemoteNotification(
-    data: data,
+    data: normalizedData,
     fallbackTitle: message.notification?.title,
     fallbackBody: message.notification?.body,
   );
@@ -128,26 +138,28 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   // Real-time interactive notifications (Type 1): Incoming calls
   if (defaultTargetPlatform == TargetPlatform.android &&
       (type == 'call' || type == 'video_call')) {
-    await _displayWhatsAppCallNotification(data, message.notification);
+    await _displayWhatsAppCallNotification(
+        normalizedData, message.notification);
     return;
   }
 
   // Standard notifications (Type 3 & 4): chat, requests, profile views, etc.
   // Show them only while the app is backgrounded.
-  if (_shouldDisplayStandardNotification(type)) {
+  if (_shouldDisplayStandardNotification(normalizedData)) {
     await _displayStandardNotification(message);
   }
 }
 
 // WhatsApp-like call notification display
 Future<void> _displayWhatsAppCallNotification(
-    Map<String, dynamic> data,
-    RemoteNotification? notification, {
-      FlutterLocalNotificationsPlugin? localPlugin,
-    }) async {
+  Map<String, dynamic> data,
+  RemoteNotification? notification, {
+  FlutterLocalNotificationsPlugin? localPlugin,
+}) async {
   final plugin = localPlugin ?? flutterLocalNotificationsPlugin;
 
-  final isVideoCall = data['type'] == 'video_call' || data['isVideoCall'] == 'true';
+  final isVideoCall =
+      data['type'] == 'video_call' || data['isVideoCall'] == 'true';
   final callerName = data['callerName'] ?? 'Unknown';
 
   // Create notification ID based on call type
@@ -182,9 +194,9 @@ Future<void> _displayWhatsAppCallNotification(
     enableVibration: true,
     vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
     enableLights: true,
-   ledColor: const Color(0xFF25D366), // REQUIRED if lights enabled
+    ledColor: const Color(0xFF25D366), // REQUIRED if lights enabled
 
-  //isVideoCall ? 0xFF25D366 : 0xFF34B7F1,
+    //isVideoCall ? 0xFF25D366 : 0xFF34B7F1,
     ledOnMs: 1000,
     ledOffMs: 500,
     fullScreenIntent: true,
@@ -244,25 +256,28 @@ Future<void> _displayWhatsAppCallNotification(
 // Display standard notification for messages, requests, etc.
 Future<void> _displayStandardNotification(RemoteMessage message) async {
   final data = message.data;
-  final type = data['type']?.toString() ?? '';
+  final type = _extractNotificationType(data);
   final content = NotificationInboxService.buildNotificationContent(
     type: type,
     actorName: data['senderName']?.toString() ??
         data['viewerName']?.toString() ??
         data['callerName']?.toString(),
-    requestType: data['requestType']?.toString() ?? data['request_type']?.toString(),
+    requestType:
+        data['requestType']?.toString() ?? data['request_type']?.toString(),
     messagePreview: data['message']?.toString() ?? message.notification?.body,
   );
 
   // Use different channel based on notification type
-  final isMessage = type == 'chat_message' || type == 'chat';
+  final isMessage = _isChatNotificationType(type) || _isLikelyChatPayload(data);
   final channelId = isMessage ? messagesChannelId : generalChannelId;
   final channelName = isMessage ? messagesChannelName : generalChannelName;
-  final channelDescription = isMessage ? messagesChannelDescription : generalChannelDescription;
+  final channelDescription =
+      isMessage ? messagesChannelDescription : generalChannelDescription;
 
   // Use custom soft notification sound; AudioAttributesUsage.notification ensures
   // system silent/vibration-only modes are respected (no sound in those modes).
-  const notificationSound = RawResourceAndroidNotificationSound('ms_notification');
+  const notificationSound =
+      RawResourceAndroidNotificationSound('ms_notification');
 
   final androidDetails = AndroidNotificationDetails(
     channelId,
@@ -300,7 +315,11 @@ Future<void> _displayStandardNotification(RemoteMessage message) async {
 }
 
 bool _isChatNotificationType(String type) {
-  return type == 'chat' || type == 'chat_message';
+  return type == 'chat' ||
+      type == 'chat_message' ||
+      type == 'message' ||
+      type == 'new_message' ||
+      type == 'admin_message';
 }
 
 bool _isRequestNotificationType(String type) {
@@ -312,8 +331,33 @@ bool _isRequestNotificationType(String type) {
       type == 'request_rejected';
 }
 
-bool _shouldDisplayStandardNotification(String type) {
+String _extractNotificationType(Map<String, dynamic> data) {
+  return (data['type']?.toString() ??
+          data['notificationType']?.toString() ??
+          data['notification_type']?.toString() ??
+          data['eventType']?.toString() ??
+          data['event_type']?.toString() ??
+          '')
+      .trim()
+      .toLowerCase();
+}
+
+bool _isLikelyChatPayload(Map<String, dynamic> data) {
+  final hasChatRoom = (data['chatRoomId']?.toString().isNotEmpty ?? false) ||
+      (data['chat_room_id']?.toString().isNotEmpty ?? false);
+  final hasMessage = (data['message']?.toString().isNotEmpty ?? false) ||
+      (data['body']?.toString().isNotEmpty ?? false);
+  final hasSender = (data['senderId']?.toString().isNotEmpty ?? false) ||
+      (data['sender_id']?.toString().isNotEmpty ?? false) ||
+      (data['fromId']?.toString().isNotEmpty ?? false) ||
+      (data['from_id']?.toString().isNotEmpty ?? false);
+  return (hasChatRoom || hasMessage) && hasSender;
+}
+
+bool _shouldDisplayStandardNotification(Map<String, dynamic> data) {
+  final type = _extractNotificationType(data);
   return _isChatNotificationType(type) ||
+      _isLikelyChatPayload(data) ||
       _isRequestNotificationType(type) ||
       type == 'profile_view';
 }
@@ -322,14 +366,14 @@ bool _shouldDisplayStandardNotification(String type) {
 // NOTE: '1' matches AdminChatScreen._adminUserId which is a fixed constant in this app.
 bool _isAdminMessage(Map<String, dynamic> data) {
   const adminUserId = '1'; // Same constant as AdminChatScreen._adminUserId
-  final senderId = data['senderId']?.toString() ??
-      data['sender_id']?.toString() ??
-      '';
+  final senderId =
+      data['senderId']?.toString() ?? data['sender_id']?.toString() ?? '';
   return senderId == adminUserId;
 }
 
 // Navigate to AdminChatScreen when an admin-sent message notification arrives.
-Future<void> _navigateToAdminChatFromNotification(Map<String, dynamic> data) async {
+Future<void> _navigateToAdminChatFromNotification(
+    Map<String, dynamic> data) async {
   debugPrint('🔔 Admin message notification – opening AdminChatScreen');
   try {
     final prefs = await SharedPreferences.getInstance();
@@ -388,7 +432,8 @@ Future<void> initLocalNotifications() async {
 
   // Create Android notification channel for messages
   // Custom soft sound respects system silent/vibration via AudioAttributesUsage.notification
-  const notificationSound = RawResourceAndroidNotificationSound('ms_notification');
+  const notificationSound =
+      RawResourceAndroidNotificationSound('ms_notification');
 
   final messagesChannel = AndroidNotificationChannel(
     messagesChannelId,
@@ -414,8 +459,9 @@ Future<void> initLocalNotifications() async {
     showBadge: true,
   );
 
-  final androidPlugin = flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+  final androidPlugin =
+      flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>();
 
   await androidPlugin?.createNotificationChannel(callChannel);
   await androidPlugin?.createNotificationChannel(messagesChannel);
@@ -476,11 +522,12 @@ Future<void> _configureIOSNotifications() async {
   );
 
   // For newer versions of flutter_local_notifications, use this method
-  final iosPlugin = flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+  final iosPlugin =
+      flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin>();
 
   if (iosPlugin != null) {
-   // await iosPlugin.noSuchMethod([callCategory]);
+    // await iosPlugin.noSuchMethod([callCategory]);
   }
 }
 
@@ -529,14 +576,22 @@ Future<void> _handleNotificationAction(NotificationResponse response) async {
     if (actionId == 'accept_call') {
       debugPrint('✅ Call accepted from notification');
 
-      // Navigate to call page first
+      // Clear the SharedPrefs key so _checkPendingIncomingCall doesn't also show banner
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('pending_incoming_call');
+      } catch (_) {}
+
+      // Dismiss compact banner if showing (prevents coexistence with full-screen)
+      IncomingCallOverlayManager().dismiss();
+
+      // Navigate to full-screen call page directly (user already pressed Accept)
       _navigateToCallPage(data);
 
       // Delay notification cancellation to ensure call screen is visible
       Future.delayed(const Duration(milliseconds: 800), () {
         flutterLocalNotificationsPlugin.cancel(notificationId);
       });
-
     } else if (actionId == 'decline_call') {
       debugPrint('❌ Call declined from notification');
 
@@ -564,7 +619,6 @@ Future<void> _handleNotificationAction(NotificationResponse response) async {
           );
         }
       }
-
     } else if (type == 'call' || type == 'video_call') {
       // Regular notification tap (for missed calls)
       _navigateToCallPage(data);
@@ -751,7 +805,8 @@ void _navigateToUserProfileFromNotification(Map<String, dynamic> data) {
 }
 
 void _navigateToCallPage(Map<String, dynamic> data) {
-  final isVideoCall = data['isVideoCall'] == 'true' || data['type'] == 'video_call';
+  final isVideoCall =
+      data['isVideoCall'] == 'true' || data['type'] == 'video_call';
 
   debugPrint('🚀 Navigating to ${isVideoCall ? 'Video' : 'Voice'} Call Page');
 
@@ -811,7 +866,8 @@ Future<void> setupFirebaseMessaging() async {
   // surface while the app is backgrounded. Incoming calls still open their UI
   // directly from onMessage.
   if (defaultTargetPlatform == TargetPlatform.iOS) {
-    await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+    await FirebaseMessaging.instance
+        .setForegroundNotificationPresentationOptions(
       alert: false,
       badge: true,
       sound: false,
@@ -845,7 +901,8 @@ Future<void> setupFirebaseMessaging() async {
       actorName: data['senderName']?.toString() ??
           data['viewerName']?.toString() ??
           data['callerName']?.toString(),
-      requestType: data['requestType']?.toString() ?? data['request_type']?.toString(),
+      requestType:
+          data['requestType']?.toString() ?? data['request_type']?.toString(),
       messagePreview: data['message']?.toString() ?? message.notification?.body,
     );
 
@@ -882,27 +939,33 @@ Future<void> setupFirebaseMessaging() async {
   // Set up foreground message handlers
   FirebaseMessaging.onMessage.listen((RemoteMessage message) async {
     final data = message.data;
-    final type = data['type']?.toString() ?? '';
-    debugPrint('📱 Foreground message received: ${message.notification?.title}');
+    final type = _extractNotificationType(data);
+    final normalizedData = {
+      ...data,
+      'type': type,
+    };
+    debugPrint(
+        '📱 Foreground message received: ${message.notification?.title}');
     debugPrint('📱 Message data: $data');
     debugPrint('📱 Message type: $type');
 
     // Always record notification in inbox first
     await NotificationInboxService.recordIncomingRemoteNotification(
-      data: data,
+      data: normalizedData,
       fallbackTitle: message.notification?.title,
       fallbackBody: message.notification?.body,
     );
 
     // Trigger call response for response notifications
-    NotificationService.triggerCallResponse(data);
+    NotificationService.triggerCallResponse(normalizedData);
 
     // Type 1: Real-time Interactive Notifications (Incoming Calls)
     if (type == 'call' || type == 'video_call') {
-      NotificationService.triggerIncomingCall(data);
+      NotificationService.triggerIncomingCall(normalizedData);
       // When app is in foreground, the calling UI opens directly via CallOverlayWrapper.
       // Do NOT show a notification banner — it would appear alongside the call screen.
-      debugPrint('📞 Incoming call notification - UI handled by CallOverlayWrapper');
+      debugPrint(
+          '📞 Incoming call notification - UI handled by CallOverlayWrapper');
       return;
     }
 
@@ -928,15 +991,18 @@ Future<void> setupFirebaseMessaging() async {
     // Type 3: Context-Aware Messages (Chat)
     if (_isChatNotificationType(type)) {
       // Suppress chat notifications when the recipient is actively viewing that chat
-      if (!shouldShowChatNotification(data)) {
+      if (!shouldShowChatNotification(normalizedData)) {
         debugPrint('💬 Chat notification suppressed - user viewing this chat');
         return;
       }
+      // Play message tone in-app (socket may not have fired for this message)
+      // The MessageToneService debounce prevents double-play if socket already fired.
+      MessageToneService.instance.playToneForIncomingFcmData(normalizedData);
     }
 
     // Standard foreground notifications are suppressed; they should only
     // appear while the app is in the background.
-    if (_shouldDisplayStandardNotification(type)) {
+    if (_shouldDisplayStandardNotification(normalizedData)) {
       debugPrint('🔕 Foreground standard notification suppressed: $type');
       return;
     }
@@ -947,15 +1013,18 @@ Future<void> setupFirebaseMessaging() async {
   // Handle messages when app is in background but opened via notification
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
     final data = message.data;
+    final type = _extractNotificationType(data);
+    final normalizedData = {
+      ...data,
+      'type': type,
+    };
     debugPrint('📱 App opened from background via notification');
-    debugPrint('📱 Message data: $data');
+    debugPrint('📱 Message data: $normalizedData');
     await NotificationInboxService.recordIncomingRemoteNotification(
-      data: data,
+      data: normalizedData,
       fallbackTitle: message.notification?.title,
       fallbackBody: message.notification?.body,
     );
-
-    final type = data['type']?.toString() ?? '';
 
     // Handle call termination events – trigger the stream so active call screens close
     const callTerminationTypes = {
@@ -967,53 +1036,68 @@ Future<void> setupFirebaseMessaging() async {
       'video_call_cancelled',
     };
     if (callTerminationTypes.contains(type)) {
-      NotificationService.triggerCallResponse(data);
+      NotificationService.triggerCallResponse(normalizedData);
       return;
     }
 
     // Navigate based on notification type
-    if (data['type'] == 'call' || data['type'] == 'video_call') {
+    if (type == 'call' || type == 'video_call') {
       // Clear the SharedPreferences-persisted call so the overlay doesn't double-push
       try {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove('pending_incoming_call');
       } catch (_) {}
-      await CallStateRecoveryManager().handleNotificationTap(data);
-    } else if (_isChatNotificationType(data['type']?.toString() ?? '')) {
-      if (_isAdminMessage(data)) {
-        _navigateToAdminChatFromNotification(data);
+      // Show the compact incoming-call banner (user can Accept/Reject from it).
+      // Pushing full-screen directly here would race with _checkPendingIncomingCall
+      // and show both UIs simultaneously.
+      final isVideoCall =
+          type == 'video_call' || normalizedData['isVideoCall'] == 'true';
+      IncomingCallOverlayManager().show(normalizedData, isVideo: isVideoCall);
+    } else if (_isChatNotificationType(type) ||
+        _isLikelyChatPayload(normalizedData)) {
+      if (_isAdminMessage(normalizedData)) {
+        _navigateToAdminChatFromNotification(normalizedData);
       } else {
-        _navigateToChatFromMessageNotification(data);
+        _navigateToChatFromMessageNotification(normalizedData);
       }
     } else {
-      _navigateToUserProfileFromNotification(data);
+      _navigateToUserProfileFromNotification(normalizedData);
     }
   });
 
   // Handle initial message if app was opened from terminated state
-  FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) async {
+  FirebaseMessaging.instance
+      .getInitialMessage()
+      .then((RemoteMessage? message) async {
     if (message != null) {
       final data = message.data;
+      final type = _extractNotificationType(data);
+      final normalizedData = {
+        ...data,
+        'type': type,
+      };
       debugPrint('📱 App opened from terminated state via notification');
-      debugPrint('📱 Message data: $data');
+      debugPrint('📱 Message data: $normalizedData');
       await NotificationInboxService.recordIncomingRemoteNotification(
-        data: data,
+        data: normalizedData,
         fallbackTitle: message.notification?.title,
         fallbackBody: message.notification?.body,
       );
 
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         // Navigate based on notification type
-        if (data['type'] == 'call' || data['type'] == 'video_call') {
-          await CallStateRecoveryManager().handleNotificationTap(data);
-        } else if (_isChatNotificationType(data['type']?.toString() ?? '')) {
-          if (_isAdminMessage(data)) {
-            _navigateToAdminChatFromNotification(data);
+        if (type == 'call' || type == 'video_call') {
+          await CallStateRecoveryManager()
+              .handleNotificationTap(normalizedData);
+        } else if (_isChatNotificationType(type) ||
+            _isLikelyChatPayload(normalizedData)) {
+          if (_isAdminMessage(normalizedData)) {
+            _navigateToAdminChatFromNotification(normalizedData);
           } else {
-            _navigateToChatFromMessageNotification(data);
+            _navigateToChatFromMessageNotification(normalizedData);
           }
         } else {
-          _navigateToUserProfileFromNotification(data);
+          _navigateToUserProfileFromNotification(normalizedData);
         }
       });
     }
@@ -1026,7 +1110,8 @@ Future<void> setupFirebaseMessaging() async {
 /// awaited in [addPostFrameCallback] before any Firebase-dependent setup runs.
 Future<void> _initFirebase() async {
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform);
   } catch (e) {
     debugPrint('⚠️ Firebase initialization failed: $e');
   }
@@ -1101,6 +1186,10 @@ void main() async {
     // because load() falls back to SharedPreferences.
     CallToneSettingsService.instance.preload();
 
+    // Pre-warm incoming / message / typing tone settings cache so that the
+    // first message or incoming call tone plays without a server round-trip.
+    AppSoundToneService.instance.preload();
+
     // Pre-load user sound/vibration preferences so chat screens can read
     // them synchronously without an async hop.
     SoundSettingsService.instance.load();
@@ -1133,6 +1222,13 @@ void main() async {
     SharedPreferences.getInstance().then((prefs) {
       final userData = prefs.getString('user_data');
       if (userData != null && userData.isNotEmpty) {
+        try {
+          final parsed = json.decode(userData) as Map<String, dynamic>;
+          final uid = parsed['id']?.toString() ?? '';
+          if (uid.isNotEmpty) {
+            MessageToneService.instance.init(uid);
+          }
+        } catch (_) {}
         OnlineStatusService().start();
       }
     });
@@ -1147,16 +1243,118 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  StreamSubscription<Map<String, dynamic>>? _newProposalNotificationSub;
+  StreamSubscription<Map<String, dynamic>>? _proposalAcceptedNotificationSub;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _attachLiveRequestSocketNotifications();
   }
 
   @override
   void dispose() {
+    _newProposalNotificationSub?.cancel();
+    _proposalAcceptedNotificationSub?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _attachLiveRequestSocketNotifications() {
+    final socket = SocketService();
+
+    _newProposalNotificationSub = socket.onNewProposal.listen((data) {
+      unawaited(_showLiveRequestNotification(
+        title: _incomingRequestTitle(data),
+        body: _incomingRequestBody(data),
+        payload: {
+          'type': 'request',
+          'requestType': data['requestType']?.toString() ?? 'Request',
+          'senderId': data['senderId']?.toString() ?? '',
+          'senderName': data['senderName']?.toString() ?? '',
+          'proposalId': data['proposalId']?.toString() ?? '',
+        },
+      ));
+    });
+
+    _proposalAcceptedNotificationSub = socket.onProposalAccepted.listen((data) {
+      unawaited(_showLiveRequestNotification(
+        title: 'Request Accepted',
+        body: _acceptedRequestBody(data),
+        payload: {
+          'type': 'request_accepted',
+          'requestType': data['requestType']?.toString() ?? 'Request',
+          'acceptorId': data['acceptorId']?.toString() ?? '',
+          'acceptorName': data['acceptorName']?.toString() ?? '',
+          'proposalId': data['proposalId']?.toString() ?? '',
+        },
+      ));
+    });
+  }
+
+  String _incomingRequestTitle(Map<String, dynamic> data) {
+    final requestType = (data['requestType']?.toString() ?? 'Request').trim();
+    return requestType.toLowerCase() == 'photo'
+        ? 'Photo View Request'
+        : '$requestType Request';
+  }
+
+  String _incomingRequestBody(Map<String, dynamic> data) {
+    final senderName = (data['senderName']?.toString() ?? '').trim();
+    final requestType = (data['requestType']?.toString() ?? 'Request').trim();
+    if (senderName.isEmpty) {
+      return 'You received a $requestType request';
+    }
+    return '$senderName sent you a $requestType request';
+  }
+
+  String _acceptedRequestBody(Map<String, dynamic> data) {
+    final acceptorName = (data['acceptorName']?.toString() ?? '').trim();
+    final requestType = (data['requestType']?.toString() ?? 'Request').trim();
+    if (acceptorName.isEmpty) {
+      return 'Your $requestType request was accepted';
+    }
+    return '$acceptorName accepted your $requestType request';
+  }
+
+  Future<void> _showLiveRequestNotification({
+    required String title,
+    required String body,
+    required Map<String, dynamic> payload,
+  }) async {
+    if (kIsWeb) return;
+
+    const notificationSound =
+        RawResourceAndroidNotificationSound('ms_notification');
+    const androidDetails = AndroidNotificationDetails(
+      generalChannelId,
+      generalChannelName,
+      channelDescription: generalChannelDescription,
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      sound: notificationSound,
+      audioAttributesUsage: AudioAttributesUsage.notification,
+      enableVibration: true,
+    );
+
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      sound: 'ms_notification.wav',
+      presentBanner: true,
+      presentList: true,
+    );
+
+    await flutterLocalNotificationsPlugin.show(
+      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      title,
+      body,
+      const NotificationDetails(android: androidDetails, iOS: iosDetails),
+      payload: json.encode(payload),
+    );
   }
 
   @override
@@ -1253,7 +1451,8 @@ class _ProfileLoaderState extends State<ProfileLoader> {
       );
 
       if (mounted) {
-        Provider.of<UserProfile>(context, listen: false).updateFromResponse(response);
+        Provider.of<UserProfile>(context, listen: false)
+            .updateFromResponse(response);
         setState(() {
           _isLoading = false;
         });

@@ -32,7 +32,6 @@ class MaritalDocumentUploadScreen extends StatefulWidget {
 class _MaritalDocumentUploadScreenState
     extends State<MaritalDocumentUploadScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
-
   final ImagePicker _picker = ImagePicker();
   final OCRService _ocrService = OCRService();
   final DocumentScannerService _documentScanner = DocumentScannerService();
@@ -60,6 +59,7 @@ class _MaritalDocumentUploadScreenState
   bool _isUploading = false;
 
   String? _maritalStatus;
+  List<String> _requiredDocLabels = [];
 
   late AnimationController _fadeController;
   late Animation<double> _fadeAnimation;
@@ -71,9 +71,9 @@ class _MaritalDocumentUploadScreenState
 
   // ── all possible document types (one per marital status) ─────────────────
   final List<Map<String, dynamic>> _allDocumentTypes = [
-    {'label': 'Death Certificate',    'icon': Icons.article_outlined},
-    {'label': 'Divorce Decree',       'icon': Icons.gavel_rounded},
-    {'label': 'Separation Document',  'icon': Icons.assignment_outlined},
+    {'label': 'Death Certificate', 'icon': Icons.article_outlined},
+    {'label': 'Divorce Decree', 'icon': Icons.gavel_rounded},
+    {'label': 'Separation Document', 'icon': Icons.assignment_outlined},
   ];
 
   @override
@@ -116,13 +116,58 @@ class _MaritalDocumentUploadScreenState
 
   // ─── helpers ─────────────────────────────────────────────────────────────
 
+  String? _normalizeMaritalStatus(String? rawStatus) {
+    final status = rawStatus?.trim();
+    if (status == null || status.isEmpty) return null;
+
+    switch (status.toLowerCase()) {
+      case 'widowed':
+        return 'Widowed';
+      case 'divorced':
+        return 'Divorced';
+      case 'waiting divorce':
+      case 'awaiting divorce':
+        return 'Waiting Divorce';
+      case 'still unmarried':
+      case 'never married':
+        return 'Still Unmarried';
+      default:
+        return status;
+    }
+  }
+
+  Map<String, dynamic> _docConfigForLabel(String label) {
+    switch (label) {
+      case 'Death Certificate':
+        return {'label': label, 'icon': Icons.article_outlined};
+      case 'Divorce Decree':
+        return {'label': label, 'icon': Icons.gavel_rounded};
+      case 'Separation Document':
+        return {'label': label, 'icon': Icons.assignment_outlined};
+      case 'Marriage Certificate':
+        return {'label': label, 'icon': Icons.description_outlined};
+      case 'Court Order':
+        return {'label': label, 'icon': Icons.account_balance_rounded};
+      default:
+        return {'label': label, 'icon': Icons.article_outlined};
+    }
+  }
+
   Future<void> _loadMaritalStatus() async {
     final prefs = await SharedPreferences.getInstance();
-    final status = prefs.getString('selected_marital_status');
-    if (mounted) setState(() => _maritalStatus = status);
+    final status = _normalizeMaritalStatus(
+      prefs.getString('selected_marital_status'),
+    );
+    if (mounted) {
+      setState(() => _maritalStatus ??= status);
+    }
   }
 
   List<Map<String, dynamic>> _getRequiredDocTypes() {
+    if (_requiredDocLabels.isNotEmpty) {
+      return _requiredDocLabels.map(_docConfigForLabel).toList(growable: false);
+    }
+
     switch (_maritalStatus) {
       case 'Widowed':
         return [
@@ -198,18 +243,35 @@ class _MaritalDocumentUploadScreenState
         final result = jsonDecode(response.body);
         if (result['success'] == true) {
           final docs = result['documents'] as List<dynamic>? ?? [];
+          final serverMaritalStatus =
+              _normalizeMaritalStatus(result['marital_status']?.toString());
+          final requiredDocLabels =
+              (result['required_marital_documents'] as List<dynamic>? ?? [])
+                  .whereType<String>()
+                  .map((docType) => docType.trim())
+                  .where((docType) => docType.isNotEmpty)
+                  .toList();
           setState(() {
+            if (serverMaritalStatus != null) {
+              _maritalStatus = serverMaritalStatus;
+            }
+            _requiredDocLabels = requiredDocLabels;
             _documentStates.clear();
             for (final doc in docs) {
               final type = doc['documenttype'] as String? ?? '';
               if (type.isNotEmpty) {
                 _documentStates[type] = {
-                  'status':        doc['status'] ?? 'not_uploaded',
+                  'status': doc['status'] ?? 'not_uploaded',
                   'reject_reason': doc['reject_reason'] ?? '',
                 };
               }
             }
           });
+
+          if (serverMaritalStatus != null) {
+            await prefs.setString(
+                'selected_marital_status', serverMaritalStatus);
+          }
         }
       }
     } catch (_) {
@@ -220,6 +282,11 @@ class _MaritalDocumentUploadScreenState
         _isCheckingStatus = false;
       });
       _fadeController.forward(from: 0);
+    }
+    // Auto-navigate to home when all required documents are already approved
+    // so the user is never stuck on this screen after the admin has approved.
+    if (mounted && _areAllDocumentsApproved()) {
+      _goToHome();
     }
   }
 
@@ -234,8 +301,8 @@ class _MaritalDocumentUploadScreenState
 
       final uri = Uri.parse('${kApiBaseUrl}/Api2/upload_document.php');
       final request = http.MultipartRequest('POST', uri);
-      request.fields['userid']           = userId.toString();
-      request.fields['documenttype']     = _activeDocType!;
+      request.fields['userid'] = userId.toString();
+      request.fields['documenttype'] = _activeDocType!;
       request.fields['documentidnumber'] = _documentNumberController.text;
 
       final String imagePath = _scannedImagePath ?? _selectedImage!.path;
@@ -243,22 +310,36 @@ class _MaritalDocumentUploadScreenState
       request.files.add(imageFile);
 
       final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
       if (response.statusCode == 200) {
-        setState(() {
-          _documentStates[_activeDocType!] = {
-            'status':        'pending',
-            'reject_reason': '',
-          };
-          // Store the photo path locally for pending document preview
-          _documentPhotos[_activeDocType!] = imagePath;
-          _activeDocType = null;
-          _selectedImage = null;
-          _scannedImagePath = null;
-          _hasConsented = false;
-          _documentNumberController.clear();
-        });
-        _fadeController.forward(from: 0);
-        _showSuccess("Document submitted! We'll notify you once it's verified.");
+        Map<String, dynamic> result;
+        try {
+          result = jsonDecode(responseBody) as Map<String, dynamic>;
+        } catch (_) {
+          _showError('Upload failed. Unexpected server response.');
+          return;
+        }
+        if (result['status'] == 'success') {
+          setState(() {
+            _documentStates[_activeDocType!] = {
+              'status': 'pending',
+              'reject_reason': '',
+            };
+            // Store the photo path locally for pending document preview
+            _documentPhotos[_activeDocType!] = imagePath;
+            _activeDocType = null;
+            _selectedImage = null;
+            _scannedImagePath = null;
+            _hasConsented = false;
+            _documentNumberController.clear();
+          });
+          _fadeController.forward(from: 0);
+          _showSuccess(
+              "Document submitted! We'll notify you once it's verified.");
+        } else {
+          _showError(result['message']?.toString() ??
+              'Upload failed. Please try again.');
+        }
       } else {
         _showError('Upload failed. Please try again.');
       }
@@ -455,9 +536,10 @@ class _MaritalDocumentUploadScreenState
   // ─── PER-DOCUMENT CARD ────────────────────────────────────────────────────
 
   Widget _buildDocumentCard(Map<String, dynamic> docType) {
-    final label  = docType['label'] as String;
-    final icon   = docType['icon'] as IconData;
-    final state  = _documentStates[label] ?? {'status': 'not_uploaded', 'reject_reason': ''};
+    final label = docType['label'] as String;
+    final icon = docType['icon'] as IconData;
+    final state = _documentStates[label] ??
+        {'status': 'not_uploaded', 'reject_reason': ''};
     final status = state['status'] as String? ?? 'not_uploaded';
 
     switch (status) {
@@ -466,7 +548,8 @@ class _MaritalDocumentUploadScreenState
       case 'pending':
         return _buildPendingCard(label, icon);
       case 'rejected':
-        return _buildRejectedCard(label, icon, state['reject_reason'] as String? ?? '');
+        return _buildRejectedCard(
+            label, icon, state['reject_reason'] as String? ?? '');
       default:
         return _buildNotUploadedCard(label, icon);
     }
@@ -485,7 +568,8 @@ class _MaritalDocumentUploadScreenState
               children: [
                 Text(label,
                     style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
                         color: Color(0xFF212121))),
                 const SizedBox(height: 4),
                 const Text('Not uploaded',
@@ -525,7 +609,8 @@ class _MaritalDocumentUploadScreenState
                   children: [
                     Text(label,
                         style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
                             color: Color(0xFF212121))),
                     const SizedBox(height: 6),
                     Row(
@@ -593,7 +678,8 @@ class _MaritalDocumentUploadScreenState
                     label: const Text('Change'),
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(
-                          color: AppColors.primary.withOpacity(0.6), width: 1.5),
+                          color: AppColors.primary.withOpacity(0.6),
+                          width: 1.5),
                       foregroundColor: AppColors.primary,
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
@@ -607,8 +693,8 @@ class _MaritalDocumentUploadScreenState
                     onPressed: () => _removeDocument(label),
                     icon: const Icon(Icons.delete_outline_rounded,
                         size: 18, color: Colors.red),
-                    label:
-                        const Text('Remove', style: TextStyle(color: Colors.red)),
+                    label: const Text('Remove',
+                        style: TextStyle(color: Colors.red)),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: Colors.red, width: 1.5),
                       shape: RoundedRectangleBorder(
@@ -640,7 +726,8 @@ class _MaritalDocumentUploadScreenState
               children: [
                 Text(label,
                     style: const TextStyle(
-                        fontSize: 15, fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
                         color: Color(0xFF212121))),
                 const SizedBox(height: 6),
                 const Row(
@@ -690,7 +777,8 @@ class _MaritalDocumentUploadScreenState
                   children: [
                     Text(label,
                         style: const TextStyle(
-                            fontSize: 15, fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
                             color: Color(0xFF212121))),
                     const SizedBox(height: 6),
                     const Row(
@@ -980,8 +1068,8 @@ class _MaritalDocumentUploadScreenState
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-              color: AppColors.primary.withOpacity(0.4), width: 2.5),
+          border:
+              Border.all(color: AppColors.primary.withOpacity(0.4), width: 2.5),
           boxShadow: [
             BoxShadow(
               color: AppColors.primary.withOpacity(0.08),
@@ -1018,15 +1106,13 @@ class _MaritalDocumentUploadScreenState
                   color: Color(0xFF212121)),
             ),
             const SizedBox(height: 8),
-            const Text(
-              'Tap here to scan or select from gallery',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                  fontSize: 14, color: Color(0xFF757575), height: 1.4)),
+            const Text('Tap here to scan or select from gallery',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                    fontSize: 14, color: Color(0xFF757575), height: 1.4)),
             const SizedBox(height: 16),
             Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: BoxDecoration(
                 color: AppColors.primary.withOpacity(0.1),
                 borderRadius: BorderRadius.circular(12),
@@ -1104,8 +1190,7 @@ class _MaritalDocumentUploadScreenState
                       }
                       return const Center(
                         child: CircularProgressIndicator(
-                          valueColor:
-                              AlwaysStoppedAnimation(AppColors.primary),
+                          valueColor: AlwaysStoppedAnimation(AppColors.primary),
                         ),
                       );
                     },
@@ -1114,8 +1199,8 @@ class _MaritalDocumentUploadScreenState
                   top: 12,
                   right: 12,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: AppColors.success,
                       borderRadius: BorderRadius.circular(20),
@@ -1123,8 +1208,7 @@ class _MaritalDocumentUploadScreenState
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(Icons.check_circle,
-                            color: Colors.white, size: 16),
+                        Icon(Icons.check_circle, color: Colors.white, size: 16),
                         SizedBox(width: 6),
                         Text('Photo Ready',
                             style: TextStyle(
@@ -1162,8 +1246,8 @@ class _MaritalDocumentUploadScreenState
                 onPressed: _removeImage,
                 icon: const Icon(Icons.delete_outline_rounded,
                     size: 20, color: Colors.red),
-                label: const Text('Remove',
-                    style: TextStyle(color: Colors.red)),
+                label:
+                    const Text('Remove', style: TextStyle(color: Colors.red)),
                 style: OutlinedButton.styleFrom(
                   side: const BorderSide(color: Colors.red, width: 1.5),
                   shape: RoundedRectangleBorder(
@@ -1201,8 +1285,7 @@ class _MaritalDocumentUploadScreenState
         style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
         decoration: InputDecoration(
           hintText: 'Enter document number (if available)',
-          hintStyle:
-              const TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
+          hintStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
           prefixIcon: Container(
             margin: const EdgeInsets.all(12),
             padding: const EdgeInsets.all(10),
@@ -1222,8 +1305,8 @@ class _MaritalDocumentUploadScreenState
                         height: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.5,
-                          valueColor: AlwaysStoppedAnimation<Color>(
-                              AppColors.primary),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(AppColors.primary),
                         ),
                       ),
                     )
@@ -1249,10 +1332,16 @@ class _MaritalDocumentUploadScreenState
 
   Widget _buildGuidelinesCard() {
     final guidelines = [
-      {'icon': Icons.wb_sunny_outlined,          'text': 'Use good, even lighting'},
-      {'icon': Icons.center_focus_strong_outlined,'text': 'All four corners must be visible'},
-      {'icon': Icons.text_fields_rounded,         'text': 'All text must be clearly readable'},
-      {'icon': Icons.block_rounded,               'text': 'No glare, blur, or obstruction'},
+      {'icon': Icons.wb_sunny_outlined, 'text': 'Use good, even lighting'},
+      {
+        'icon': Icons.center_focus_strong_outlined,
+        'text': 'All four corners must be visible'
+      },
+      {
+        'icon': Icons.text_fields_rounded,
+        'text': 'All text must be clearly readable'
+      },
+      {'icon': Icons.block_rounded, 'text': 'No glare, blur, or obstruction'},
     ];
     return Container(
       padding: const EdgeInsets.all(20),
@@ -1329,9 +1418,7 @@ class _MaritalDocumentUploadScreenState
           color: _hasConsented ? const Color(0xFFF1F8E9) : Colors.white,
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: _hasConsented
-                ? AppColors.success
-                : const Color(0xFFE0E0E0),
+            color: _hasConsented ? AppColors.success : const Color(0xFFE0E0E0),
             width: 2,
           ),
         ),
@@ -1395,8 +1482,8 @@ class _MaritalDocumentUploadScreenState
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primary,
           disabledBackgroundColor: AppColors.primary.withOpacity(0.5),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           elevation: 0,
         ),
         child: _isUploading
@@ -1454,8 +1541,7 @@ class _MaritalDocumentUploadScreenState
               ),
               const SizedBox(height: 20),
               const Text('Choose Upload Method',
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               const Text('Scan, take a photo, or choose from gallery',
                   style: TextStyle(fontSize: 13, color: Colors.grey)),
@@ -1525,8 +1611,7 @@ class _MaritalDocumentUploadScreenState
             if (isRecommended)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   gradient: AppColors.primaryGradient,
                   borderRadius: BorderRadius.circular(12),
@@ -1562,6 +1647,14 @@ class _MaritalDocumentUploadScreenState
   }
 
   Future<void> _scanDocument() async {
+    if (kIsWeb) {
+      _showError(
+        'Document scanner is not available on web. Please use Gallery or Camera.',
+      );
+      await _selectFromGallery();
+      return;
+    }
+
     try {
       final scannedPaths = await _documentScanner.scanDocument(
         numberOfPages: 1,
@@ -1638,8 +1731,7 @@ class _MaritalDocumentUploadScreenState
                 height: 16,
                 child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    valueColor:
-                        AlwaysStoppedAnimation<Color>(Colors.white)),
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
               ),
               SizedBox(width: 12),
               Text('Scanning document number...'),
@@ -1722,8 +1814,7 @@ class _MaritalDocumentUploadScreenState
             const SizedBox(width: 12),
             const Expanded(
               child: Text('Document Scanned',
-                  style:
-                      TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -1747,9 +1838,7 @@ class _MaritalDocumentUploadScreenState
                     child: Text(
                       'Scanned information may be incorrect. Please verify before confirming.',
                       style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.grey[800],
-                          height: 1.4),
+                          fontSize: 13, color: Colors.grey[800], height: 1.4),
                     ),
                   ),
                 ],
@@ -1768,8 +1857,7 @@ class _MaritalDocumentUploadScreenState
               decoration: BoxDecoration(
                 color: const Color(0xFFF5F5F5),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                    color: AppColors.primary.withOpacity(0.3)),
+                border: Border.all(color: AppColors.primary.withOpacity(0.3)),
               ),
               child: SelectableText(
                 scannedText,
@@ -1784,8 +1872,7 @@ class _MaritalDocumentUploadScreenState
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel',
-                style: TextStyle(color: Colors.grey)),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
           ),
           ElevatedButton(
             onPressed: () {
@@ -1799,8 +1886,7 @@ class _MaritalDocumentUploadScreenState
               foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8)),
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
             child: const Text('Use This Number'),
           ),
@@ -1921,8 +2007,7 @@ class _MaritalDocumentUploadScreenState
         content: Text(message),
         backgroundColor: AppColors.error,
         behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
@@ -1934,10 +2019,8 @@ class _MaritalDocumentUploadScreenState
         content: Text(message),
         backgroundColor: AppColors.success,
         behavior: SnackBarBehavior.floating,
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }
 }
-

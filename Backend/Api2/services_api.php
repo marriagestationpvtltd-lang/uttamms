@@ -5,8 +5,8 @@ try {
     // === DATABASE CONFIG ===
     $dbHost = "127.0.0.1";
     $dbName = "ms";     // replace with your DB name
-    $dbUser = "ms";     // replace with your DB username
-    $dbPass = "ms";     // replace with your DB password
+    $dbUser = "root";     // replace with your DB username
+    $dbPass = "root";     // replace with your DB password
 
     $pdo = new PDO(
         "mysql:host=$dbHost;dbname=$dbName;charset=utf8mb4",

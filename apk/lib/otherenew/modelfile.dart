@@ -130,7 +130,8 @@ class MatchedProfile {
   // Computed getters for UI
   String get name => "$firstName $lastName";
   String get ageAndHeight => "Age $age yrs, $heightName";
-  String get profession => designation.isNotEmpty ? designation : "Not specified";
+  String get profession =>
+      designation.isNotEmpty ? designation : "Not specified";
   String get maritalStatus => "Not specified"; // Not in API
   String get qualification => "Not specified"; // Not in API
   String get imageUrl => profilePicture != null && profilePicture!.isNotEmpty
@@ -141,7 +142,8 @@ class MatchedProfile {
 
   factory MatchedProfile.fromJson(Map<String, dynamic> json) {
     final privacyVal = (json['privacy'] ?? 'private').toString().toLowerCase();
-    final photoReqVal = (json['photo_request'] ?? 'not sent').toString().toLowerCase();
+    final photoReqVal =
+        (json['photo_request'] ?? 'not sent').toString().toLowerCase();
     return MatchedProfile(
       userid: int.tryParse(json['userid']?.toString() ?? '') ?? 0,
       memberid: json['memberid'],
@@ -826,14 +828,14 @@ class UserProfile extends ChangeNotifier {
   });
 
   // Computed getters for UI
+  // Privacy: only last name is shown publicly
   String get name {
-    final firstName = profileResponse?.data.personalDetail.firstName ?? '';
-    final lastName = profileResponse?.data.personalDetail.lastName ?? '';
-    return '$firstName $lastName'.trim();
+    return profileResponse?.data.personalDetail.lastName ?? '';
   }
 
   String get studentStatus {
-    final educationType = profileResponse?.data.personalDetail.educationtype ?? '';
+    final educationType =
+        profileResponse?.data.personalDetail.educationtype ?? '';
     final faculty = profileResponse?.data.personalDetail.faculty ?? '';
     if (educationType.isNotEmpty && faculty.isNotEmpty) {
       return "$educationType - $faculty";
@@ -858,12 +860,14 @@ class UserProfile extends ChangeNotifier {
     return "Location not specified";
   }
 
-  String get bio => (profileResponse?.data.personalDetail.aboutMe != "Not available" &&
-      (profileResponse?.data.personalDetail.aboutMe?.isNotEmpty == true))
+  String get bio => (profileResponse?.data.personalDetail.aboutMe !=
+              "Not available" &&
+          (profileResponse?.data.personalDetail.aboutMe?.isNotEmpty == true))
       ? profileResponse!.data.personalDetail.aboutMe!
       : "No bio available";
 
-  String get avatarUrl => profileResponse?.data.personalDetail.profilePicture ?? '';
+  String get avatarUrl =>
+      profileResponse?.data.personalDetail.profilePicture ?? '';
 
   bool get isVerified => profileResponse?.data.personalDetail.isVerified == 1;
 
@@ -873,51 +877,66 @@ class UserProfile extends ChangeNotifier {
 
   bool get canViewPhoto => profileResponse?.accessControl.canViewPhoto ?? false;
 
-  bool get canSendRequests => profileResponse?.accessControl.canSendRequests ?? false;
+  bool get canSendRequests =>
+      profileResponse?.accessControl.canSendRequests ?? false;
 
-  int get matchedPreferencesCount => profileResponse?.partnerMatch.matchedCount ?? 0;
+  int get matchedPreferencesCount =>
+      profileResponse?.partnerMatch.matchedCount ?? 0;
 
-  int get totalPreferencesCount => profileResponse?.partnerMatch.totalCount ?? 0;
+  int get totalPreferencesCount =>
+      profileResponse?.partnerMatch.totalCount ?? 0;
 
-  String get maritalStatus => profileResponse?.data.personalDetail.maritalStatusName != "Not available"
-      ? profileResponse?.data.personalDetail.maritalStatusName ?? "Not specified"
-      : "Not specified";
+  String get maritalStatus =>
+      profileResponse?.data.personalDetail.maritalStatusName != "Not available"
+          ? profileResponse?.data.personalDetail.maritalStatusName ??
+              "Not specified"
+          : "Not specified";
 
-  String get height => profileResponse?.data.personalDetail.heightName != "Not available"
-      ? profileResponse?.data.personalDetail.heightName ?? "Not specified"
-      : "Not specified";
+  String get height =>
+      profileResponse?.data.personalDetail.heightName != "Not available"
+          ? profileResponse?.data.personalDetail.heightName ?? "Not specified"
+          : "Not specified";
 
-  String get religion => profileResponse?.data.personalDetail.religionName != "Not available"
-      ? profileResponse?.data.personalDetail.religionName ?? "Not specified"
-      : "Not specified";
+  String get religion =>
+      profileResponse?.data.personalDetail.religionName != "Not available"
+          ? profileResponse?.data.personalDetail.religionName ?? "Not specified"
+          : "Not specified";
 
-  String get community => profileResponse?.data.personalDetail.communityName != "Not available"
+  String get community => profileResponse?.data.personalDetail.communityName !=
+          "Not available"
       ? profileResponse?.data.personalDetail.communityName ?? "Not specified"
       : "Not specified";
 
-  String get subCommunity => profileResponse?.data.personalDetail.subCommunityName != "Not available"
-      ? profileResponse?.data.personalDetail.subCommunityName ?? "Not specified"
-      : "Not specified";
+  String get subCommunity =>
+      profileResponse?.data.personalDetail.subCommunityName != "Not available"
+          ? profileResponse?.data.personalDetail.subCommunityName ??
+              "Not specified"
+          : "Not specified";
 
-  String get motherTongue => profileResponse?.data.personalDetail.motherTongue != "Not available"
-      ? profileResponse?.data.personalDetail.motherTongue ?? "Not specified"
-      : "Not specified";
+  String get motherTongue =>
+      profileResponse?.data.personalDetail.motherTongue != "Not available"
+          ? profileResponse?.data.personalDetail.motherTongue ?? "Not specified"
+          : "Not specified";
 
-  String get birthDate => profileResponse?.data.personalDetail.birthDate != "Not available"
-      ? profileResponse?.data.personalDetail.birthDate ?? "Not specified"
-      : "Not specified";
+  String get birthDate =>
+      profileResponse?.data.personalDetail.birthDate != "Not available"
+          ? profileResponse?.data.personalDetail.birthDate ?? "Not specified"
+          : "Not specified";
 
-  String get birthTime => profileResponse?.data.personalDetail.birthtime.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.birthtime
-      : "Not specified";
+  String get birthTime =>
+      profileResponse?.data.personalDetail.birthtime.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.birthtime
+          : "Not specified";
 
-  String get birthCity => profileResponse?.data.personalDetail.birthcity.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.birthcity
-      : "Not specified";
+  String get birthCity =>
+      profileResponse?.data.personalDetail.birthcity.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.birthcity
+          : "Not specified";
 
-  String get manglik => profileResponse?.data.personalDetail.manglik.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.manglik
-      : "Not specified";
+  String get manglik =>
+      profileResponse?.data.personalDetail.manglik.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.manglik
+          : "Not specified";
 
   String get diet => profileResponse?.data.lifestyle.diet.isNotEmpty == true
       ? profileResponse!.data.lifestyle.diet
@@ -931,41 +950,51 @@ class UserProfile extends ChangeNotifier {
       ? profileResponse!.data.lifestyle.drinks
       : "Not specified";
 
-  String get occupation => profileResponse?.data.personalDetail.occupationtype.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.occupationtype
-      : "Not specified";
+  String get occupation =>
+      profileResponse?.data.personalDetail.occupationtype.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.occupationtype
+          : "Not specified";
 
-  String get companyName => profileResponse?.data.personalDetail.companyname.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.companyname
-      : "Not specified";
+  String get companyName =>
+      profileResponse?.data.personalDetail.companyname.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.companyname
+          : "Not specified";
 
-  String get designation => profileResponse?.data.personalDetail.designation.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.designation
-      : "Not specified";
+  String get designation =>
+      profileResponse?.data.personalDetail.designation.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.designation
+          : "Not specified";
 
-  String get annualIncome => profileResponse?.data.personalDetail.annualincome.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.annualincome
-      : "Not specified";
+  String get annualIncome =>
+      profileResponse?.data.personalDetail.annualincome.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.annualincome
+          : "Not specified";
 
-  String get educationMedium => profileResponse?.data.personalDetail.educationmedium.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.educationmedium
-      : "Not specified";
+  String get educationMedium =>
+      profileResponse?.data.personalDetail.educationmedium.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.educationmedium
+          : "Not specified";
 
-  String get educationType => profileResponse?.data.personalDetail.educationtype.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.educationtype
-      : "Not specified";
+  String get educationType =>
+      profileResponse?.data.personalDetail.educationtype.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.educationtype
+          : "Not specified";
 
-  String get faculty => profileResponse?.data.personalDetail.faculty.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.faculty
-      : "Not specified";
+  String get faculty =>
+      profileResponse?.data.personalDetail.faculty.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.faculty
+          : "Not specified";
 
-  String get degree => profileResponse?.data.personalDetail.degree.isNotEmpty == true
-      ? profileResponse!.data.personalDetail.degree
-      : "Not specified";
+  String get degree =>
+      profileResponse?.data.personalDetail.degree.isNotEmpty == true
+          ? profileResponse!.data.personalDetail.degree
+          : "Not specified";
 
   // Request status getters
-  String get photoRequestStatus => profileResponse?.data.personalDetail.photoRequest ?? 'not_sent';
-  String get chatRequestStatus => profileResponse?.data.personalDetail.chatRequest ?? 'not_sent';
+  String get photoRequestStatus =>
+      profileResponse?.data.personalDetail.photoRequest ?? 'not_sent';
+  String get chatRequestStatus =>
+      profileResponse?.data.personalDetail.chatRequest ?? 'not_sent';
 
   // Helper getters for UI
 
@@ -1142,7 +1171,8 @@ class UserProfile extends ChangeNotifier {
     ));
 
     // Build photo album URLs
-    final photoAlbumUrls = response.gallery.map((item) => item.imageurl).toList();
+    final photoAlbumUrls =
+        response.gallery.map((item) => item.imageurl).toList();
 
     // Build personal details
     final personalDetails = <PersonalDetailItem>[

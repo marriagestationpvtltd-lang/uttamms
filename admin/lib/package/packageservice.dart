@@ -5,9 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 
-
 class PackageService {
-  static const String _baseUrl = kAdminApi9BaseUrl;
+  static final String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -71,15 +70,12 @@ class PackageService {
         final data = jsonDecode(response.body);
         return data['success'] == true;
       } else {
-        throw Exception(
-          'Failed to update package: ${response.statusCode}',
-        );
+        throw Exception('Failed to update package: ${response.statusCode}');
       }
     } catch (e) {
       rethrow;
     }
   }
-
 
   // Delete package
   Future<bool> deletePackage(int packageId) async {
@@ -87,22 +83,17 @@ class PackageService {
       final response = await http.post(
         Uri.parse('$_baseUrl/delete_package.php'),
         headers: await _authHeaders(),
-        body: jsonEncode({
-          'id': packageId,
-        }),
+        body: jsonEncode({'id': packageId}),
       );
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         return data['success'] == true;
       } else {
-        throw Exception(
-          'Failed to delete package: ${response.statusCode}',
-        );
+        throw Exception('Failed to delete package: ${response.statusCode}');
       }
     } catch (e) {
       rethrow;
     }
   }
-
 }

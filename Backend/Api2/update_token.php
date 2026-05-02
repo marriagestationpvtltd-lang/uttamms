@@ -4,8 +4,8 @@ header("Content-Type: application/json");
 // DB CONFIG
 $host = "localhost";
 $db   = "ms";
-$user = "ms";
-$pass = "ms";
+$user = "root";
+$pass = "";
 
 $conn = new mysqli($host, $user, $pass, $db);
 

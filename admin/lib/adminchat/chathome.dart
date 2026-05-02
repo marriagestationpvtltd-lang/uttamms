@@ -19,6 +19,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'OutgoingCall.dart';
+import 'widgets/shared_profile_card.dart';
 import 'audiocall.dart';
 import 'chat_screen.dart';
 import 'chatprovider.dart';
@@ -65,7 +66,7 @@ class ChatWindow extends StatefulWidget {
   State<ChatWindow> createState() => _ChatWindowState();
 }
 
-class _ChatWindowState extends State<ChatWindow> {
+class _ChatWindowState extends State<ChatWindow> with WidgetsBindingObserver {
   final int senderId = 1;
   final TextEditingController _messageController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
@@ -88,7 +89,6 @@ class _ChatWindowState extends State<ChatWindow> {
   bool _isListening = false;
   bool _userStoppedListening = false;
   bool _isSearching = false;
-  bool _showMatchInfo = false;
   bool _isHorizontalDragging = false;
   List<PlatformFile> _selectedImages = [];
   js.JsObject? _webSpeechRecognition;
@@ -132,16 +132,19 @@ class _ChatWindowState extends State<ChatWindow> {
   Timer? _floatingDateTimer;
   List<_ChatMessageDateGroup> _currentMessageGroups = [];
 
-  // Match-related data
-  Map<String, dynamic>? _matchDetails;
-  bool _isLoadingMatchDetails = false;
-  List<Map<String, dynamic>> _mutualMatches = [];
+  // Match-related data (left sidebar removed – ProfileSidebar in right.dart handles this)
 
   // Active call overlay
   OverlayEntry? _callOverlayEntry;
 
   // Call-waiting banner overlay (shown when admin is already in a call)
   OverlayEntry? _callWaitingBannerEntry;
+
+  // Active incoming-call dialog state so stale popups can be cleaned up when
+  // the app/tab is backgrounded and later resumed.
+  VoidCallback? _dismissActiveIncomingCallDialog;
+  DateTime? _activeIncomingCallExpiresAt;
+  Timer? _incomingCallDialogWatchdog;
 
   // Typing indicator state
   Timer? _typingStopTimer;
@@ -224,15 +227,17 @@ class _ChatWindowState extends State<ChatWindow> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    // Preload call ringtone so the first incoming call plays instantly.
+    // This is safe here because by the time ChatWindow mounts, the admin
+    // has already performed a user gesture (login / navigation click).
+    WebNotificationService.preloadCallRingtone();
     _initializeWebSpeech();
     _initializeRecorder();
     // Cache provider reference before any async gap so dispose() can access it
     // safely without looking up a potentially deactivated widget ancestor.
     _chatProviderRef = Provider.of<ChatProvider>(context, listen: false);
     final chatProvider = _chatProviderRef!;
-    if (chatProvider.id != null) {
-      _fetchMatchDetails();
-    }
     _scrollController.addListener(_onScrollForPagination);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       FocusScope.of(context).requestFocus(_messageFocusNode);
@@ -289,6 +294,42 @@ class _ChatWindowState extends State<ChatWindow> {
   }
 
   // ── SOCKET.IO HELPERS ────────────────────────────────────────────────────
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _dismissIncomingCallDialogIfExpired();
+    }
+  }
+
+  void _setActiveIncomingCallDialog(
+    VoidCallback dismissCallback,
+    DateTime expiresAt,
+  ) {
+    _dismissActiveIncomingCallDialog = dismissCallback;
+    _activeIncomingCallExpiresAt = expiresAt;
+    _incomingCallDialogWatchdog?.cancel();
+    _incomingCallDialogWatchdog = Timer.periodic(
+      const Duration(seconds: 1),
+      (_) => _dismissIncomingCallDialogIfExpired(),
+    );
+  }
+
+  void _clearActiveIncomingCallDialog() {
+    _incomingCallDialogWatchdog?.cancel();
+    _incomingCallDialogWatchdog = null;
+    _dismissActiveIncomingCallDialog = null;
+    _activeIncomingCallExpiresAt = null;
+  }
+
+  void _dismissIncomingCallDialogIfExpired() {
+    final expiresAt = _activeIncomingCallExpiresAt;
+    final dismiss = _dismissActiveIncomingCallDialog;
+    if (expiresAt == null || dismiss == null) return;
+    if (DateTime.now().isAfter(expiresAt)) {
+      dismiss();
+    }
+  }
 
   /// Convert a Socket.IO message map (camelCase fields from server) to the
   /// admin-panel-internal format (lowercase widget keys used by the
@@ -686,10 +727,14 @@ class _ChatWindowState extends State<ChatWindow> {
     Timer? autoRejectTimer;
     StreamSubscription<Map<String, dynamic>>? cancelSub;
     StreamSubscription<Map<String, dynamic>>? endedSub;
+    StreamSubscription<Map<String, dynamic>>? rejectedSub;
     StreamSubscription<Map<String, dynamic>>? answeredElsewhereSub;
     BuildContext? incomingCallDialogContext;
     var dismissed = false;
     var remoteCallClosed = false;
+    final expiresAt = DateTime.now().add(
+      const Duration(seconds: kIncomingCallTimeoutSeconds),
+    );
 
     // Notifier so the dialog can rebuild once caller details arrive.
     final callerDetailsNotifier = ValueNotifier<Map<String, String?>>({
@@ -708,13 +753,24 @@ class _ChatWindowState extends State<ChatWindow> {
       if (dismissed) return;
       dismissed = true;
       WebNotificationService.stopCallRingtone();
+      _clearActiveIncomingCallDialog();
       final ctx = incomingCallDialogContext;
-      if (ctx != null && Navigator.of(ctx, rootNavigator: true).canPop()) {
-        Navigator.of(ctx, rootNavigator: true).pop(accepted);
+      if (ctx != null) {
+        try {
+          Navigator.of(ctx, rootNavigator: true).pop(accepted);
+        } catch (_) {
+          // No-op: if dialog is already gone, ignore.
+        }
       }
     }
 
     cancelSub = _socketService.onCallCancelled.listen((event) {
+      if (event['channelName']?.toString() != channelName) return;
+      remoteCallClosed = true;
+      dismissDialog(false);
+    });
+
+    rejectedSub = _socketService.onCallRejected.listen((event) {
       if (event['channelName']?.toString() != channelName) return;
       remoteCallClosed = true;
       dismissDialog(false);
@@ -739,9 +795,10 @@ class _ChatWindowState extends State<ChatWindow> {
       barrierDismissible: false,
       builder: (ctx) {
         incomingCallDialogContext = ctx;
+        _setActiveIncomingCallDialog(() => dismissDialog(false), expiresAt);
         autoRejectTimer?.cancel();
         autoRejectTimer = Timer(
-          const Duration(seconds: kIncomingCallTimeoutSeconds),
+          expiresAt.difference(DateTime.now()),
           () => dismissDialog(false),
         );
         final icon = isVideo ? Icons.videocam_rounded : Icons.call_rounded;
@@ -800,6 +857,43 @@ class _ChatWindowState extends State<ChatWindow> {
                         color: Colors.white,
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    GestureDetector(
+                      onTap: () => dismissDialog(false),
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.14),
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.close_rounded,
+                              size: 14,
+                              color: Colors.white70,
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'Close',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -956,8 +1050,10 @@ class _ChatWindowState extends State<ChatWindow> {
     ).then((accepted) {
       callerDetailsNotifier.dispose();
       autoRejectTimer?.cancel();
+      _clearActiveIncomingCallDialog();
       cancelSub?.cancel();
       endedSub?.cancel();
+      rejectedSub?.cancel();
       answeredElsewhereSub?.cancel();
       _callManager.clearCallData();
       if (accepted == true) {
@@ -1034,6 +1130,7 @@ class _ChatWindowState extends State<ChatWindow> {
     Timer? autoRejectTimer;
     StreamSubscription<Map<String, dynamic>>? cancelSub;
     StreamSubscription<Map<String, dynamic>>? endedSub;
+    StreamSubscription<Map<String, dynamic>>? rejectedSub;
     StreamSubscription<Map<String, dynamic>>? answeredElsewhereSub;
     var dismissed = false;
     var remoteCallClosed = false;
@@ -1052,6 +1149,7 @@ class _ChatWindowState extends State<ChatWindow> {
       autoRejectTimer?.cancel();
       cancelSub?.cancel();
       endedSub?.cancel();
+      rejectedSub?.cancel();
       answeredElsewhereSub?.cancel();
       _removeCallWaitingBanner();
       // Dispose the notifier after the overlay entry has been removed from the
@@ -1089,6 +1187,11 @@ class _ChatWindowState extends State<ChatWindow> {
     }
 
     cancelSub = _socketService.onCallCancelled.listen((event) {
+      if (event['channelName']?.toString() != channelName) return;
+      remoteCallClosed = true;
+      dismiss(false);
+    });
+    rejectedSub = _socketService.onCallRejected.listen((event) {
       if (event['channelName']?.toString() != channelName) return;
       remoteCallClosed = true;
       dismiss(false);
@@ -1577,51 +1680,6 @@ class _ChatWindowState extends State<ChatWindow> {
     _filteredMessages = _messages
         .where((m) => m['message'].toString().toLowerCase().contains(query))
         .toList();
-  }
-
-  Future<void> _fetchMatchDetails() async {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-
-    if (chatProvider.id == null) {
-      setState(() {
-        _isLoadingMatchDetails = false;
-        _matchDetails = null;
-        _mutualMatches = [];
-      });
-      return;
-    }
-
-    setState(() {
-      _isLoadingMatchDetails = true;
-      _matchDetails = null;
-      _mutualMatches = [];
-    });
-
-    try {
-      final response = await http.get(
-        Uri.parse(
-          '${kAdminApiBaseUrl}/get_match_details.php?user_id=${chatProvider.id}',
-        ),
-      );
-
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        if (data['status'] == 'success') {
-          setState(() {
-            _matchDetails = data['match_details'];
-            _mutualMatches = List<Map<String, dynamic>>.from(
-              data['mutual_matches'] ?? [],
-            );
-          });
-        }
-      }
-    } catch (e) {
-      debugPrint('Error fetching match details: $e');
-    } finally {
-      setState(() {
-        _isLoadingMatchDetails = false;
-      });
-    }
   }
 
   // ── TYPING INDICATOR ────────────────────────────────────────────────────
@@ -2261,31 +2319,6 @@ class _ChatWindowState extends State<ChatWindow> {
     await _scrollToMessage(messageId);
   }
 
-  Future<void> _sendMatchProfile(Map<String, dynamic> profileData) async {
-    final chatProvider = Provider.of<ChatProvider>(context, listen: false);
-    final receiverId = chatProvider.id?.toString();
-    if (receiverId == null || receiverId.isEmpty) return;
-
-    try {
-      final connected = await _socketService.ensureConnected();
-      if (!connected) throw Exception('Socket not connected');
-      _socketService.sendMessage(
-        chatRoomId: AdminSocketService.chatRoomId(receiverId),
-        receiverId: receiverId,
-        message: jsonEncode(profileData),
-        messageType: 'profile_card',
-        messageId: 'profile_${DateTime.now().millisecondsSinceEpoch}_$senderId',
-        receiverName: chatProvider.namee,
-        receiverImage: chatProvider.profilePicture,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Failed to send match profile")));
-    }
-  }
-
   // ── CALL OVERLAY HELPERS ─────────────────────────────────────────────────
 
   /// Remove the active call overlay and clean up.
@@ -2381,9 +2414,26 @@ class _ChatWindowState extends State<ChatWindow> {
   Future<Map<String, String>?> _showAddParticipantDialog(
     String currentParticipantId,
   ) async {
-    final (allUsers, fetchError) = await _fetchAllUsersSortedOnlineFirst(
-      excludeId: currentParticipantId,
-    );
+    // Fetch the full list (including the current participant) so we can read
+    // their gender, then filter to opposite-gender users only.
+    final (allUsers, fetchError) = await _fetchAllUsersSortedOnlineFirst();
+
+    // Find currently open chat user's gender (the user we're chatting with).
+    String? peerGender;
+    for (final user in allUsers) {
+      if (user['id']?.toString() == currentParticipantId) {
+        peerGender = (user['gender'] ?? '').toString().toLowerCase();
+        break;
+      }
+    }
+
+    // Filter: exclude the current participant, then keep only opposite gender.
+    final usersList = allUsers.where((u) {
+      if (u['id']?.toString() == currentParticipantId) return false;
+      if (peerGender == null || peerGender.isEmpty) return true;
+      final userGender = (u['gender'] ?? '').toString().toLowerCase();
+      return userGender == (peerGender == 'female' ? 'male' : 'female');
+    }).toList();
 
     if (!mounted) return null;
 
@@ -2404,7 +2454,7 @@ class _ChatWindowState extends State<ChatWindow> {
       builder: (_) => Material(
         color: Colors.transparent,
         child: _AddParticipantDialog(
-          allUsers: allUsers,
+          allUsers: usersList,
           onSelected: (result) {
             entry.remove();
             if (!completer.isCompleted) completer.complete(result);
@@ -2422,8 +2472,32 @@ class _ChatWindowState extends State<ChatWindow> {
 
   /// Shows a multi-select participant picker for starting a group call.
   /// Returns a list of selected users [{id, name (first name only)}].
-  Future<List<Map<String, String>>?> _showGroupCallParticipantPicker() async {
+  Future<List<Map<String, String>>?> _showGroupCallParticipantPicker({
+    String? peerUserId,
+  }) async {
     final (allUsers, fetchError) = await _fetchAllUsersSortedOnlineFirst();
+
+    // Determine the currently open chat user's gender so we can filter the
+    // pickable participants to the opposite gender only.
+    String? peerGender;
+    if (peerUserId != null && peerUserId.isNotEmpty) {
+      for (final user in allUsers) {
+        if (user['id']?.toString() == peerUserId) {
+          peerGender = (user['gender'] ?? '').toString().toLowerCase();
+          break;
+        }
+      }
+    }
+
+    // Filter: exclude the open chat user, then keep only opposite gender.
+    final usersList = allUsers.where((u) {
+      if (peerUserId != null && u['id']?.toString() == peerUserId) {
+        return false;
+      }
+      if (peerGender == null || peerGender.isEmpty) return true;
+      final userGender = (u['gender'] ?? '').toString().toLowerCase();
+      return userGender == (peerGender == 'female' ? 'male' : 'female');
+    }).toList();
 
     if (!mounted) return null;
 
@@ -2434,7 +2508,7 @@ class _ChatWindowState extends State<ChatWindow> {
       return null;
     }
 
-    if (allUsers.isEmpty) {
+    if (usersList.isEmpty) {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('No users available')));
@@ -2444,7 +2518,7 @@ class _ChatWindowState extends State<ChatWindow> {
     return await showDialog<List<Map<String, String>>>(
       context: context,
       barrierDismissible: true,
-      builder: (ctx) => _GroupCallParticipantPicker(allUsers: allUsers),
+      builder: (ctx) => _GroupCallParticipantPicker(allUsers: usersList),
     );
   }
 
@@ -2452,18 +2526,27 @@ class _ChatWindowState extends State<ChatWindow> {
   /// [GroupCallScreen] which handles all participants natively.
   void _launchGroupCall(ChatProvider chatProvider, {required bool isVideo}) {
     if (_callOverlayEntry != null) return; // call already active
-    _showGroupCallParticipantPicker().then((selected) {
+    final peerUserId = chatProvider.id.toString();
+    final peerUserName = chatProvider.namee.toString();
+    _showGroupCallParticipantPicker(peerUserId: peerUserId).then((selected) {
       if (selected == null || selected.isEmpty) return;
       if (!mounted) return;
+
+      // Always include the currently-open chat user as a participant so they
+      // also receive the ring/incoming call alongside the selected users.
+      final List<Map<String, String>> participants = [
+        if (peerUserId.isNotEmpty) {'id': peerUserId, 'name': peerUserName},
+        ...selected.where((p) => p['id'] != peerUserId),
+      ];
 
       final isMinimizedNotifier = ValueNotifier<bool>(false);
 
       void onCallEnded(String callType, String status, int durationSeconds) {
         _removeCallOverlay();
         // Save history for the first selected user as the primary contact.
-        if (selected.isNotEmpty) {
+        if (participants.isNotEmpty) {
           _saveCallHistory(
-            selected.first['id']!,
+            participants.first['id']!,
             callType,
             status,
             durationSeconds,
@@ -2478,7 +2561,7 @@ class _ChatWindowState extends State<ChatWindow> {
             final groupCallWidget = GroupCallScreen(
               adminId: kAdminUserId,
               adminName: 'Admin',
-              initialParticipants: selected,
+              initialParticipants: participants,
               isVideo: isVideo,
               onMinimize: () => isMinimizedNotifier.value = true,
               onEnd: _removeCallOverlay,
@@ -2490,9 +2573,9 @@ class _ChatWindowState extends State<ChatWindow> {
                 Offstage(offstage: isMin, child: groupCallWidget),
                 if (isMin)
                   _buildMiniCallBar(
-                    userName: selected.length == 1
-                        ? (selected.first['name'] ?? '')
-                        : '${selected.first['name'] ?? ''} +${selected.length - 1}',
+                    userName: participants.length == 1
+                        ? (participants.first['name'] ?? '')
+                        : '${participants.first['name'] ?? ''} +${participants.length - 1}',
                     isVideo: isVideo,
                     onMaximize: () => isMinimizedNotifier.value = false,
                     onEnd: _removeCallOverlay,
@@ -2771,8 +2854,6 @@ class _ChatWindowState extends State<ChatWindow> {
       _editingMessageId = null;
       _editingOriginalText = '';
       _messageController.clear();
-      // Re-fetch match details for the newly selected user
-      if (chatProvider.id != null) Future.microtask(_fetchMatchDetails);
       // Reset user-typing state and subscribe to new user's typing status.
       _userIsTyping = false;
       if (chatProvider.id != null)
@@ -2939,13 +3020,6 @@ class _ChatWindowState extends State<ChatWindow> {
 
               // Action buttons
               _iconBtn(
-                icon: _showMatchInfo ? Icons.favorite : Icons.favorite_border,
-                active: _showMatchInfo,
-                iconColor: _showMatchInfo ? c.primary : c.muted,
-                onTap: () => setState(() => _showMatchInfo = !_showMatchInfo),
-              ),
-              const SizedBox(width: 6),
-              _iconBtn(
                 icon: Icons.video_call_outlined,
                 iconColor: c.primary,
                 onTap: () => _launchVideoCall(chatProvider),
@@ -2957,14 +3031,11 @@ class _ChatWindowState extends State<ChatWindow> {
                 onTap: () => _launchAudioCall(chatProvider),
               ),
               const SizedBox(width: 6),
-              // Group Call button — opens multi-select picker and starts a
-              // group audio/video call with all selected participants.
+              // Group Audio Call button
               Tooltip(
-                message: 'Start Group Call',
+                message: 'Start Group Audio Call',
                 child: InkWell(
                   onTap: () => _launchGroupCall(chatProvider, isVideo: false),
-                  onLongPress: () =>
-                      _launchGroupCall(chatProvider, isVideo: true),
                   borderRadius: BorderRadius.circular(8),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -2981,6 +3052,37 @@ class _ChatWindowState extends State<ChatWindow> {
                         Icon(Icons.groups_outlined, size: 18, color: c.primary),
                         const SizedBox(width: 2),
                         Icon(Icons.call_outlined, size: 12, color: c.primary),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              // Group Video Call button
+              Tooltip(
+                message: 'Start Group Video Call',
+                child: InkWell(
+                  onTap: () => _launchGroupCall(chatProvider, isVideo: true),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF7B61FF).withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.groups_outlined, size: 18, color: c.primary),
+                        const SizedBox(width: 2),
+                        Icon(
+                          Icons.videocam_outlined,
+                          size: 12,
+                          color: c.primary,
+                        ),
                       ],
                     ),
                   ),
@@ -3012,766 +3114,561 @@ class _ChatWindowState extends State<ChatWindow> {
       ),
       body: Stack(
         children: [
-          Column(
+          Row(
             children: [
-              if (_isSearching)
-                Container(
-                  color: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  child: SizedBox(
-                    height: 38,
-                    child: TextField(
-                      controller: _searchController,
-                      decoration: InputDecoration(
-                        hintText: "Search messages...",
-                        hintStyle: TextStyle(fontSize: 12, color: c.muted),
-                        prefixIcon: Icon(
-                          Icons.search,
-                          size: 16,
-                          color: c.muted,
-                        ),
-                        filled: true,
-                        fillColor: c.searchFill,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: BorderSide(color: c.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: BorderSide(color: c.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          borderSide: BorderSide(color: c.primary),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 0,
-                          horizontal: 12,
-                        ),
-                        isDense: true,
-                      ),
-                      onChanged: _searchMessages,
-                    ),
-                  ),
-                ),
-
-              // Match info panel
-              if (_showMatchInfo) _buildMatchInfoPanel(chatProvider),
-
               Expanded(
-                child: Stack(
+                child: Column(
                   children: [
-                    Builder(
-                      builder: (context) {
-                        final isActiveSearch =
-                            _isSearching && _searchController.text.isNotEmpty;
-                        final messages = isActiveSearch
-                            ? _filteredMessages
-                            : _messages;
-
-                        if (_isInitialLoad) {
-                          return Center(
-                            child: CircularProgressIndicator(color: c.primary),
-                          );
-                        }
-
-                        if (messages.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.chat_bubble_outline,
-                                  size: 40,
-                                  color: Colors.grey[300],
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  isActiveSearch
-                                      ? "No matching messages"
-                                      : "No messages yet",
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w500,
-                                    color: c.muted,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  isActiveSearch
-                                      ? "Try a different keyword"
-                                      : "Start a conversation!",
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: c.muted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }
-
-                        final itemCount = messages.length;
-                        final activeMessageIds = messages
-                            .map((m) => m['messageId'] as String)
-                            .toSet();
-                        for (final messageId in _messageKeys.keys.toList()) {
-                          if (!activeMessageIds.contains(messageId)) {
-                            _messageKeys.remove(messageId);
-                          }
-                        }
-                        _messageIndexMap
-                          ..clear()
-                          ..addEntries(
-                            List.generate(
-                              itemCount,
-                              (i) => MapEntry(
-                                messages[i]['messageId'] as String,
-                                i,
+                    if (_isSearching)
+                      Container(
+                        color: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        child: SizedBox(
+                          height: 38,
+                          child: TextField(
+                            controller: _searchController,
+                            decoration: InputDecoration(
+                              hintText: "Search messages...",
+                              hintStyle: TextStyle(
+                                fontSize: 12,
+                                color: c.muted,
                               ),
+                              prefixIcon: Icon(
+                                Icons.search,
+                                size: 16,
+                                color: c.muted,
+                              ),
+                              filled: true,
+                              fillColor: c.searchFill,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide(color: c.border),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide(color: c.border),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                borderSide: BorderSide(color: c.primary),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                vertical: 0,
+                                horizontal: 12,
+                              ),
+                              isDense: true,
                             ),
-                          );
-                        final messageGroups = _groupMessagesByDate(messages);
-                        _currentMessageGroups = messageGroups;
+                            onChanged: _searchMessages,
+                          ),
+                        ),
+                      ),
 
-                        return Opacity(
-                          // Hide the list while the scroll position is being set to
-                          // the bottom on first load (WhatsApp-style instant positioning).
-                          // The CustomScrollView stays in the tree so the controller
-                          // remains attached and jumpTo works correctly.
-                          opacity: _scrollLocked ? 0.0 : 1.0,
-                          child: NotificationListener<ScrollUpdateNotification>(
-                            onNotification: (notification) {
-                              final offset = _scrollController.hasClients
-                                  ? _scrollController.offset
-                                  : 0.0;
-                              final label = _dateGroupAtScrollOffset(
-                                offset,
-                                _currentMessageGroups,
+                    Expanded(
+                      child: Stack(
+                        children: [
+                          Builder(
+                            builder: (context) {
+                              final isActiveSearch =
+                                  _isSearching &&
+                                  _searchController.text.isNotEmpty;
+                              final messages = isActiveSearch
+                                  ? _filteredMessages
+                                  : _messages;
+
+                              if (_isInitialLoad) {
+                                return Center(
+                                  child: CircularProgressIndicator(
+                                    color: c.primary,
+                                  ),
+                                );
+                              }
+
+                              if (messages.isEmpty) {
+                                return Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.chat_bubble_outline,
+                                        size: 40,
+                                        color: Colors.grey[300],
+                                      ),
+                                      const SizedBox(height: 12),
+                                      Text(
+                                        isActiveSearch
+                                            ? "No matching messages"
+                                            : "No messages yet",
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                          color: c.muted,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        isActiveSearch
+                                            ? "Try a different keyword"
+                                            : "Start a conversation!",
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: c.muted,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }
+
+                              final itemCount = messages.length;
+                              final activeMessageIds = messages
+                                  .map((m) => m['messageId'] as String)
+                                  .toSet();
+                              for (final messageId
+                                  in _messageKeys.keys.toList()) {
+                                if (!activeMessageIds.contains(messageId)) {
+                                  _messageKeys.remove(messageId);
+                                }
+                              }
+                              _messageIndexMap
+                                ..clear()
+                                ..addEntries(
+                                  List.generate(
+                                    itemCount,
+                                    (i) => MapEntry(
+                                      messages[i]['messageId'] as String,
+                                      i,
+                                    ),
+                                  ),
+                                );
+                              final messageGroups = _groupMessagesByDate(
+                                messages,
                               );
-                              if (label != null) _showFloatingDateLabel(label);
-                              return false;
-                            },
-                            child: CustomScrollView(
-                              controller: _scrollController,
-                              // Use ClampingScrollPhysics to prevent bounce effect that causes shaking
-                              physics: _isHorizontalDragging
-                                  ? const NeverScrollableScrollPhysics()
-                                  : const ClampingScrollPhysics(),
-                              slivers: [
-                                if (_hasMoreMessages || _isLoadingMore)
-                                  SliverToBoxAdapter(
-                                    child: Padding(
-                                      padding: const EdgeInsets.fromLTRB(
-                                        12,
-                                        12,
-                                        12,
-                                        4,
-                                      ),
-                                      child: Center(
-                                        child: _isLoadingMore
-                                            ? SizedBox(
-                                                width: 20,
-                                                height: 20,
-                                                child:
-                                                    CircularProgressIndicator(
-                                                      strokeWidth: 2,
-                                                      color: c.primary,
-                                                    ),
-                                              )
-                                            : TextButton.icon(
-                                                onPressed: _loadMoreMessages,
-                                                icon: Icon(
-                                                  Icons.history,
-                                                  size: 14,
-                                                  color: c.primary,
-                                                ),
-                                                label: Text(
-                                                  'Load older messages',
-                                                  style: TextStyle(
-                                                    fontSize: 12,
-                                                    color: c.primary,
-                                                  ),
-                                                ),
-                                              ),
-                                      ),
-                                    ),
-                                  ),
-                                for (final group in messageGroups) ...[
-                                  SliverPersistentHeader(
-                                    pinned: false,
-                                    delegate: _ChatDateHeaderDelegate(
-                                      label: group.headerLabel,
-                                      backgroundColor: c.bg,
-                                      chipColor: c.primaryLight,
-                                      textColor: c.text,
-                                      borderColor: c.border,
-                                    ),
-                                  ),
-                                  SliverPadding(
-                                    padding: const EdgeInsets.fromLTRB(
-                                      12,
-                                      0,
-                                      12,
-                                      14,
-                                    ),
-                                    sliver: SliverList(
-                                      delegate: SliverChildBuilderDelegate((
-                                        context,
-                                        index,
-                                      ) {
-                                        final data = group.messages[index];
-                                        final String msgId =
-                                            data['messageId'] as String;
-                                        final isSentByAdmin =
-                                            data['senderid'] ==
-                                            senderId.toString();
-                                        final isSentByUser = !isSentByAdmin;
-                                        final timestamp =
-                                            _messageTimestampFromData(data);
-                                        final replyPayload = _buildReplyPayload(
-                                          messageId: msgId,
-                                          data: data,
-                                          senderId: isSentByAdmin
-                                              ? senderId.toString()
-                                              : (chatProvider.id?.toString() ??
-                                                    ''),
-                                          senderName: isSentByAdmin
-                                              ? 'You'
-                                              : (chatProvider.namee ?? 'User'),
-                                        );
-                                        final canEdit = _canEditMessage(
-                                          data,
-                                          isSentByAdmin,
-                                        );
-                                        final canMutate = _canMutateMessage(
-                                          data,
-                                          isSentByAdmin,
-                                        );
+                              _currentMessageGroups = messageGroups;
 
-                                        return _AdminSwipeToReplyWrapper(
-                                          key: ValueKey(msgId),
-                                          isMine: isSentByAdmin,
-                                          onReply: () => _startReply(
-                                            msgId,
-                                            replyPayload['message']
-                                                    ?.toString() ??
-                                                '',
-                                            replyPayload['senderid']
-                                                    ?.toString() ??
-                                                '',
-                                            replyPayload['senderName']
-                                                    ?.toString() ??
-                                                'User',
-                                            replyPayload,
-                                          ),
-                                          onDragStart: () {
-                                            if (mounted) {
-                                              setState(
-                                                () => _isHorizontalDragging =
-                                                    true,
-                                              );
-                                            }
-                                          },
-                                          onDragEnd: () {
-                                            if (mounted) {
-                                              setState(
-                                                () => _isHorizontalDragging =
-                                                    false,
-                                              );
-                                            }
-                                          },
-                                          child: GestureDetector(
-                                            onLongPressStart: (details) {
-                                              if (mounted) {
-                                                setState(() {
-                                                  _overlayMessageId = msgId;
-                                                  _overlayReplyPayload =
-                                                      replyPayload;
-                                                  _overlayIsSentByMe =
-                                                      isSentByAdmin;
-                                                  _overlayCanEdit = canEdit;
-                                                  _overlayCanMutate = canMutate;
-                                                  _overlayTapOffset =
-                                                      details.globalPosition;
-                                                  _showMsgActionOverlay = true;
-                                                });
-                                              }
-                                            },
-                                            child: Builder(
-                                              builder: (_) {
-                                                final Map<String, dynamic>
-                                                reactions =
-                                                    (data['reactions'] is Map)
-                                                    ? Map<String, dynamic>.from(
-                                                        data['reactions']
-                                                            as Map,
-                                                      )
-                                                    : {};
-
-                                                // The admin (paid member) always sees all messages in full.
-                                                // Message masking for free users is applied in the
-                                                // user-facing app, not here in the admin panel.
-                                                const bool isMasked = false;
-                                                final String bubbleMessage =
-                                                    isMasked
-                                                    ? _kMaskedMessageText
-                                                    : data['message'];
-                                                final String? bubbleType =
-                                                    isMasked
-                                                    ? 'text'
-                                                    : data['type'];
-                                                final Map<String, dynamic>?
-                                                bubbleProfileData = isMasked
-                                                    ? null
-                                                    : (data.containsKey(
-                                                            'profileData',
-                                                          )
-                                                          ? data['profileData']
-                                                          : null);
-                                                final String? bubbleImageUrl =
-                                                    isMasked
-                                                    ? null
-                                                    : (data.containsKey(
-                                                            'imageUrl',
-                                                          )
-                                                          ? data['imageUrl']
-                                                          : null);
-                                                final Map<String, dynamic>?
-                                                bubbleReportData = isMasked
-                                                    ? null
-                                                    : (data.containsKey(
-                                                            'reportData',
-                                                          )
-                                                          ? data['reportData']
-                                                                as Map<
-                                                                  String,
-                                                                  dynamic
-                                                                >
-                                                          : null);
-
-                                                return Column(
-                                                  crossAxisAlignment:
-                                                      isSentByAdmin
-                                                      ? CrossAxisAlignment.end
-                                                      : CrossAxisAlignment
-                                                            .start,
-                                                  children: [
-                                                    _HighlightableMessageContainer(
-                                                      key: _messageKeyFor(
-                                                        msgId,
+                              return Opacity(
+                                // Hide the list while the scroll position is being set to
+                                // the bottom on first load (WhatsApp-style instant positioning).
+                                // The CustomScrollView stays in the tree so the controller
+                                // remains attached and jumpTo works correctly.
+                                opacity: _scrollLocked ? 0.0 : 1.0,
+                                child: NotificationListener<ScrollUpdateNotification>(
+                                  onNotification: (notification) {
+                                    final offset = _scrollController.hasClients
+                                        ? _scrollController.offset
+                                        : 0.0;
+                                    final label = _dateGroupAtScrollOffset(
+                                      offset,
+                                      _currentMessageGroups,
+                                    );
+                                    if (label != null)
+                                      _showFloatingDateLabel(label);
+                                    return false;
+                                  },
+                                  child: CustomScrollView(
+                                    controller: _scrollController,
+                                    // Use ClampingScrollPhysics to prevent bounce effect that causes shaking
+                                    physics: _isHorizontalDragging
+                                        ? const NeverScrollableScrollPhysics()
+                                        : const ClampingScrollPhysics(),
+                                    slivers: [
+                                      if (_hasMoreMessages || _isLoadingMore)
+                                        SliverToBoxAdapter(
+                                          child: Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              12,
+                                              12,
+                                              12,
+                                              4,
+                                            ),
+                                            child: Center(
+                                              child: _isLoadingMore
+                                                  ? SizedBox(
+                                                      width: 20,
+                                                      height: 20,
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color: c.primary,
+                                                          ),
+                                                    )
+                                                  : TextButton.icon(
+                                                      onPressed:
+                                                          _loadMoreMessages,
+                                                      icon: Icon(
+                                                        Icons.history,
+                                                        size: 14,
+                                                        color: c.primary,
                                                       ),
-                                                      isHighlighted:
-                                                          _highlightedMessageId ==
-                                                          msgId,
-                                                      child: _buildChatBubble(
-                                                        bubbleMessage,
-                                                        isSentByAdmin,
-                                                        timestamp,
-                                                        bubbleType,
-                                                        bubbleProfileData,
-                                                        bubbleImageUrl,
-                                                        data['seen'] == true,
-                                                        data['callType']
-                                                            ?.toString(),
-                                                        data['callStatus']
-                                                            ?.toString(),
-                                                        (data['callDuration']
-                                                                    as num?)
-                                                                ?.toInt() ??
-                                                            0,
-                                                        msgId,
-                                                        data['replyto']
-                                                                is Map<
-                                                                  String,
-                                                                  dynamic
-                                                                >
-                                                            ? data['replyto']
-                                                                  as Map<
-                                                                    String,
-                                                                    dynamic
-                                                                  >
-                                                            : null,
-                                                        data['edited'] == true,
-                                                        data['deleted'] == true,
-                                                        data['unsent'] == true,
-                                                        canEdit,
-                                                        canMutate,
-                                                        replyPayload,
-                                                        bubbleReportData,
-                                                        data['isUploading'] == true,
+                                                      label: Text(
+                                                        'Load older messages',
+                                                        style: TextStyle(
+                                                          fontSize: 12,
+                                                          color: c.primary,
+                                                        ),
                                                       ),
                                                     ),
-                                                    if (reactions.isNotEmpty)
-                                                      _buildAdminReactionBadge(
-                                                        reactions,
-                                                        isSentByAdmin,
-                                                      ),
-                                                  ],
-                                                );
-                                              },
                                             ),
                                           ),
-                                        );
-                                      }, childCount: group.messages.length),
+                                        ),
+                                      for (final group in messageGroups) ...[
+                                        SliverPersistentHeader(
+                                          pinned: false,
+                                          delegate: _ChatDateHeaderDelegate(
+                                            label: group.headerLabel,
+                                            backgroundColor: c.bg,
+                                            chipColor: c.primaryLight,
+                                            textColor: c.text,
+                                            borderColor: c.border,
+                                          ),
+                                        ),
+                                        SliverPadding(
+                                          padding: const EdgeInsets.fromLTRB(
+                                            12,
+                                            0,
+                                            12,
+                                            14,
+                                          ),
+                                          sliver: SliverList(
+                                            delegate: SliverChildBuilderDelegate((
+                                              context,
+                                              index,
+                                            ) {
+                                              final data =
+                                                  group.messages[index];
+                                              final String msgId =
+                                                  data['messageId'] as String;
+                                              final isSentByAdmin =
+                                                  data['senderid'] ==
+                                                  senderId.toString();
+                                              final isSentByUser =
+                                                  !isSentByAdmin;
+                                              final timestamp =
+                                                  _messageTimestampFromData(
+                                                    data,
+                                                  );
+                                              final replyPayload =
+                                                  _buildReplyPayload(
+                                                    messageId: msgId,
+                                                    data: data,
+                                                    senderId: isSentByAdmin
+                                                        ? senderId.toString()
+                                                        : (chatProvider.id
+                                                                  ?.toString() ??
+                                                              ''),
+                                                    senderName: isSentByAdmin
+                                                        ? 'You'
+                                                        : (chatProvider.namee ??
+                                                              'User'),
+                                                  );
+                                              final canEdit = _canEditMessage(
+                                                data,
+                                                isSentByAdmin,
+                                              );
+                                              final canMutate =
+                                                  _canMutateMessage(
+                                                    data,
+                                                    isSentByAdmin,
+                                                  );
+
+                                              return _AdminSwipeToReplyWrapper(
+                                                key: ValueKey(msgId),
+                                                isMine: isSentByAdmin,
+                                                onReply: () => _startReply(
+                                                  msgId,
+                                                  replyPayload['message']
+                                                          ?.toString() ??
+                                                      '',
+                                                  replyPayload['senderid']
+                                                          ?.toString() ??
+                                                      '',
+                                                  replyPayload['senderName']
+                                                          ?.toString() ??
+                                                      'User',
+                                                  replyPayload,
+                                                ),
+                                                onDragStart: () {
+                                                  if (mounted) {
+                                                    setState(
+                                                      () =>
+                                                          _isHorizontalDragging =
+                                                              true,
+                                                    );
+                                                  }
+                                                },
+                                                onDragEnd: () {
+                                                  if (mounted) {
+                                                    setState(
+                                                      () =>
+                                                          _isHorizontalDragging =
+                                                              false,
+                                                    );
+                                                  }
+                                                },
+                                                child: GestureDetector(
+                                                  onLongPressStart: (details) {
+                                                    if (mounted) {
+                                                      setState(() {
+                                                        _overlayMessageId =
+                                                            msgId;
+                                                        _overlayReplyPayload =
+                                                            replyPayload;
+                                                        _overlayIsSentByMe =
+                                                            isSentByAdmin;
+                                                        _overlayCanEdit =
+                                                            canEdit;
+                                                        _overlayCanMutate =
+                                                            canMutate;
+                                                        _overlayTapOffset =
+                                                            details
+                                                                .globalPosition;
+                                                        _showMsgActionOverlay =
+                                                            true;
+                                                      });
+                                                    }
+                                                  },
+                                                  child: Builder(
+                                                    builder: (_) {
+                                                      final Map<String, dynamic>
+                                                      reactions =
+                                                          (data['reactions']
+                                                              is Map)
+                                                          ? Map<
+                                                              String,
+                                                              dynamic
+                                                            >.from(
+                                                              data['reactions']
+                                                                  as Map,
+                                                            )
+                                                          : {};
+
+                                                      // The admin (paid member) always sees all messages in full.
+                                                      // Message masking for free users is applied in the
+                                                      // user-facing app, not here in the admin panel.
+                                                      const bool isMasked =
+                                                          false;
+                                                      final String
+                                                      bubbleMessage = isMasked
+                                                          ? _kMaskedMessageText
+                                                          : data['message'];
+                                                      final String? bubbleType =
+                                                          isMasked
+                                                          ? 'text'
+                                                          : data['type'];
+                                                      final Map<
+                                                        String,
+                                                        dynamic
+                                                      >?
+                                                      bubbleProfileData =
+                                                          isMasked
+                                                          ? null
+                                                          : (data.containsKey(
+                                                                  'profileData',
+                                                                )
+                                                                ? data['profileData']
+                                                                : null);
+                                                      final String?
+                                                      bubbleImageUrl = isMasked
+                                                          ? null
+                                                          : (data.containsKey(
+                                                                  'imageUrl',
+                                                                )
+                                                                ? data['imageUrl']
+                                                                : null);
+                                                      final Map<
+                                                        String,
+                                                        dynamic
+                                                      >?
+                                                      bubbleReportData =
+                                                          isMasked
+                                                          ? null
+                                                          : (data.containsKey(
+                                                                  'reportData',
+                                                                )
+                                                                ? data['reportData']
+                                                                      as Map<
+                                                                        String,
+                                                                        dynamic
+                                                                      >
+                                                                : null);
+
+                                                      return Column(
+                                                        crossAxisAlignment:
+                                                            isSentByAdmin
+                                                            ? CrossAxisAlignment
+                                                                  .end
+                                                            : CrossAxisAlignment
+                                                                  .start,
+                                                        children: [
+                                                          _HighlightableMessageContainer(
+                                                            key: _messageKeyFor(
+                                                              msgId,
+                                                            ),
+                                                            isHighlighted:
+                                                                _highlightedMessageId ==
+                                                                msgId,
+                                                            child: _buildChatBubble(
+                                                              bubbleMessage,
+                                                              isSentByAdmin,
+                                                              timestamp,
+                                                              bubbleType,
+                                                              bubbleProfileData,
+                                                              bubbleImageUrl,
+                                                              data['seen'] ==
+                                                                  true,
+                                                              data['callType']
+                                                                  ?.toString(),
+                                                              data['callStatus']
+                                                                  ?.toString(),
+                                                              (data['callDuration']
+                                                                          as num?)
+                                                                      ?.toInt() ??
+                                                                  0,
+                                                              msgId,
+                                                              data['replyto']
+                                                                      is Map<
+                                                                        String,
+                                                                        dynamic
+                                                                      >
+                                                                  ? data['replyto']
+                                                                        as Map<
+                                                                          String,
+                                                                          dynamic
+                                                                        >
+                                                                  : null,
+                                                              data['edited'] ==
+                                                                  true,
+                                                              data['deleted'] ==
+                                                                  true,
+                                                              data['unsent'] ==
+                                                                  true,
+                                                              canEdit,
+                                                              canMutate,
+                                                              replyPayload,
+                                                              bubbleReportData,
+                                                              data['isUploading'] ==
+                                                                  true,
+                                                            ),
+                                                          ),
+                                                          if (reactions
+                                                              .isNotEmpty)
+                                                            _buildAdminReactionBadge(
+                                                              reactions,
+                                                              isSentByAdmin,
+                                                            ),
+                                                        ],
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                              );
+                                            }, childCount: group.messages.length),
+                                          ),
+                                        ),
+                                      ],
+                                      const SliverToBoxAdapter(
+                                        child: SizedBox(height: 12),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          // WhatsApp-style floating date indicator
+                          Positioned(
+                            top: 8,
+                            left: 0,
+                            right: 0,
+                            child: ValueListenableBuilder<String?>(
+                              valueListenable: _floatingDateNotifier,
+                              builder: (context, label, _) {
+                                if (label == null)
+                                  return const SizedBox.shrink();
+                                return Center(
+                                  child: IgnorePointer(
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: c.primaryLight,
+                                        borderRadius: BorderRadius.circular(12),
+                                        border: Border.all(
+                                          color: c.border,
+                                          width: 0.5,
+                                        ),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(
+                                              0.08,
+                                            ),
+                                            blurRadius: 4,
+                                            offset: const Offset(0, 2),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                          color: c.text,
+                                          letterSpacing: 0.3,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ],
-                                const SliverToBoxAdapter(
-                                  child: SizedBox(height: 12),
-                                ),
-                              ],
+                                );
+                              },
                             ),
                           ),
-                        );
-                      },
-                    ),
-                    // WhatsApp-style floating date indicator
-                    Positioned(
-                      top: 8,
-                      left: 0,
-                      right: 0,
-                      child: ValueListenableBuilder<String?>(
-                        valueListenable: _floatingDateNotifier,
-                        builder: (context, label, _) {
-                          if (label == null) return const SizedBox.shrink();
-                          return Center(
-                            child: IgnorePointer(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: c.primaryLight,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: c.border,
-                                    width: 0.5,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.08),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Text(
-                                  label,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: c.text,
-                                    letterSpacing: 0.3,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
+                        ],
                       ),
                     ),
+                    if (_userIsTyping)
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Container(
+                          margin: const EdgeInsets.only(left: 12, bottom: 4),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: c.selectedRow,
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(20),
+                              topRight: Radius.circular(20),
+                              bottomLeft: Radius.circular(4),
+                              bottomRight: Radius.circular(20),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 4,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: const TypingIndicatorWidget(
+                            dotColor: Color(0xFF6B7280),
+                            dotSize: 7.0,
+                          ),
+                        ),
+                      ),
+                    _buildMessageInput(chatProvider),
                   ],
                 ),
               ),
-              if (_userIsTyping)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.only(left: 12, bottom: 4),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: c.selectedRow,
-                      borderRadius: const BorderRadius.only(
-                        topLeft: Radius.circular(20),
-                        topRight: Radius.circular(20),
-                        bottomLeft: Radius.circular(4),
-                        bottomRight: Radius.circular(20),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(0.08),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: const TypingIndicatorWidget(
-                      dotColor: Color(0xFF6B7280),
-                      dotSize: 7.0,
-                    ),
-                  ),
-                ),
-              _buildMessageInput(chatProvider),
             ],
           ),
           if (_showMsgActionOverlay) _buildMsgActionOverlay(context),
         ],
       ),
-    );
-  }
-
-  Widget _buildMatchInfoPanel(ChatProvider chatProvider) {
-    final c = ChatColors.of(context);
-
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: c.selectedRow,
-        border: Border(bottom: BorderSide(color: c.primaryLight, width: 1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.favorite, color: c.primary, size: 16),
-              const SizedBox(width: 6),
-              Text(
-                'Match Information',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: c.primary,
-                ),
-              ),
-              const Spacer(),
-              if (_isLoadingMatchDetails)
-                SizedBox(
-                  height: 14,
-                  width: 14,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: c.primary,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          if (_matchDetails != null && _matchDetails!['percentage'] != null)
-            Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: c.cardBg,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Match Score: ',
-                    style: TextStyle(fontSize: 12, color: c.muted),
-                  ),
-                  Text(
-                    '${_matchDetails!['percentage']}%',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: c.primary,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          if (_matchDetails != null &&
-              _matchDetails!['commonInterests'] != null)
-            Wrap(
-              spacing: 4,
-              runSpacing: 4,
-              children: (_matchDetails!['commonInterests'] as List).map((
-                interest,
-              ) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: c.primaryLight,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    interest,
-                    style: TextStyle(fontSize: 10, color: c.primary),
-                  ),
-                );
-              }).toList(),
-            ),
-
-          if (_mutualMatches.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Mutual Matches:',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
-                color: c.muted,
-              ),
-            ),
-            const SizedBox(height: 4),
-            SizedBox(
-              height: 50,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: _mutualMatches.length,
-                itemBuilder: (context, index) {
-                  final match = _mutualMatches[index];
-                  return Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    child: Column(
-                      children: [
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundColor: const Color(0xFFF1F5F9),
-                          child:
-                              match['profile_picture'] != null &&
-                                  match['profile_picture'].toString().isNotEmpty
-                              ? ClipOval(
-                                  child: CachedNetworkImage(
-                                    imageUrl: match['profile_picture']
-                                        .toString(),
-                                    width: 32,
-                                    height: 32,
-                                    fit: BoxFit.cover,
-                                    errorWidget: (context, url, error) => Icon(
-                                      Icons.person,
-                                      size: 16,
-                                      color: Colors.grey[400],
-                                    ),
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.person,
-                                  size: 16,
-                                  color: Colors.grey[400],
-                                ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          match['name'] ?? '',
-                          style: TextStyle(fontSize: 8, color: c.muted),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-
-          if (chatProvider.matchesCount != null &&
-              chatProvider.matchesCount! > 0)
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: () => _showMatchSelectionDialog(chatProvider),
-                icon: const Icon(Icons.send, size: 12),
-                label: const Text(
-                  'Send Match Profile',
-                  style: TextStyle(fontSize: 11),
-                ),
-                style: TextButton.styleFrom(
-                  backgroundColor: c.primaryLight,
-                  foregroundColor: c.primary,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  minimumSize: const Size(0, 28),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  void _showMatchSelectionDialog(ChatProvider chatProvider) {
-    chatProvider.fetchUserMatches(chatProvider.id ?? 0);
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Select Match Profile', style: TextStyle(fontSize: 16)),
-          content: Container(
-            width: double.maxFinite,
-            height: 300,
-            child: Consumer<ChatProvider>(
-              builder: (context, provider, _) {
-                if (provider.isLoadingMatches) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-
-                if (provider.matchError != null) {
-                  return Center(child: Text(provider.matchError!));
-                }
-
-                final matches = provider.matchedProfiles;
-                if (matches.isEmpty) {
-                  return const Center(child: Text('No matches found'));
-                }
-
-                return ListView.builder(
-                  itemCount: matches.length,
-                  itemBuilder: (context, index) {
-                    final match = matches[index];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        radius: 20,
-                        backgroundColor: Colors.grey[300],
-                        child:
-                            match['profile_picture'] != null &&
-                                match['profile_picture'].toString().isNotEmpty
-                            ? ClipOval(
-                                child: CachedNetworkImage(
-                                  imageUrl: match['profile_picture'].toString(),
-                                  width: 40,
-                                  height: 40,
-                                  fit: BoxFit.cover,
-                                  errorWidget: (context, url, error) => Icon(
-                                    Icons.person,
-                                    color: Colors.grey[700],
-                                  ),
-                                ),
-                              )
-                            : Icon(Icons.person, color: Colors.grey[700]),
-                      ),
-                      title: Text(match['name']?.toString() ?? 'Unknown'),
-                      subtitle: Text('Match: ${match['percentage'] ?? 'N/A'}%'),
-                      onTap: () {
-                        Navigator.pop(context);
-                        _sendMatchProfile(match);
-                      },
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cancel'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -4205,7 +4102,9 @@ class _ChatWindowState extends State<ChatWindow> {
         canMutate: isUploading ? false : canMutate,
         messageId: messageId,
         replyPayload: replyPayload,
-        onForward: isUploading ? null : () => _forwardImage(resolvedImageUrl, 'image'),
+        onForward: isUploading
+            ? null
+            : () => _forwardImage(resolvedImageUrl, 'image'),
         onCopy: isUploading ? null : () => _copyToClipboard(resolvedImageUrl),
       );
     }
@@ -4215,8 +4114,9 @@ class _ChatWindowState extends State<ChatWindow> {
       if (isUploading) {
         final double imgSize = MediaQuery.of(context).size.width * 0.24;
         final uploadingBubble = Column(
-          crossAxisAlignment:
-              isSentByMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isSentByMe
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
             if (replyPreview != null) replyPreview,
@@ -4364,7 +4264,9 @@ class _ChatWindowState extends State<ChatWindow> {
             )
           else
             GestureDetector(
-              onTap: isUploading ? null : () => _toggleVoicePlayback(messageId!, voiceUrl),
+              onTap: isUploading
+                  ? null
+                  : () => _toggleVoicePlayback(messageId!, voiceUrl),
               child: Container(
                 width: 200,
                 padding: const EdgeInsets.symmetric(
@@ -4405,7 +4307,9 @@ class _ChatWindowState extends State<ChatWindow> {
                               ),
                             )
                           : Icon(
-                              isCurrentlyPlaying ? Icons.pause : Icons.play_arrow,
+                              isCurrentlyPlaying
+                                  ? Icons.pause
+                                  : Icons.play_arrow,
                               color: isSentByMe ? Colors.white : kPrimary,
                               size: 18,
                             ),
@@ -4457,47 +4361,13 @@ class _ChatWindowState extends State<ChatWindow> {
     }
 
     if (type == 'profile_card' && profileData != null) {
-      const kCardPrimary = Color(0xFF7B61FF);
-      const kCardSurface = Color(0xFFFCFCFE);
-      const kCardBorder = Color(0xFFEDE7F6);
-      const kInfoLabel = Color(0xFF78909C);
-      const kInfoValue = Color(0xFF1A2340);
-
-      // Normalize field names: handle both admin-sent and user-sent formats
-      final String? pId =
-          profileData['id']?.toString() ?? profileData['userId']?.toString();
-      final int? pIdValue = int.tryParse(pId ?? '');
+      final String pId = (profileData['userId'] ?? profileData['id'] ?? '')
+          .toString();
+      final int? pIdValue = int.tryParse(pId);
       final String pFirst =
-          profileData['first']?.toString() ??
-          profileData['firstName']?.toString() ??
-          '';
+          (profileData['firstName'] ?? profileData['first'] ?? '').toString();
       final String pLast =
-          profileData['last']?.toString() ??
-          profileData['lastName']?.toString() ??
-          '';
-      final String pCountry =
-          profileData['country']?.toString() ??
-          profileData['location']?.toString() ??
-          '';
-      final String pName =
-          profileData['name']?.toString() ?? '$pFirst $pLast'.trim();
-
-      final bool isPaid = profileData['is_paid'] == true;
-      final String bioText = profileData['bio'] ?? '';
-      final matchRegex = RegExp(r'(\d+(?:\.\d+)?)%');
-      final matchMatch = matchRegex.firstMatch(bioText);
-      final double matchPct = matchMatch != null
-          ? double.tryParse(matchMatch.group(1)!) ?? 0
-          : 0;
-
-      Color matchColor;
-      if (matchPct >= 70) {
-        matchColor = const Color(0xFF43A047);
-      } else if (matchPct >= 50) {
-        matchColor = const Color(0xFFFB8C00);
-      } else {
-        matchColor = const Color(0xFF78909C);
-      }
+          (profileData['lastName'] ?? profileData['last'] ?? '').toString();
 
       final bubble = Column(
         crossAxisAlignment: isSentByMe
@@ -4528,500 +4398,28 @@ class _ChatWindowState extends State<ChatWindow> {
             Container(
               width: MediaQuery.of(context).size.width * 0.22,
               margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
-              decoration: BoxDecoration(
-                color: kCardSurface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: kCardBorder, width: 1),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF7B61FF).withOpacity(0.08),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  ),
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 6,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.only(
-                      topLeft: Radius.circular(15),
-                      topRight: Radius.circular(15),
-                    ),
-                    child: Container(
-                      height: 72,
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [
-                            Color(0xFF7B61FF),
-                            Color(0xFF5B41CF),
-                            Color(0xFF4A32B8),
-                          ],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Stack(
-                        children: [
-                          Positioned(
-                            top: -10,
-                            right: -10,
-                            child: Container(
-                              width: 60,
-                              height: 60,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white.withOpacity(0.06),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            bottom: -8,
-                            left: -8,
-                            child: Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white.withOpacity(0.06),
-                              ),
-                            ),
-                          ),
-                          Positioned(
-                            top: 8,
-                            left: 10,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.18),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.person_pin_rounded,
-                                    size: 9,
-                                    color: Colors.white,
-                                  ),
-                                  SizedBox(width: 3),
-                                  Text(
-                                    'Profile Shared',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 8.5,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.2,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (isPaid)
-                            Positioned(
-                              top: 8,
-                              right: 10,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      Color(0xFFFFD54F),
-                                      Color(0xFFFFA000),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.workspace_premium,
-                                      size: 8,
-                                      color: Colors.white,
-                                    ),
-                                    SizedBox(width: 2),
-                                    Text(
-                                      'Premium',
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 7.5,
-                                        fontWeight: FontWeight.w700,
-                                        letterSpacing: 0.2,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Transform.translate(
-                    offset: const Offset(0, -28),
-                    child: Column(
-                      children: [
-                        Center(
-                          child: Stack(
-                            alignment: Alignment.center,
-                            clipBehavior: Clip.none,
-                            children: [
-                              if (matchPct > 0)
-                                Container(
-                                  width: 60,
-                                  height: 60,
-                                  decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: matchColor,
-                                      width: 2.5,
-                                    ),
-                                  ),
-                                ),
-                              Container(
-                                width: 54,
-                                height: 54,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  border: Border.all(
-                                    color: Colors.white,
-                                    width: 2.5,
-                                  ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.12),
-                                      blurRadius: 8,
-                                      offset: const Offset(0, 3),
-                                    ),
-                                  ],
-                                ),
-                                child: ClipOval(
-                                  child:
-                                      profileData['profileImage'] != null &&
-                                          profileData['profileImage']
-                                              .toString()
-                                              .isNotEmpty
-                                      ? CachedNetworkImage(
-                                          imageUrl: profileData['profileImage'],
-                                          fit: BoxFit.cover,
-                                          errorWidget: (_, __, ___) =>
-                                              Container(
-                                                color: const Color(0xFFF8BBD9),
-                                                child: const Icon(
-                                                  Icons.person_rounded,
-                                                  size: 28,
-                                                  color: Color(0xFF7B61FF),
-                                                ),
-                                              ),
-                                        )
-                                      : Container(
-                                          color: const Color(0xFFF8BBD9),
-                                          child: const Icon(
-                                            Icons.person_rounded,
-                                            size: 28,
-                                            color: Color(0xFF7B61FF),
-                                          ),
-                                        ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          child: Text(
-                            pName.isNotEmpty ? pName : 'Unknown',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: kInfoValue,
-                              letterSpacing: 0.1,
-                            ),
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        if (matchPct > 0)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: matchColor.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: matchColor.withOpacity(0.35),
-                                width: 1,
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.favorite_rounded,
-                                  size: 9,
-                                  color: matchColor,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  '${matchPct.toStringAsFixed(0)}% Match',
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w700,
-                                    color: matchColor,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  Transform.translate(
-                    offset: const Offset(0, -18),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Column(
-                        children: [
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 4),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: kCardPrimary.withOpacity(0.07),
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(
-                                color: kCardPrimary.withOpacity(0.25),
-                                width: 0.8,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.tag_rounded,
-                                  size: 10,
-                                  color: kCardPrimary,
-                                ),
-                                const SizedBox(width: 4),
-                                const Text(
-                                  'User ID',
-                                  style: TextStyle(
-                                    fontSize: 9.5,
-                                    color: kCardPrimary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const Spacer(),
-                                Text(
-                                  '#${pId ?? ''}',
-                                  style: const TextStyle(
-                                    fontSize: 9.5,
-                                    color: kCardPrimary,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          _buildInfoRow(
-                            Icons.badge_rounded,
-                            'Member ID',
-                            profileData['Member ID'],
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.wc_rounded,
-                            'Gender',
-                            profileData['gender'],
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.location_on_rounded,
-                            'Location',
-                            pCountry,
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.work_rounded,
-                            'Occupation',
-                            profileData['occupation'],
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.school_rounded,
-                            'Education',
-                            profileData['education'],
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.favorite_border_rounded,
-                            'Marital',
-                            profileData['marit'],
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.cake_rounded,
-                            'Age',
-                            profileData['age']?.toString(),
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.height_rounded,
-                            'Height',
-                            profileData['height']?.toString(),
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.menu_book_rounded,
-                            'Religion',
-                            profileData['religion']?.toString(),
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                          _buildInfoRow(
-                            Icons.groups_rounded,
-                            'Community',
-                            profileData['community']?.toString(),
-                            kInfoLabel,
-                            kInfoValue,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  Transform.translate(
-                    offset: const Offset(0, -12),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 12),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () => openUrl(
-                                "${kAdminApiBaseUrl}/profile.php?id=${pId ?? ''}",
-                              ),
-                              child: Container(
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: kCardPrimary,
-                                    width: 1.2,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.open_in_new_rounded,
-                                      size: 12,
-                                      color: kCardPrimary,
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'Profile',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: kCardPrimary,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  Provider.of<ChatProvider>(
-                                    context,
-                                    listen: false,
-                                  ).updateName("${pLast}  ${pFirst}");
-                                  if (pIdValue != null) {
-                                    Provider.of<ChatProvider>(
-                                      context,
-                                      listen: false,
-                                    ).updateidd(pIdValue);
-                                  }
-                                });
-                              },
-                              child: Container(
-                                height: 32,
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      Color(0xFF7B61FF),
-                                      Color(0xFF5B41CF),
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(
-                                        0xFF7B61FF,
-                                      ).withOpacity(0.3),
-                                      blurRadius: 6,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: const Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.chat_bubble_rounded,
-                                      size: 12,
-                                      color: Colors.white,
-                                    ),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'Chat',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
+              child: AdminSharedProfileCard(
+                profileData: profileData,
+                onViewProfile: (uid) {
+                  final userIdInt = int.tryParse(uid);
+                  if (userIdInt != null) {
+                    _openProfileInNewTab(context, userIdInt);
+                  }
+                },
+                onChat: (userId, displayName) {
+                  setState(() {
+                    Provider.of<ChatProvider>(
+                      context,
+                      listen: false,
+                    ).updateName("$pLast  $pFirst");
+                    if (pIdValue != null) {
+                      Provider.of<ChatProvider>(
+                        context,
+                        listen: false,
+                      ).updateidd(pIdValue);
+                    }
+                  });
+                },
               ),
             ),
           footer(),
@@ -7247,8 +6645,7 @@ class _ChatWindowState extends State<ChatWindow> {
     // Generate a stable messageId now so the optimistic entry can be matched
     // by the socket echo when the server confirms delivery.
     final String msgId = const Uuid().v4();
-    final String msgType =
-        imagesToSend.length == 1 ? 'image' : 'image_gallery';
+    final String msgType = imagesToSend.length == 1 ? 'image' : 'image_gallery';
 
     // Show optimistic message immediately before upload completes.
     setState(() {
@@ -8433,6 +7830,8 @@ class _ChatWindowState extends State<ChatWindow> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _clearActiveIncomingCallDialog();
     _removeCallOverlay();
     _typingTimer?.cancel();
     _typingStopTimer?.cancel();
@@ -10375,7 +9774,9 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                   onTap: () {},
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(
-                        maxWidth: 420, maxHeight: 600),
+                      maxWidth: 420,
+                      maxHeight: 600,
+                    ),
                     child: Material(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(20),
@@ -10385,22 +9786,21 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                         children: [
                           // ── Header ─────────────────────────────────────────
                           Container(
-                            padding:
-                                const EdgeInsets.fromLTRB(20, 20, 8, 16),
+                            padding: const EdgeInsets.fromLTRB(20, 20, 8, 16),
                             decoration: const BoxDecoration(
                               gradient: LinearGradient(
-                                colors: [
-                                  Color(0xFF6366F1),
-                                  Color(0xFF8B5CF6),
-                                ],
+                                colors: [Color(0xFF6366F1), Color(0xFF8B5CF6)],
                                 begin: Alignment.topLeft,
                                 end: Alignment.bottomRight,
                               ),
                             ),
                             child: Row(
                               children: [
-                                const Icon(Icons.group_add,
-                                    color: Colors.white, size: 26),
+                                const Icon(
+                                  Icons.group_add,
+                                  color: Colors.white,
+                                  size: 26,
+                                ),
                                 const SizedBox(width: 12),
                                 const Expanded(
                                   child: Column(
@@ -10419,15 +9819,18 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                       Text(
                                         'Online users first',
                                         style: TextStyle(
-                                            color: Colors.white70,
-                                            fontSize: 12),
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                        ),
                                       ),
                                     ],
                                   ),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.close,
-                                      color: Colors.white70),
+                                  icon: const Icon(
+                                    Icons.close,
+                                    color: Colors.white70,
+                                  ),
                                   onPressed: widget.onClose,
                                 ),
                               ],
@@ -10436,29 +9839,26 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
 
                           // ── Search bar ─────────────────────────────────────
                           Padding(
-                            padding:
-                                const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                             child: TextField(
                               controller: _searchCtrl,
                               autofocus: true,
                               decoration: InputDecoration(
                                 hintText: 'Search by name…',
-                                prefixIcon:
-                                    const Icon(Icons.search, size: 20),
-                                contentPadding:
-                                    const EdgeInsets.symmetric(
-                                        vertical: 10, horizontal: 16),
+                                prefixIcon: const Icon(Icons.search, size: 20),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 16,
+                                ),
                                 filled: true,
                                 fillColor: Colors.grey.shade100,
                                 border: OutlineInputBorder(
-                                  borderRadius:
-                                      BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(12),
                                   borderSide: BorderSide.none,
                                 ),
                                 suffixIcon: _query.isNotEmpty
                                     ? IconButton(
-                                        icon: const Icon(Icons.clear,
-                                            size: 18),
+                                        icon: const Icon(Icons.clear, size: 18),
                                         onPressed: () {
                                           _searchCtrl.clear();
                                           setState(() => _query = '');
@@ -10466,8 +9866,7 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                       )
                                     : null,
                               ),
-                              onChanged: (v) =>
-                                  setState(() => _query = v),
+                              onChanged: (v) => setState(() => _query = v),
                             ),
                           ),
 
@@ -10479,9 +9878,11 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                     child: Column(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        Icon(Icons.search_off,
-                                            size: 52,
-                                            color: Colors.grey.shade400),
+                                        Icon(
+                                          Icons.search_off,
+                                          size: 52,
+                                          color: Colors.grey.shade400,
+                                        ),
                                         const SizedBox(height: 12),
                                         Text(
                                           _query.isEmpty
@@ -10500,50 +9901,47 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                     shrinkWrap: true,
                                     itemCount: filtered.length,
                                     separatorBuilder: (_, __) =>
-                                        const Divider(
-                                            height: 1, indent: 72),
+                                        const Divider(height: 1, indent: 72),
                                     itemBuilder: (_, idx) {
                                       final user = filtered[idx];
                                       final userId =
                                           user['id']?.toString() ?? '';
-                                      final displayName =
-                                          _displayName(user);
-                                      final photoUrl = user[
-                                              'profile_picture']
+                                      final displayName = _displayName(user);
+                                      final photoUrl = user['profile_picture']
                                           ?.toString();
-                                      final isOnline =
-                                          _isUserOnline(user);
-                                      final initial =
-                                          displayName.isNotEmpty
-                                              ? displayName[0]
-                                                  .toUpperCase()
-                                              : '?';
+                                      final isOnline = _isUserOnline(user);
+                                      final initial = displayName.isNotEmpty
+                                          ? displayName[0].toUpperCase()
+                                          : '?';
 
                                       return ListTile(
                                         contentPadding:
                                             const EdgeInsets.symmetric(
-                                                horizontal: 16,
-                                                vertical: 4),
+                                              horizontal: 16,
+                                              vertical: 4,
+                                            ),
                                         leading: Stack(
                                           clipBehavior: Clip.none,
                                           children: [
                                             CircleAvatar(
                                               radius: 24,
-                                              backgroundColor:
-                                                  const Color(0xFF6366F1)
-                                                      .withOpacity(0.15),
-                                              backgroundImage: (photoUrl !=
-                                                          null &&
+                                              backgroundColor: const Color(
+                                                0xFF6366F1,
+                                              ).withOpacity(0.15),
+                                              backgroundImage:
+                                                  (photoUrl != null &&
                                                       photoUrl.isNotEmpty)
                                                   ? NetworkImage(photoUrl)
                                                   : null,
-                                              child: (photoUrl == null ||
+                                              child:
+                                                  (photoUrl == null ||
                                                       photoUrl.isEmpty)
                                                   ? Text(
                                                       initial,
                                                       style: const TextStyle(
                                                         color: Color(
-                                                            0xFF6366F1),
+                                                          0xFF6366F1,
+                                                        ),
                                                         fontWeight:
                                                             FontWeight.w700,
                                                         fontSize: 16,
@@ -10560,11 +9958,13 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                                   height: 11,
                                                   decoration: BoxDecoration(
                                                     color: const Color(
-                                                        0xFF22C55E),
+                                                      0xFF22C55E,
+                                                    ),
                                                     shape: BoxShape.circle,
                                                     border: Border.all(
-                                                        color: Colors.white,
-                                                        width: 2),
+                                                      color: Colors.white,
+                                                      width: 2,
+                                                    ),
                                                   ),
                                                 ),
                                               ),
@@ -10588,12 +9988,16 @@ class _AddParticipantDialogState extends State<_AddParticipantDialog> {
                                         ),
                                         trailing: Container(
                                           padding: const EdgeInsets.symmetric(
-                                              horizontal: 14, vertical: 7),
+                                            horizontal: 14,
+                                            vertical: 7,
+                                          ),
                                           decoration: BoxDecoration(
-                                            color: const Color(0xFF6366F1)
-                                                .withOpacity(0.12),
-                                            borderRadius:
-                                                BorderRadius.circular(20),
+                                            color: const Color(
+                                              0xFF6366F1,
+                                            ).withOpacity(0.12),
+                                            borderRadius: BorderRadius.circular(
+                                              20,
+                                            ),
                                           ),
                                           child: const Text(
                                             'Add',

@@ -67,7 +67,8 @@ class MatchedProfilesList extends StatelessWidget {
 class MatchedProfileCard extends StatelessWidget {
   final Map<String, dynamic> profile;
   final VoidCallback? onSendRequest;
-  final String? currentStatus; // null | 'loading' | 'pending' | 'sent' | 'error'
+  final String?
+      currentStatus; // null | 'loading' | 'pending' | 'sent' | 'error'
 
   const MatchedProfileCard({
     Key? key,
@@ -80,19 +81,17 @@ class MatchedProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final name = _str(profile['firstName']).isNotEmpty
-        ? _str(profile['firstName'])
+    // Privacy: only last name is shown publicly
+    final name = _str(profile['lastName']).isNotEmpty
+        ? _str(profile['lastName'])
         : (_str(profile['name']).isNotEmpty ? _str(profile['name']) : 'Name');
     final age = _str(profile['age']);
     final height = _str(profile['height_name'] ?? profile['height']);
-    final profession =
-        _str(profile['designation'] ?? profile['profession']);
+    final profession = _str(profile['designation'] ?? profile['profession']);
     final location = _str(
       profile['city'] != null
           ? (profile['city'] as String) +
-              (profile['country'] != null
-                  ? ', ${profile['country']}'
-                  : '')
+              (profile['country'] != null ? ', ${profile['country']}' : '')
           : (profile['location'] ?? ''),
     );
     final imageUrl = _str(profile['profile_picture'] ?? profile['image']);
@@ -157,8 +156,8 @@ class MatchedProfileCard extends StatelessWidget {
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(0.12),
                           shape: BoxShape.circle,
-                          border: Border.all(
-                              color: Colors.white.withOpacity(0.35)),
+                          border:
+                              Border.all(color: Colors.white.withOpacity(0.35)),
                         ),
                         child: const Icon(Icons.lock_outline_rounded,
                             size: 20, color: Colors.white),
@@ -356,7 +355,8 @@ class MatchedProfileCard extends StatelessWidget {
         icon = Icons.person_add_alt_1_rounded;
     }
 
-    final Color bg = enabled ? AppColors.primary : Colors.white.withOpacity(0.20);
+    final Color bg =
+        enabled ? AppColors.primary : Colors.white.withOpacity(0.20);
     final Color fg = Colors.white;
 
     return SizedBox(

@@ -139,6 +139,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           setState(() {
             _isBlocked = true;
           });
+          // Notify chat list to remove the conversation immediately
+          SocketService().notifyUserBlocked(widget.userId);
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Profile blocked successfully!'),
@@ -1979,19 +1981,32 @@ class _ContactInfoSection extends StatelessWidget {
 
   Future<void> _navigateToAdminChat(BuildContext context) async {
     final Map<String, dynamic> profileData = {
+      // Unified fields
       'userId': userId,
-      'name': userProfile.name,
+      'memberId': userProfile.profileResponse?.data.personalDetail.memberid ?? '',
+      'firstName': '',
       'lastName': userProfile.profileResponse?.data.personalDetail.lastName ?? '',
-      'firstName': userProfile.profileResponse?.data.personalDetail.firstName ?? '',
+      'name': userProfile.name,
       'profileImage': userProfile.avatarUrl,
-      'bio': userProfile.bio,
-      'location': userProfile.location,
+      'galleryImages': userProfile.photoAlbumUrls,
       'age': _calculateAgeFromBirthDate(userProfile.birthDate),
-      'height': userProfile.height,
+      'location': userProfile.location,
+      'gender': '',
       'religion': userProfile.religion,
       'community': userProfile.community,
       'occupation': userProfile.occupation,
       'education': userProfile.degree,
+      'height': userProfile.height,
+      'maritalStatus': userProfile.maritalStatus,
+      'bio': userProfile.bio,
+      'matchPercent': 0,
+      'isPremium': userProfile.isCurrentUserPaid,
+      'isProfileVerified': userProfile.isVerified,
+      'privacy': userProfile.profileResponse?.data.personalDetail.privacy ?? 'private',
+      'photoRequest': userProfile.photoRequestStatus,
+      'canViewPhoto': !userProfile.shouldBlurPhotos,
+      'sharedBy': 'user',
+      // Backward-compat aliases
       'shouldBlurPhoto': userProfile.shouldBlurPhotos,
     };
 

@@ -14,8 +14,8 @@ $resp = [
 try {
     $dbHost = 'localhost';
     $dbName = 'ms';
-    $dbUser = 'ms';
-    $dbPass = 'ms';
+    $dbUser = 'root';
+    $dbPass = '';
     $dbCharset = 'utf8mb4';
 
     if ($_SERVER['REQUEST_METHOD'] !== 'GET') {

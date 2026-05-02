@@ -35,11 +35,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+    exit;
+}
+
 // ── DB credentials ────────────────────────────────────────────────────────────
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 // ── Input ─────────────────────────────────────────────────────────────────────
 $userId = isset($_GET['userid']) ? (int) $_GET['userid'] : 0;

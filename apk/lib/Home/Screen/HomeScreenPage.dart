@@ -192,7 +192,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       final userId = userData["id"].toString();
       userid = int.tryParse(userData['id']?.toString() ?? '') ?? 0;
 
-
       // Make API call
       final url = Uri.parse('${kApiBaseUrl}/Api2/match.php?userid=$userId');
       final response = await http.get(url);
@@ -203,7 +202,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         if (result['success'] == true) {
           final rawProfiles = List<dynamic>.from(result['matched_users'] ?? []);
           final photoProfiles = rawProfiles
-              .map((item) => MatchedUser.fromJson(Map<String, dynamic>.from(item)))
+              .map((item) =>
+                  MatchedUser.fromJson(Map<String, dynamic>.from(item)))
               .where((profile) {
             final status = profile.photoRequestStatus.toLowerCase();
             return status == 'accepted' || status == 'pending';
@@ -220,8 +220,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           // Save to persistent cache for instant display on next launch
           try {
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setString(_kMatchedProfilesCacheKey,
-                jsonEncode({'raw': rawProfiles}));
+            await prefs.setString(
+                _kMatchedProfilesCacheKey, jsonEncode({'raw': rawProfiles}));
           } catch (e) {
             debugPrint('Error saving matched profiles to persistent cache: $e');
           }
@@ -234,7 +234,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
             _photoRequestsLoading = false;
           });
         } else {
-          throw Exception(result['message'] ?? 'Failed to load matched profiles');
+          throw Exception(
+              result['message'] ?? 'Failed to load matched profiles');
         }
       } else {
         throw Exception('Failed to load data: ${response.statusCode}');
@@ -277,7 +278,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         if (_shortlistedProfiles.isEmpty) _isLoadingShortlist = true;
       });
 
-      final url = Uri.https('digitallami.com', '/Api2/likelist.php', {'user_id': userId});
+      final url = Uri.https(
+          'digitallami.com', '/Api2/likelist.php', {'user_id': userId});
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -291,10 +293,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           // Save to persistent cache for instant display on next launch
           try {
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setString(
-                _kShortlistedCacheKey, jsonEncode(profiles));
+            await prefs.setString(_kShortlistedCacheKey, jsonEncode(profiles));
           } catch (e) {
-            debugPrint('Error saving shortlisted profiles to persistent cache: $e');
+            debugPrint(
+                'Error saving shortlisted profiles to persistent cache: $e');
           }
 
           if (!mounted) return;
@@ -401,7 +403,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     final userid = userData["id"];
 
     try {
-      final url = Uri.parse('${kApiBaseUrl}/Api2/premiuimmember.php?user_id=${userid}');
+      final url =
+          Uri.parse('${kApiBaseUrl}/Api2/premiuimmember.php?user_id=${userid}');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -411,7 +414,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final List members = data['data'];
 
           // Debug log: received data from backend
-          debugPrint('Premium members API response - Total users: ${members.length}');
+          debugPrint(
+              'Premium members API response - Total users: ${members.length}');
 
           final membersList = members.map<Map<String, dynamic>>((member) {
             // Construct full profile picture URL
@@ -429,13 +433,15 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               'isVerified': member['isVerified'] ?? '0',
               'id': member['id'],
               'privacy': member['privacy']?.toString().toLowerCase() ?? '',
-              'photo_request': member['photo_request']?.toString().toLowerCase() ?? '',
+              'photo_request':
+                  member['photo_request']?.toString().toLowerCase() ?? '',
               'can_view_photo': PrivacyUtils.canViewPhotoFromJson(member),
             };
           }).toList();
 
           // Debug log: filtered premium users
-          debugPrint('Premium members processed - Total filtered: ${membersList.length}');
+          debugPrint(
+              'Premium members processed - Total filtered: ${membersList.length}');
 
           // Cache and update state
           _cache[cacheKey] = CachedData(membersList, DateTime.now());
@@ -471,7 +477,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     }
   }
 
-
   Future<void> _fetchRecentMembers() async {
     // Check cache first
     final cacheKey = 'recent_members';
@@ -495,7 +500,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
     try {
       // Use search_opposite_gender API with sort by recent registration
-      final url = Uri.parse('${kApiBaseUrl}/Api2/search_opposite_gender.php?user_id=$userid&sort_by=recent&limit=10');
+      final url = Uri.parse(
+          '${kApiBaseUrl}/Api2/search_opposite_gender.php?user_id=$userid&sort_by=recent&limit=10');
       final response = await http.get(url);
 
       if (response.statusCode == 200) {
@@ -507,7 +513,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           // Filter members registered after current user
           final membersList = members.where((member) {
             final memberCreatedDate = member['created_at'] ?? '';
-            if (memberCreatedDate.isEmpty || userCreatedDate.isEmpty) return true;
+            if (memberCreatedDate.isEmpty || userCreatedDate.isEmpty)
+              return true;
 
             try {
               final memberDate = DateTime.parse(memberCreatedDate);
@@ -537,7 +544,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               'isVerified': member['isVerified'] ?? '0',
               'id': member['id'],
               'privacy': member['privacy']?.toString().toLowerCase() ?? '',
-              'photo_request': member['photo_request']?.toString().toLowerCase() ?? '',
+              'photo_request':
+                  member['photo_request']?.toString().toLowerCase() ?? '',
               'can_view_photo': PrivacyUtils.canViewPhotoFromJson(member),
               'created_at': member['created_at'] ?? '',
             };
@@ -549,9 +557,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           // Save to persistent cache for instant display on next launch
           try {
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setString(_kRecentMembersCacheKey, jsonEncode(membersList));
+            await prefs.setString(
+                _kRecentMembersCacheKey, jsonEncode(membersList));
           } catch (e) {
-            debugPrint('Error saving recent members to persistent cache ($_kRecentMembersCacheKey): $e');
+            debugPrint(
+                'Error saving recent members to persistent cache ($_kRecentMembersCacheKey): $e');
           }
 
           if (!mounted) return;
@@ -585,13 +595,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     }
   }
 
-
-
-
-
-
-
-
   Future<UserMasterData> fetchUserMasterData(String userId) async {
     final url = Uri.parse(
       "${kApiBaseUrl}/Api2/masterdata.php?userid=$userId",
@@ -611,6 +614,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
     return UserMasterData.fromJson(res['data']);
   }
+
   Future<void> _fetchOtherServices() async {
     // Check cache first
     final cacheKey = 'other_services';
@@ -644,7 +648,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
             return {
               'category': service['servicetype'] ?? '',
-              'name': '${service['firstname'] ?? ''} ${service['lastname'] ?? ''}',
+              'name':
+                  '${service['firstname'] ?? ''} ${service['lastname'] ?? ''}',
               'age': service['age']?.toString() ?? '',
               'location': service['city'] ?? '',
               'experience': service['experience'] ?? '',
@@ -731,12 +736,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     }
   }
 
-
-
-
-
   String userimage = '';
-  var  pageno;
+  var pageno;
   String name = '';
 
   String _getGreeting() {
@@ -757,8 +758,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     // instantly without waiting for the masterdata API response.
     if (mounted) {
       setState(() {
-        name = '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim();
-        userimage = userData['profile_picture'] ?? userData['profilePicture'] ?? '';
+        name = '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'
+            .trim();
+        userimage =
+            userData['profile_picture'] ?? userData['profilePicture'] ?? '';
         _userId = userId?.toString() ?? '';
         userid = userId ?? 0;
       });
@@ -785,9 +788,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       // Keep UserState in sync using the data already fetched above –
       // avoids a second masterdata.php call just for verification/usertype.
       if (mounted) {
-        context
-            .read<UserState>()
-            .updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
+        context.read<UserState>().updateFromMasterData(
+            user.docStatus, user.isVerified, user.usertype);
       }
     } catch (e) {
       debugPrint("Error: $e");
@@ -839,12 +841,14 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final decoded = jsonDecode(matchedJson);
           if (decoded is Map<String, dynamic>) {
             final rawList = decoded['raw'];
-            final rawProfiles = rawList is List ? List<dynamic>.from(rawList) : <dynamic>[];
+            final rawProfiles =
+                rawList is List ? List<dynamic>.from(rawList) : <dynamic>[];
             final photoProfiles = rawProfiles
                 .whereType<Map>()
                 .map((item) {
                   try {
-                    return MatchedUser.fromJson(Map<String, dynamic>.from(item));
+                    return MatchedUser.fromJson(
+                        Map<String, dynamic>.from(item));
                   } catch (_) {
                     return null;
                   }
@@ -899,8 +903,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           if (decoded is Map<String, dynamic>) {
             if (mounted) {
               setState(() {
-                _proposalRequestCount = (decoded['proposal'] as num?)?.toInt() ?? 0;
-                _messageRequestCount = (decoded['message'] as num?)?.toInt() ?? 0;
+                _proposalRequestCount =
+                    (decoded['proposal'] as num?)?.toInt() ?? 0;
+                _messageRequestCount =
+                    (decoded['message'] as num?)?.toInt() ?? 0;
               });
             }
           }
@@ -915,8 +921,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         try {
           final decoded = jsonDecode(recentJson);
           if (decoded is List) {
-            final members = List<Map<String, dynamic>>.from(
-                decoded.whereType<Map<dynamic, dynamic>>().map((e) => Map<String, dynamic>.from(e)));
+            final members = List<Map<String, dynamic>>.from(decoded
+                .whereType<Map<dynamic, dynamic>>()
+                .map((e) => Map<String, dynamic>.from(e)));
             if (mounted && members.isNotEmpty) {
               setState(() {
                 _recentMembers = members;
@@ -940,7 +947,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     super.dispose();
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Consumer<SignupModel>(
@@ -951,206 +957,232 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           body: Stack(
             children: [
               RefreshIndicator(
-            color: AppColors.primary,
-            onRefresh: _refreshData,
-            child: ShimmerLoading(
-              isLoading: _isRefreshing,
-              child: SingleChildScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  AppSpacing.verticalSM,
-                  Consumer<UserState>(
-                    builder: (context, userState, _) {
-                      if (userState.isVerified) return const SizedBox.shrink();
-                      final isPending = userState.identityStatus == 'pending';
-                      if (!isPending) return const SizedBox.shrink();
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFF8E1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                                color: const Color(0xFFF57C00).withOpacity(0.5)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.hourglass_top_rounded,
-                                  color: Color(0xFFF57C00), size: 20),
-                              const SizedBox(width: 10),
-                              const Expanded(
-                                child: Text(
-                                  'Account under review – some features are limited '
-                                  'until your verification is complete.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF795548),
-                                    height: 1.4,
-                                  ),
+                color: AppColors.primary,
+                onRefresh: _refreshData,
+                child: ShimmerLoading(
+                  isLoading: _isRefreshing,
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AppSpacing.verticalSM,
+                        Consumer<UserState>(
+                          builder: (context, userState, _) {
+                            if (userState.isVerified)
+                              return const SizedBox.shrink();
+                            final isPending =
+                                userState.identityStatus == 'pending';
+                            if (!isPending) return const SizedBox.shrink();
+                            return Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF8E1),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                      color: const Color(0xFFF57C00)
+                                          .withOpacity(0.5)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(Icons.hourglass_top_rounded,
+                                        color: Color(0xFFF57C00), size: 20),
+                                    const SizedBox(width: 10),
+                                    const Expanded(
+                                      child: Text(
+                                        'Account under review – some features are limited '
+                                        'until your verification is complete.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Color(0xFF795548),
+                                          height: 1.4,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                            );
+                          },
+                        ),
+                        if (pageno != 10)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: _buildProfileCompletenessCard(),
+                          ),
+                        AppSpacing.verticalMD,
+                        // Recent Members Section
+                        VisibilityDetector(
+                          key: const Key('recent-members-section'),
+                          onVisibilityChanged: (info) {
+                            // Load data when section becomes visible (>10% visible)
+                            if (info.visibleFraction > 0.1 &&
+                                !_recentMembersLoaded) {
+                              _fetchRecentMembers();
+                            }
+                          },
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: GestureDetector(
+                                  onTap: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) => RecentMembersPage(
+                                              userId: userid))),
+                                  child: _buildSectionHeader(
+                                      'Recently Registered',
+                                      showSeeAll: true),
+                                ),
+                              ),
+                              AppSpacing.verticalSM,
+                              _buildRecentMembers(),
                             ],
                           ),
                         ),
-                      );
-                    },
-                  ),
-                  if (pageno != 10)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: _buildProfileCompletenessCard(),
-                    ),
-                  AppSpacing.verticalMD,
-                  // Recent Members Section
-                  VisibilityDetector(
-                    key: const Key('recent-members-section'),
-                    onVisibilityChanged: (info) {
-                      // Load data when section becomes visible (>10% visible)
-                      if (info.visibleFraction > 0.1 && !_recentMembersLoaded) {
-                        _fetchRecentMembers();
-                      }
-                    },
-                    child: Column(
-                      children: [
+                        AppSpacing.verticalMD,
+                        _buildStatsBanner(),
+                        AppSpacing.verticalMD,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _buildSectionHeader('Quick Actions',
+                              showSeeAll: false),
+                        ),
+                        AppSpacing.verticalSM,
+                        _buildQuickActions(),
+                        AppSpacing.verticalLG,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _buildSectionHeader('Suggested Profiles',
+                              showSeeAll: false),
+                        ),
+                        AppSpacing.verticalSM,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Container(
+                            height: MediaQuery.of(context).size.height * 0.63,
+                            decoration: BoxDecoration(
+                              borderRadius: AppDimensions.borderRadiusXL,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: AppColors.black.withOpacity(0.06),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
+                            child: ClipRRect(
+                              borderRadius: AppDimensions.borderRadiusXL,
+                              child: ProfileSwipeUI(
+                                userId: userid,
+                                matchApiUrl: '${kApiBaseUrl}/Api2/match.php',
+                                baseUrl: '${kApiBaseUrl}/Api2',
+                                sendRequestApiUrl:
+                                    '${kApiBaseUrl}/Api2/send_request.php',
+                                likeApiUrl:
+                                    '${kApiBaseUrl}/Api2/like_action.php',
+                              ),
+                            ),
+                          ),
+                        ),
+                        AppSpacing.verticalLG,
+                        VisibilityDetector(
+                          key: const Key('premium-members-section'),
+                          onVisibilityChanged: (info) {
+                            // Load data when section becomes visible (>10% visible)
+                            if (info.visibleFraction > 0.1 &&
+                                !_premiumMembersLoaded) {
+                              _fetchPremiumMembers();
+                            }
+                          },
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: GestureDetector(
+                                  onTap: () => Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) => PaidUsersListPage(
+                                              userId: userid))),
+                                  child: _buildSectionHeader('Premium Members',
+                                      showSeeAll: true),
+                                ),
+                              ),
+                              AppSpacing.verticalSM,
+                              _buildPremiumMembers(),
+                            ],
+                          ),
+                        ),
+                        AppSpacing.verticalLG,
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: GestureDetector(
                             onTap: () => Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                    builder: (_) =>
-                                        RecentMembersPage(userId: userid))),
-                            child: _buildSectionHeader('Recently Registered',
+                                    builder: (_) => MatchedProfilesPagee(
+                                        currentUserId: userid))),
+                            child: _buildSectionHeader('Matched Profiles',
                                 showSeeAll: true),
                           ),
                         ),
                         AppSpacing.verticalSM,
-                        _buildRecentMembers(),
-                      ],
-                    ),
-                  ),
-                  AppSpacing.verticalMD,
-                  _buildStatsBanner(),
-                  AppSpacing.verticalMD,
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _buildSectionHeader('Quick Actions', showSeeAll: false),
-                  ),
-                  AppSpacing.verticalSM,
-                  _buildQuickActions(),
-                  AppSpacing.verticalLG,
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _buildSectionHeader('Suggested Profiles', showSeeAll: false),
-                  ),
-                  AppSpacing.verticalSM,
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Container(
-                      height: MediaQuery.of(context).size.height * 0.63,
-                      decoration: BoxDecoration(
-                        borderRadius: AppDimensions.borderRadiusXL,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.black.withOpacity(0.06),
-                            blurRadius: 16,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: AppDimensions.borderRadiusXL,
-                        child: ProfileSwipeUI(
-                          userId: userid,
-                          matchApiUrl: '${kApiBaseUrl}/Api2/match.php',
-                          baseUrl: '${kApiBaseUrl}/Api2',
-                          sendRequestApiUrl: '${kApiBaseUrl}/Api2/send_request.php',
-                          likeApiUrl: '${kApiBaseUrl}/Api2/like_action.php',
-                        ),
-                      ),
-                    ),
-                  ),
-                  AppSpacing.verticalLG,
-                  VisibilityDetector(
-                    key: const Key('premium-members-section'),
-                    onVisibilityChanged: (info) {
-                      // Load data when section becomes visible (>10% visible)
-                      if (info.visibleFraction > 0.1 && !_premiumMembersLoaded) {
-                        _fetchPremiumMembers();
-                      }
-                    },
-                    child: Column(
-                      children: [
+                        _buildMatchedProfilesFromApi(),
+                        AppSpacing.verticalLG,
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           child: GestureDetector(
-                            onTap: () => Navigator.push(context,
-                                MaterialPageRoute(builder: (_) => PaidUsersListPage(userId: userid))),
-                            child: _buildSectionHeader('Premium Members', showSeeAll: true),
+                            onTap: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                    builder: (_) => FavoritePeoplePage())),
+                            child: _buildSectionHeader('Shortlisted Profiles',
+                                showSeeAll: true),
                           ),
                         ),
                         AppSpacing.verticalSM,
-                        _buildPremiumMembers(),
+                        _buildShortlistedProfiles(),
+                        AppSpacing.verticalLG,
+                        VisibilityDetector(
+                          key: const Key('other-services-section'),
+                          onVisibilityChanged: (info) {
+                            // Load data when section becomes visible (>10% visible)
+                            if (info.visibleFraction > 0.1 &&
+                                !_otherServicesLoaded) {
+                              _fetchOtherServices();
+                            }
+                          },
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: _buildSectionHeader('Other Services',
+                                    showSeeAll: false),
+                              ),
+                              AppSpacing.verticalSM,
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 16),
+                                child: _buildOtherServices(),
+                              ),
+                            ],
+                          ),
+                        ),
+                        AppSpacing.verticalXL,
                       ],
                     ),
                   ),
-                  AppSpacing.verticalLG,
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: GestureDetector(
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => MatchedProfilesPagee(
-                            currentUserId: userid))),
-                      child: _buildSectionHeader('Matched Profiles', showSeeAll: true),
-                    ),
-                  ),
-                  AppSpacing.verticalSM,
-                  _buildMatchedProfilesFromApi(),
-                  AppSpacing.verticalLG,
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: GestureDetector(
-                      onTap: () => Navigator.push(context,
-                          MaterialPageRoute(builder: (_) => FavoritePeoplePage())),
-                      child: _buildSectionHeader('Shortlisted Profiles', showSeeAll: true),
-                    ),
-                  ),
-                  AppSpacing.verticalSM,
-                  _buildShortlistedProfiles(),
-                  AppSpacing.verticalLG,
-                  VisibilityDetector(
-                    key: const Key('other-services-section'),
-                    onVisibilityChanged: (info) {
-                      // Load data when section becomes visible (>10% visible)
-                      if (info.visibleFraction > 0.1 && !_otherServicesLoaded) {
-                        _fetchOtherServices();
-                      }
-                    },
-                    child: Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _buildSectionHeader('Other Services', showSeeAll: false),
-                        ),
-                        AppSpacing.verticalSM,
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _buildOtherServices(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  AppSpacing.verticalXL,
-                ],
+                ),
               ),
-            ),
-          ),
-          ),
               // Thin progress indicator at top during silent background refresh
               if (_isSilentRefreshing)
                 Positioned(
@@ -1266,7 +1298,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                       if (_userId.isNotEmpty) ...[
                         Text(
                           'MS: $_userId',
-                          style: AppTextStyles.primaryLabel.copyWith(fontSize: 11),
+                          style:
+                              AppTextStyles.primaryLabel.copyWith(fontSize: 11),
                         ),
                         AppSpacing.horizontalXS,
                       ],
@@ -1295,7 +1328,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => SubscriptionPage()),
-                ).then((_) { if (mounted) loadMasterData(); }),
+                ).then((_) {
+                  if (mounted) loadMasterData();
+                }),
                 child: Container(
                   height: 34,
                   padding: const EdgeInsets.symmetric(horizontal: 11),
@@ -1360,7 +1395,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.workspace_premium_rounded, color: Colors.white, size: 14),
+                    Icon(Icons.workspace_premium_rounded,
+                        color: Colors.white, size: 14),
                     SizedBox(width: 4),
                     Text(
                       'Premium',
@@ -1382,7 +1418,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           onPressed: () async {
             if (await VerificationService.requireVerification(context)) {
               if (!context.mounted) return;
-              Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
+              Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => SearchPage()));
             }
           },
         ),
@@ -1393,7 +1430,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     );
   }
 
-  Widget _buildAppBarIcon({required IconData icon, required VoidCallback onPressed}) {
+  Widget _buildAppBarIcon(
+      {required IconData icon, required VoidCallback onPressed}) {
     return Container(
       width: 38,
       height: 38,
@@ -1417,7 +1455,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           icon: Icons.notifications_rounded,
           onPressed: () => Navigator.push(
             context,
-            MaterialPageRoute(builder: (_) => const MatrimonyNotificationPage()),
+            MaterialPageRoute(
+                builder: (_) => const MatrimonyNotificationPage()),
           ).then((_) => _loadUnreadNotificationCount()),
         ),
         if (_unreadNotificationCount > 0)
@@ -1448,7 +1487,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   }
 
   Widget _buildProfileCompletenessCard() {
-    final double progress = (pageno != null ? (pageno * 10) / 100.0 : 0.0).clamp(0.0, 1.0);
+    final double progress =
+        (pageno != null ? (pageno * 10) / 100.0 : 0.0).clamp(0.0, 1.0);
     final int percent = (progress * 100).round();
 
     return Container(
@@ -1499,7 +1539,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                         child: LinearProgressIndicator(
                           value: progress,
                           backgroundColor: AppColors.white.withOpacity(0.25),
-                          valueColor: const AlwaysStoppedAnimation<Color>(AppColors.white),
+                          valueColor: const AlwaysStoppedAnimation<Color>(
+                              AppColors.white),
                           minHeight: 8,
                         ),
                       ),
@@ -1517,10 +1558,13 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                 ),
                 AppSpacing.verticalSM,
                 GestureDetector(
-                  onTap: () => Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => IDVerificationScreen())),
+                  onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => IDVerificationScreen())),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
                       color: AppColors.white,
                       borderRadius: AppDimensions.borderRadiusRound,
@@ -1583,10 +1627,30 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     final int servicesCount = _otherServices.length;
 
     final stats = [
-      {'icon': Icons.favorite_rounded, 'value': '$matchCount', 'label': 'Matches', 'color': AppColors.primary},
-      {'icon': Icons.star_rounded, 'value': '$premiumCount', 'label': 'Premium', 'color': const Color(0xFFFFA000)},
-      {'icon': Icons.person_rounded, 'value': '$profilePercent%', 'label': 'Profile', 'color': const Color(0xFF2196F3)},
-      {'icon': Icons.handshake_rounded, 'value': '$servicesCount', 'label': 'Services', 'color': const Color(0xFF00897B)},
+      {
+        'icon': Icons.favorite_rounded,
+        'value': '$matchCount',
+        'label': 'Matches',
+        'color': AppColors.primary
+      },
+      {
+        'icon': Icons.star_rounded,
+        'value': '$premiumCount',
+        'label': 'Premium',
+        'color': const Color(0xFFFFA000)
+      },
+      {
+        'icon': Icons.person_rounded,
+        'value': '$profilePercent%',
+        'label': 'Profile',
+        'color': const Color(0xFF2196F3)
+      },
+      {
+        'icon': Icons.handshake_rounded,
+        'value': '$servicesCount',
+        'label': 'Services',
+        'color': const Color(0xFF00897B)
+      },
     ];
 
     return Container(
@@ -1652,7 +1716,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         'onTap': () async {
           if (await VerificationService.requireVerification(context)) {
             if (!context.mounted) return;
-            Navigator.push(context, MaterialPageRoute(builder: (_) => SearchPage()));
+            Navigator.push(
+                context, MaterialPageRoute(builder: (_) => SearchPage()));
           }
         },
       },
@@ -1661,24 +1726,24 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         'label': 'Proposals',
         'count': _proposalRequestCount,
         'gradient': [AppColors.primary, AppColors.primaryDark],
-        'onTap': () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => ProposalsPage())),
+        'onTap': () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => ProposalsPage())),
       },
       {
         'icon': Icons.favorite_rounded,
         'label': 'Favorites',
         'count': _favoriteRequestCount,
         'gradient': [const Color(0xFFE91E63), const Color(0xFFC2185B)],
-        'onTap': () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => FavoritePeoplePage())),
+        'onTap': () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => FavoritePeoplePage())),
       },
       {
         'icon': Icons.chat_bubble_rounded,
         'label': 'Messages',
         'count': _messageRequestCount,
         'gradient': [const Color(0xFF2196F3), const Color(0xFF1565C0)],
-        'onTap': () => Navigator.push(context,
-            MaterialPageRoute(builder: (_) => ChatListScreen())),
+        'onTap': () => Navigator.push(
+            context, MaterialPageRoute(builder: (_) => ChatListScreen())),
       },
     ];
 
@@ -1694,7 +1759,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               onTap: onTap,
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 4),
-                padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
+                padding:
+                    const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: gradient,
@@ -1814,7 +1880,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                   color: Colors.red.shade300, size: 40),
               AppSpacing.verticalSM,
               Text('Failed to load profiles',
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textSecondary)),
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textSecondary)),
               AppSpacing.verticalSM,
               TextButton(
                 onPressed: fetchMatchedProfiles,
@@ -1837,7 +1904,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                   size: 48, color: AppColors.border),
               AppSpacing.verticalSM,
               Text('No matched profiles found',
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint)),
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textHint)),
             ],
           ),
         ),
@@ -1856,7 +1924,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final lastName = profile['lastName'] ?? '';
           final displayName = userId.isNotEmpty
               ? '$userId $lastName'.trim()
-              : lastName.isNotEmpty ? lastName : 'User';
+              : lastName.isNotEmpty
+                  ? lastName
+                  : 'User';
           final age = profile['age']?.toString() ?? '';
           final height = profile['height_name'] ?? '';
           final profession = profile['designation'] ?? '';
@@ -1870,8 +1940,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               : '';
           final matchPercent = profile['matchPercent'];
           final isVerified = profile['isVerified'] == 1;
-          final matchedPrivacy = profile['privacy']?.toString().toLowerCase() ?? '';
-          final matchedPhotoRequest = profile['photo_request']?.toString().toLowerCase() ?? '';
+          final matchedPrivacy =
+              profile['privacy']?.toString().toLowerCase() ?? '';
+          final matchedPhotoRequest =
+              profile['photo_request']?.toString().toLowerCase() ?? '';
           final matchedShowClear = profile['can_view_photo'] == true;
 
           Color matchColor = AppColors.success;
@@ -1919,10 +1991,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               if (profileUserId != null) {
                 if (await VerificationService.requireVerification(context)) {
                   if (!context.mounted) return;
-                  Navigator.push(context, MaterialPageRoute(
-                      builder: (_) => ProfileLoader(
-                          userId: profileUserId.toString(),
-                          myId: userid.toString())));
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => ProfileLoader(
+                              userId: profileUserId.toString(),
+                              myId: userid.toString())));
                 }
               }
             },
@@ -1980,9 +2054,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                   shadows: [
-                                    Shadow(
-                                        color: Colors.black45,
-                                        blurRadius: 4)
+                                    Shadow(color: Colors.black45, blurRadius: 4)
                                   ],
                                 ),
                                 maxLines: 1,
@@ -2053,13 +2125,13 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                 Row(
                                   children: [
                                     Icon(Icons.work_outline_rounded,
-                                        size: 11,
-                                        color: AppColors.textHint),
+                                        size: 11, color: AppColors.textHint),
                                     AppSpacing.horizontalXS,
                                     Expanded(
                                       child: Text(
                                         profession,
-                                        style: AppTextStyles.captionSmall.copyWith(
+                                        style:
+                                            AppTextStyles.captionSmall.copyWith(
                                           fontSize: 11,
                                           color: AppColors.textSecondary,
                                         ),
@@ -2075,13 +2147,13 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                 Row(
                                   children: [
                                     Icon(Icons.location_on_outlined,
-                                        size: 11,
-                                        color: AppColors.textHint),
+                                        size: 11, color: AppColors.textHint),
                                     AppSpacing.horizontalXS,
                                     Expanded(
                                       child: Text(
                                         location,
-                                        style: AppTextStyles.captionSmall.copyWith(
+                                        style:
+                                            AppTextStyles.captionSmall.copyWith(
                                           fontSize: 11,
                                           color: AppColors.textSecondary,
                                         ),
@@ -2108,14 +2180,15 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                               onPressed: () async {
                                 final profileUserId = profile['userid'];
                                 if (profileUserId != null) {
-                                  if (await VerificationService.requireVerification(context)) {
+                                  if (await VerificationService
+                                      .requireVerification(context)) {
                                     if (!context.mounted) return;
                                     Navigator.push(
                                         context,
                                         MaterialPageRoute(
                                             builder: (_) => ProfileLoader(
-                                                userId: profileUserId
-                                                    .toString(),
+                                                userId:
+                                                    profileUserId.toString(),
                                                 myId: userid.toString())));
                                   }
                                 }
@@ -2155,7 +2228,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                   size: 48, color: AppColors.border),
               AppSpacing.verticalSM,
               Text('No shortlisted profiles yet',
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint)),
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textHint)),
             ],
           ),
         ),
@@ -2170,9 +2244,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         padding: const EdgeInsets.only(left: 16, right: 8),
         itemBuilder: (context, index) {
           final person = _shortlistedProfiles[index];
-          final firstName = person['firstName']?.toString() ?? '';
           final lastName = person['lastName']?.toString() ?? '';
-          final fullName = '$firstName $lastName'.trim();
+          // Privacy: only last name is shown publicly
+          final fullName = lastName;
           final displayName = fullName.isNotEmpty ? fullName : 'User';
           final city = person['city']?.toString() ?? '';
           final profilePicture = person['profile_picture']?.toString() ?? '';
@@ -2184,8 +2258,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final isVerified =
               person['isVerified'] == 1 || person['isVerified'] == '1';
           final receiverId = person['userid'];
-          final shortlistPrivacy = person['privacy']?.toString().toLowerCase() ?? '';
-          final shortlistPhotoRequest = person['photo_request']?.toString().toLowerCase() ?? '';
+          final shortlistPrivacy =
+              person['privacy']?.toString().toLowerCase() ?? '';
+          final shortlistPhotoRequest =
+              person['photo_request']?.toString().toLowerCase() ?? '';
           final shortlistShowClear = person['can_view_photo'] == true;
 
           Widget shortlistProfileImg = imageUrl.isNotEmpty
@@ -2291,13 +2367,16 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                             Row(
                               children: [
                                 Icon(Icons.location_on,
-                                    size: 12, color: AppColors.white.withOpacity(0.7)),
+                                    size: 12,
+                                    color: AppColors.white.withOpacity(0.7)),
                                 AppSpacing.horizontalXS,
                                 Expanded(
                                   child: Text(
                                     city,
                                     style: AppTextStyles.captionSmall.copyWith(
-                                        fontSize: 11, color: AppColors.white.withOpacity(0.7)),
+                                        fontSize: 11,
+                                        color:
+                                            AppColors.white.withOpacity(0.7)),
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -2348,7 +2427,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                   size: 48, color: AppColors.border),
               AppSpacing.verticalSM,
               Text('No premium members yet',
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint)),
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textHint)),
             ],
           ),
         ),
@@ -2374,8 +2454,10 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
             if (ageStr.isNotEmpty && ageStr != '0') '$ageStr yrs',
             if (location.isNotEmpty) location,
           ].join(' · ');
-          final premiumPrivacy = profile['privacy']?.toString().toLowerCase() ?? '';
-          final premiumPhotoRequest = profile['photo_request']?.toString().toLowerCase() ?? '';
+          final premiumPrivacy =
+              profile['privacy']?.toString().toLowerCase() ?? '';
+          final premiumPhotoRequest =
+              profile['photo_request']?.toString().toLowerCase() ?? '';
           final premiumShowClear = profile['can_view_photo'] == true;
 
           Widget premiumProfileImg = Image.network(
@@ -2403,9 +2485,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
             onTap: () async {
               if (await VerificationService.requireVerification(context)) {
                 if (!context.mounted) return;
-                Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => ProfileLoader(
-                        userId: userIdd.toString(), myId: userid.toString())));
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => ProfileLoader(
+                            userId: userIdd.toString(),
+                            myId: userid.toString())));
               }
             },
             child: Container(
@@ -2525,7 +2610,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                   Expanded(
                                     child: Text(
                                       detailLine,
-                                      style: AppTextStyles.captionSmall.copyWith(
+                                      style:
+                                          AppTextStyles.captionSmall.copyWith(
                                         fontSize: 11,
                                         color: AppColors.textSecondary,
                                       ),
@@ -2550,7 +2636,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                 ),
                               ),
                               onPressed: () async {
-                                if (await VerificationService.requireVerification(context)) {
+                                if (await VerificationService
+                                    .requireVerification(context)) {
                                   if (!context.mounted) return;
                                   Navigator.push(
                                       context,
@@ -2595,7 +2682,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                   size: 48, color: AppColors.border),
               AppSpacing.verticalSM,
               Text('No recent members yet',
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint)),
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textHint)),
             ],
           ),
         ),
@@ -2622,7 +2710,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final imageUrl = profile['image'] ?? '';
           final isVerified = profile['isVerified']?.toString() == '1';
           final privacy = profile['privacy']?.toString().toLowerCase() ?? '';
-          final photoRequest = profile['photo_request']?.toString().toLowerCase() ?? '';
+          final photoRequest =
+              profile['photo_request']?.toString().toLowerCase() ?? '';
 
           // Determine if we should show clear image (use backend-computed can_view_photo)
           final shouldShowClearImage = profile['can_view_photo'] == true;
@@ -2631,9 +2720,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
             onTap: () async {
               if (await VerificationService.requireVerification(context)) {
                 if (!context.mounted) return;
-                Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => ProfileLoader(
-                        userId: userIdd.toString(), myId: userid.toString())));
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => ProfileLoader(
+                            userId: userIdd.toString(),
+                            myId: userid.toString())));
               }
             },
             child: Container(
@@ -2685,7 +2777,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                       color: AppColors.background,
                                       child: const Center(
                                         child: Icon(Icons.person_rounded,
-                                            size: 60, color: AppColors.textHint),
+                                            size: 60,
+                                            color: AppColors.textHint),
                                       ),
                                     ),
                                   ),
@@ -2699,7 +2792,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                       filter: ui.ImageFilter.blur(
                                           sigmaX: 14, sigmaY: 14),
                                       child: Container(
-                                        color: AppColors.black.withOpacity(0.05),
+                                        color:
+                                            AppColors.black.withOpacity(0.05),
                                       ),
                                     ),
                                   ),
@@ -2770,9 +2864,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                           AppSpacing.verticalXS,
                           Text(
                             [
-                              if (age.toString().isNotEmpty && age.toString() != '0') '$age yrs',
+                              if (age.toString().isNotEmpty &&
+                                  age.toString() != '0')
+                                '$age yrs',
                               if (heightName.isNotEmpty)
-                                heightName.replaceAll(RegExp(r'\s*cm.*'), ' cm'),
+                                heightName.replaceAll(
+                                    RegExp(r'\s*cm.*'), ' cm'),
                             ].join(' · '),
                             style: AppTextStyles.captionSmall.copyWith(
                               fontSize: 11,
@@ -2840,11 +2937,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.handshake_outlined,
-                  size: 40, color: AppColors.border),
+              Icon(Icons.handshake_outlined, size: 40, color: AppColors.border),
               AppSpacing.verticalSM,
               Text('No services available',
-                  style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint)),
+                  style: AppTextStyles.bodyMedium
+                      .copyWith(color: AppColors.textHint)),
             ],
           ),
         ),
@@ -2992,7 +3089,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                         ),
                         child: Text(
                           'Exp: ${service['experience']}',
-                          style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary),
+                          style: AppTextStyles.labelSmall
+                              .copyWith(color: AppColors.primary),
                         ),
                       ),
                       AppSpacing.verticalSM,
@@ -3049,7 +3147,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       for (final request in requests) {
         final requestType = (request.requestType ?? '').toLowerCase();
         final status = (request.status ?? '').toLowerCase();
-        final isSentByCurrentUser = request.senderId?.toString() == currentUserId;
+        final isSentByCurrentUser =
+            request.senderId?.toString() == currentUserId;
 
         if (requestType != 'chat' || !isSentByCurrentUser) {
           continue;
@@ -3121,9 +3220,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       return rawImage;
     }
 
-    final normalizedPath = rawImage.startsWith('/')
-        ? rawImage.substring(1)
-        : rawImage;
+    final normalizedPath =
+        rawImage.startsWith('/') ? rawImage.substring(1) : rawImage;
     return '$_apiBaseUrl/$normalizedPath';
   }
 
@@ -3148,7 +3246,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
             AppSpacing.verticalSM,
             Text(
               message,
-              style: AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint),
+              style:
+                  AppTextStyles.bodyMedium.copyWith(color: AppColors.textHint),
             ),
           ],
         ),
@@ -3267,8 +3366,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     }
   }
 
-
-
   Widget _buildSectionHeader(String title, {bool showSeeAll = true}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -3301,7 +3398,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
             children: [
               Text(
                 'See All',
-                style: AppTextStyles.labelSmall.copyWith(color: AppColors.primary.withOpacity(0.85)),
+                style: AppTextStyles.labelSmall
+                    .copyWith(color: AppColors.primary.withOpacity(0.85)),
               ),
               AppSpacing.horizontalXS,
               const Icon(Icons.chevron_right_rounded,

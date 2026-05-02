@@ -4,8 +4,9 @@ import 'package:http/http.dart' as http;
 import 'package:adminmrz/config/app_endpoints.dart';
 
 class AgoraTokenService {
-  static const String tokenUrl = '${kAdminApiBaseUrl}/Api2/test_token.php';
-  static const String appId = '7750d283e6794eebba06e7d021e8a01c'; // Your Agora App ID
+  static final String tokenUrl = '$kAdminApiBaseUrl/Api2/test_token.php';
+  static const String appId =
+      '7750d283e6794eebba06e7d021e8a01c'; // Your Agora App ID
 
   /// Fetches an Agora token from your PHP server.
   /// [channelName] - name of the Agora channel
@@ -19,20 +20,16 @@ class AgoraTokenService {
     bool isStringUid = false,
   }) async {
     try {
-      final uri = Uri.parse(tokenUrl).replace(queryParameters: {
-        'channelName': channelName,
-        'uid': uid.toString(),
-        'expireTime': expireTime.toString(),
-        'isStringUid': isStringUid ? '1' : '0',
-      });
+      final uri = Uri.parse(tokenUrl).replace(
+        queryParameters: {
+          'channelName': channelName,
+          'uid': uid.toString(),
+          'expireTime': expireTime.toString(),
+          'isStringUid': isStringUid ? '1' : '0',
+        },
+      );
 
-
-      final response = await http.get(
-        uri,
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
-
-
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
 
       if (response.statusCode != 200) {
         throw Exception('HTTP ${response.statusCode}: ${response.body}');
@@ -54,8 +51,7 @@ class AgoraTokenService {
       }
 
       // Optional: verify token format
-      if (token.startsWith('007')) {
-      }
+      if (token.startsWith('007')) {}
 
       return token;
     } catch (e) {
@@ -70,7 +66,6 @@ class AgoraTokenService {
       const testUid = 12345;
 
       final token = await getToken(channelName: testChannel, uid: testUid);
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 }

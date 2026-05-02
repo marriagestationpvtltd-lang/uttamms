@@ -2,7 +2,7 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-$conn = new mysqli("localhost", "ms", "ms", "ms");
+$conn = new mysqli("localhost", "root", "", "ms");
 
 $input = json_decode(file_get_contents('php://input'), true);
 $myId = intval($input['my_id'] ?? 0);

@@ -19,6 +19,30 @@ $base_url = "https://digitallami.com/Api2/";
    STEP 0: Parse POST body
 ---------------------------------------------------------- */
 $postData = json_decode(file_get_contents("php://input"), true);
+if (!is_array($postData)) {
+    $postData = [];
+}
+
+if (!isset($postData['user_id'])) {
+    // Compatibility path for clients/tools that still send query parameters.
+    if (isset($_GET['user_id'])) {
+        $postData['user_id'] = $_GET['user_id'];
+        if (isset($_GET['page'])) {
+            $postData['page'] = $_GET['page'];
+        }
+        if (isset($_GET['per_page'])) {
+            $postData['per_page'] = $_GET['per_page'];
+        } elseif (isset($_GET['limit'])) {
+            $postData['per_page'] = $_GET['limit'];
+        }
+        if (isset($_GET['search'])) {
+            $postData['search'] = $_GET['search'];
+        }
+        if (isset($_GET['filter_type'])) {
+            $postData['filter_type'] = $_GET['filter_type'];
+        }
+    }
+}
 
 if (!isset($postData['user_id'])) {
     echo json_encode(["status" => "error", "message" => "user_id is required"]);
@@ -71,7 +95,9 @@ if ($userResult->num_rows === 0) {
     $user = $userResult->fetch_assoc();
 }
 
-$oppositeGender = ($user['gender'] === 'Male') ? 'Female' : 'Male';
+$normalizedGender = strtolower(trim((string)($user['gender'] ?? '')));
+$hasBinaryGender = in_array($normalizedGender, ['male', 'female'], true);
+$oppositeGender = ($normalizedGender === 'male') ? 'Female' : 'Male';
 
 /* ----------------------------------------------------------
    STEP 2: Get partner preferences
@@ -92,9 +118,17 @@ if ($prefResult->num_rows > 0) {
    — occupation, education, marital status, country, paid status
      are all resolved in a single SQL round-trip.
 ---------------------------------------------------------- */
-$whereClauses = ["u.gender = ?", "u.id != ?"];
-$bindTypes    = "si";
-$bindParams   = [$oppositeGender, $user_id];
+$whereClauses = ["u.id != ?"];
+$bindTypes    = "i";
+$bindParams   = [$user_id];
+
+// Some local datasets have empty/non-standard gender values.
+// In that case do not hard-filter by opposite gender; return usable matches.
+if ($hasBinaryGender) {
+    $whereClauses[] = "LOWER(u.gender) = LOWER(?)";
+    $bindTypes     .= 's';
+    $bindParams[]   = $oppositeGender;
+}
 
 if ($search !== '') {
     $like           = '%' . $search . '%';
@@ -109,7 +143,7 @@ $whereSQL = 'WHERE ' . implode(' AND ', $whereClauses);
 $countSQL  = "
     SELECT COUNT(*) AS total
     FROM   users u
-    JOIN   userpersonaldetail upd ON u.id = upd.userId
+    LEFT JOIN userpersonaldetail upd ON u.id = upd.userId
     $whereSQL
 ";
 $countStmt = $conn->prepare($countSQL);
@@ -132,7 +166,7 @@ $mainSQL = "
         co.name   AS country_name,
         CASE WHEN MAX(up.netAmount) > 0 THEN 1 ELSE 0 END AS is_paid_int
     FROM   users u
-    JOIN   userpersonaldetail upd ON u.id = upd.userId
+    LEFT JOIN userpersonaldetail upd ON u.id = upd.userId
     LEFT   JOIN occupation   occ  ON upd.occupationId   = occ.id
     LEFT   JOIN education    edu  ON upd.educationId    = edu.id
     LEFT   JOIN maritalstatus ms  ON upd.maritalStatusId = ms.id
@@ -239,14 +273,8 @@ while ($row = $matches->fetch_assoc()) {
         ? round(($matchedWeight / $totalWeight) * 100)
         : 50;
 
-    // Apply filter_type='matched': only include profiles with >0% match.
-    // Match percentage is calculated in PHP (complex weighted logic) so it
-    // cannot be pushed to SQL without duplicating the logic. Pagination
-    // (per_page rows fetched per request) limits the dataset size to keep
-    // this in-memory filter fast in practice.
-    if ($filterType === 'matched' && $hasPreference && $matchPercent === 0) {
-        continue;
-    }
+    // Keep 0% rows too so local environments with sparse profile/preference
+    // data still show a list in the Match Profiles sidebar.
 
     // Profile picture
     $profile_picture = '';

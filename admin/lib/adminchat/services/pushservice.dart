@@ -5,23 +5,25 @@ import 'dart:async';
 import 'callmanager.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 
-
 class NotificationService {
   static final CallManager _callManager = CallManager();
 
-  static Stream<Map<String, dynamic>> get incomingCalls => _callManager.incomingCalls;
-  static Stream<Map<String, dynamic>> get callResponses => _callManager.callResponses;
+  static Stream<Map<String, dynamic>> get incomingCalls =>
+      _callManager.incomingCalls;
+  static Stream<Map<String, dynamic>> get callResponses =>
+      _callManager.callResponses;
 
   static void triggerIncomingCall(Map<String, dynamic> data) {
     _callManager.triggerIncomingCall(data);
   }
 
-
   // Your existing PHP API endpoint
-  static const String _notificationUrl = '${kAdminApiBaseUrl}/Api2/send_notification.php';
+  static final String _notificationUrl =
+      '$kAdminApiBaseUrl/Api2/send_notification.php';
 
   // Stream for call responses (listen in outgoing call screen)
-  static final StreamController<Map<String, dynamic>> _callResponseController = StreamController.broadcast();
+  static final StreamController<Map<String, dynamic>> _callResponseController =
+      StreamController.broadcast();
 
   // Trigger response event (call this from FCM onMessage handler)
   static void triggerCallResponse(Map<String, dynamic> data) {
@@ -29,8 +31,6 @@ class NotificationService {
       _callResponseController.add(data);
     }
   }
-
-
 
   /// Send request notification
   static Future<bool> sendRequestNotification({
@@ -118,15 +118,7 @@ class NotificationService {
     );
   }
 
-
-
-
-
-
-
-
-
-// Send any notification using your existing PHP API
+  // Send any notification using your existing PHP API
   static Future<bool> sendNotification({
     required String userId,
     required String title,
@@ -134,15 +126,17 @@ class NotificationService {
     required Map<String, dynamic> data,
   }) async {
     try {
-      final response = await http.post(
-        Uri.parse(_notificationUrl),
-        body: {
-          'user_id': userId,
-          'title': title,
-          'body': body,
-          'data': json.encode(data),
-        },
-      );
+      final response = await http
+          .post(
+            Uri.parse(_notificationUrl),
+            body: {
+              'user_id': userId,
+              'title': title,
+              'body': body,
+              'data': json.encode(data),
+            },
+          )
+          .timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
@@ -259,9 +253,9 @@ class NotificationService {
     return '${minutes}m ${remainingSeconds}s';
   }
 
-// Add these video call notification methods to your existing NotificationService class
+  // Add these video call notification methods to your existing NotificationService class
 
-// Send video call notification (OUTGOING)
+  // Send video call notification (OUTGOING)
   static Future<bool> sendVideoCallNotification({
     required String recipientUserId,
     required String callerName,
@@ -357,7 +351,7 @@ class NotificationService {
     );
   }
 
-// Send video call response (INCOMING - Accept/Reject)
+  // Send video call response (INCOMING - Accept/Reject)
   static Future<bool> sendVideoCallResponseNotification({
     required String callerId,
     required String recipientName,
@@ -383,7 +377,7 @@ class NotificationService {
     );
   }
 
-// Send missed video call notification
+  // Send missed video call notification
   static Future<bool> sendMissedVideoCallNotification({
     required String callerId,
     required String callerName,
@@ -401,7 +395,7 @@ class NotificationService {
     );
   }
 
-// Send video call ended notification
+  // Send video call ended notification
   static Future<bool> sendVideoCallEndedNotification({
     required String recipientUserId,
     required String callerName,
@@ -410,7 +404,9 @@ class NotificationService {
   }) async {
     return await sendNotification(
       userId: recipientUserId,
-      title: reason == 'timeout' ? '⏰ Missed Video Call' : '📹 Video Call Ended',
+      title: reason == 'timeout'
+          ? '⏰ Missed Video Call'
+          : '📹 Video Call Ended',
       body: reason == 'timeout'
           ? 'You missed a video call from $callerName'
           : 'Video call with $callerName ended (${_formatDuration(duration)})',
@@ -424,5 +420,4 @@ class NotificationService {
       },
     );
   }
-
 }

@@ -172,7 +172,15 @@ class WebNotificationService {
           try {
             var AudioCtx = window.AudioContext || window.webkitAudioContext;
             if (!AudioCtx) return;
-            var ctx = new AudioCtx();
+            // Reuse a single global AudioContext to avoid the 6-context limit
+            // imposed by Chrome and to reduce garbage-collection overhead.
+            if (!window._uttamAudioCtx || window._uttamAudioCtx.state === 'closed') {
+              window._uttamAudioCtx = new AudioCtx();
+            }
+            var ctx = window._uttamAudioCtx;
+            if (ctx.state === 'suspended') {
+              ctx.resume().catch(function(){});
+            }
 
             // Two quick descending tones, identical to WhatsApp's ping.
             var tones = [
@@ -212,22 +220,62 @@ class WebNotificationService {
   static const String _kCallRingtoneUrl = '/assets/audio/ring_classic.wav';
   static html.AudioElement? _callRingtoneEl;
 
+  /// Preloads the call ringtone audio file into the browser cache so that
+  /// [playCallRingtone] starts instantly without any network/decode latency.
+  /// Call this once after first user interaction (browser autoplay policy
+  /// requires a prior gesture before audio can be preloaded).
+  static void preloadCallRingtone() {
+    try {
+      if (_callRingtoneEl != null) return; // already preloaded
+      final el = html.AudioElement(_kCallRingtoneUrl)
+        ..loop = true
+        ..volume = 0.85
+        ..preload = 'auto'; // instruct browser to buffer the file now
+      el.load(); // trigger buffering
+      _callRingtoneEl = el;
+    } catch (_) {}
+  }
+
   /// Starts looping the incoming call ringtone.
   /// Uses `assets/audio/ring_classic.wav` bundled with the admin app.
   /// Safe to call multiple times — a running ringtone is stopped first.
   static void playCallRingtone() {
     stopCallRingtone();
     try {
-      final el = html.AudioElement(_kCallRingtoneUrl)
-        ..loop = true
-        ..volume = 0.85;
-      _callRingtoneEl = el;
+      // Reuse the preloaded element when available for instant playback.
+      html.AudioElement el;
+      if (_callRingtoneEl != null) {
+        el = _callRingtoneEl!;
+        try {
+          el.currentTime = 0; // rewind to start
+        } catch (_) {}
+      } else {
+        el = html.AudioElement(_kCallRingtoneUrl)
+          ..loop = true
+          ..volume = 0.85;
+        _callRingtoneEl = el;
+      }
       el.play().catchError((_) {});
     } catch (_) {}
   }
 
   /// Stops the looping call ringtone started by [playCallRingtone].
   static void stopCallRingtone() {
+    try {
+      final el = _callRingtoneEl;
+      if (el != null) {
+        el.pause();
+        try {
+          el.currentTime = 0; // rewind so next play starts from beginning
+        } catch (_) {}
+        // Keep the element alive for the next call (do not null it out).
+      }
+    } catch (_) {}
+  }
+
+  /// Disposes the preloaded audio element — call if the admin panel is
+  /// torn down (e.g. hot reload in development).
+  static void disposeCallRingtone() {
     try {
       final el = _callRingtoneEl;
       _callRingtoneEl = null;

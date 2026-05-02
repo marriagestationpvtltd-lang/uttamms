@@ -16,9 +16,11 @@ Future<http.StreamedResponse> uploadMultipartPost({
   required String filename,
   MediaType? contentType,
   Map<String, String>? extraHeaders,
+  Map<String, String>? fields,
 }) {
   final request = http.MultipartRequest('POST', Uri.parse(url));
   if (extraHeaders != null) request.headers.addAll(extraHeaders);
+  if (fields != null) request.fields.addAll(fields);
   request.files.add(
     http.MultipartFile.fromBytes(
       fieldName,

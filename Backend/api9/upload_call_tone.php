@@ -7,7 +7,7 @@
  * with the new custom tone URL.
  *
  * POST multipart/form-data:
- *   tone (audio file) – required – mp3, aac, ogg, wav, or m4a (max 5 MB)
+ *   tone (audio file) â€“ required â€“ mp3, aac, ogg, wav, or m4a (max 5 MB)
  *
  * Response:
  *   {
@@ -40,13 +40,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// ── DB credentials ────────────────────────────────────────────────────────────
+// â”€â”€ DB credentials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
-// ── Validate uploaded file ────────────────────────────────────────────────────
+// â”€â”€ Validate uploaded file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if (empty($_FILES['tone']) || $_FILES['tone']['error'] !== UPLOAD_ERR_OK) {
     $uploadErrors = [
         UPLOAD_ERR_INI_SIZE   => 'File exceeds server upload limit',
@@ -115,7 +115,7 @@ if ($_FILES['tone']['size'] > 5 * 1024 * 1024) {
     exit;
 }
 
-// ── Save file ─────────────────────────────────────────────────────────────────
+// â”€â”€ Save file â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Store files in the public uploads directory so the returned /uploads URL
 // resolves to the file that was just written.
 $uploadDir = __DIR__ . '/../../uploads/ringtones/';
@@ -150,7 +150,7 @@ if (!move_uploaded_file($_FILES['tone']['tmp_name'], $destPath)) {
 $fileUrl   = '/uploads/ringtones/' . $filename;
 $toneName  = pathinfo($originalName, PATHINFO_FILENAME);
 
-// ── Persist settings in DB ────────────────────────────────────────────────────
+// â”€â”€ Persist settings in DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try {
     $pdo = new PDO(
         'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',

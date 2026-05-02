@@ -13,7 +13,7 @@ class UnauthorizedException implements Exception {
 }
 
 class DashboardService {
-  static const String _baseUrl = kAdminApi9BaseUrl;
+  static final String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     if (kIsWeb) {

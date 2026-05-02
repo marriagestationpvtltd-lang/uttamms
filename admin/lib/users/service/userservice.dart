@@ -8,7 +8,7 @@ import 'package:adminmrz/config/app_endpoints.dart';
 import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 
 class UserService {
-  static const String baseUrl = kAdminApi9BaseUrl;
+  static final String baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     if (kIsWeb) {

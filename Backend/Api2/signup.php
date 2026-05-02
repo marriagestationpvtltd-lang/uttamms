@@ -4,8 +4,8 @@ header('Content-Type: application/json; charset=utf-8');
 
 // ==== CONFIG - update these ====
 $dbHost = 'localhost';
-$dbUser = 'ms';
-$dbPass = 'ms';
+$dbUser = 'root';
+$dbPass = '';
 $dbName = 'ms';
 // ================================
 

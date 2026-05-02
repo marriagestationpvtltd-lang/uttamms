@@ -34,8 +34,11 @@ import '../service/chat_message_cache.dart';
 import '../service/socket_service.dart';
 import '../service/chat_message_cache.dart';
 import '../service/sound_settings_service.dart';
+import '../service/app_sound_tone_service.dart';
+import '../service/device_sound_policy_service.dart';
 import 'call_overlay_manager.dart';
 import 'ChatdetailsScreen.dart';
+import '../ReUsable/shared_profile_card.dart';
 import 'screen_state_manager.dart';
 import '../Models/masterdata.dart';
 import '../Package/PackageScreen.dart';
@@ -276,7 +279,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       Future.delayed(const Duration(seconds: 15), () {
         if (mounted && _streamLoading) {
           connSub?.cancel();
-          setState(() { _streamHasError = true; _streamLoading = false; });
+          setState(() {
+            _streamHasError = true;
+            _streamLoading = false;
+          });
         }
       });
     } else {
@@ -293,8 +299,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     }
   }
 
-
-  Future<void> _handleProfileCardChat(BuildContext context, String userId, String displayName) async {
+  Future<void> _handleProfileCardChat(
+      BuildContext context, String userId, String displayName) async {
     if (!context.mounted) return;
 
     final userState = context.read<UserState>();
@@ -314,7 +320,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     );
   }
 
-  Future<void> _handleProfileCardViewProfile(BuildContext context, String userId) async {
+  Future<void> _handleProfileCardViewProfile(
+      BuildContext context, String userId) async {
     if (!context.mounted) return;
 
     if (!await VerificationService.requireVerification(context)) return;
@@ -442,7 +449,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     _socketService.getUserStatus(_adminUserId).then((statusData) {
       if (!mounted) return;
       final bool online = statusData['isOnline'] == true;
-      final DateTime? lastSeen = SocketService.parseTimestamp(statusData['lastSeen']);
+      final DateTime? lastSeen =
+          SocketService.parseTimestamp(statusData['lastSeen']);
       setState(() {
         _adminOnline = online;
         if (!online && lastSeen != null) _adminLastSeen = lastSeen;
@@ -452,8 +460,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     });
 
     // Listen for status changes
-    _adminStatusSubscription =
-        _socketService.onUserStatusChange.listen((data) {
+    _adminStatusSubscription = _socketService.onUserStatusChange.listen((data) {
       if (!mounted) return;
       final uid = data['userId']?.toString() ?? '';
       if (uid != _adminUserId) return;
@@ -512,8 +519,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       if (!mounted) return;
       if (data['chatRoomId'] != _chatRoomId) return;
       final String msgId = data['messageId']?.toString() ?? '';
-      final Map<String, dynamic> reactions =
-          (data['reactions'] is Map) ? Map<String, dynamic>.from(data['reactions'] as Map) : {};
+      final Map<String, dynamic> reactions = (data['reactions'] is Map)
+          ? Map<String, dynamic>.from(data['reactions'] as Map)
+          : {};
       setState(() {
         _cachedMessages = _cachedMessages.map((m) {
           if (m['messageId'] == msgId) {
@@ -545,7 +553,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       if (!mounted) return;
       if (data['chatRoomId'] != _chatRoomId) return;
       final msgId = data['messageId']?.toString();
-      final idx = _cachedMessages.indexWhere((m) => m['messageId']?.toString() == msgId);
+      final idx = _cachedMessages
+          .indexWhere((m) => m['messageId']?.toString() == msgId);
       if (idx >= 0) {
         setState(() {
           _cachedMessages[idx] = {
@@ -596,7 +605,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     _typingRepeatTimer?.cancel();
     _playTypingSound(); // Immediate first click
     _typingRepeatTimer = Timer.periodic(const Duration(milliseconds: 130), (_) {
-      if (!_isAdminTyping || !SoundSettingsService.instance.typingSoundEnabled) {
+      if (!_isAdminTyping ||
+          !SoundSettingsService.instance.typingSoundEnabled) {
         _stopTypingRepeat();
         return;
       }
@@ -613,10 +623,34 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   // Play typing sound — short, soft, Messenger-style
   void _playTypingSound() async {
     if (!SoundSettingsService.instance.typingSoundEnabled) return;
+    final canPlay = await DeviceSoundPolicyService.canPlayInAppSound();
+    if (!canPlay) return;
     try {
+      final sources = await AppSoundToneService.instance
+          .playbackSources(AppSoundToneType.typing);
+      if (sources.isEmpty) {
+        if (!kIsWeb) {
+          await SystemSound.play(SystemSoundType.click);
+        }
+        return;
+      }
       await _typingAudioPlayer.stop();
       await _typingAudioPlayer.setVolume(0.3);
-      await _typingAudioPlayer.play(AssetSource('audio/typing_tick.wav'));
+      for (final source in sources) {
+        try {
+          if (source.isRemote) {
+            await _typingAudioPlayer.play(UrlSource(source.value));
+          } else {
+            await _typingAudioPlayer.play(AssetSource(source.value));
+          }
+          return;
+        } catch (_) {
+          continue;
+        }
+      }
+      if (!kIsWeb) {
+        await SystemSound.play(SystemSoundType.click);
+      }
     } catch (e) {
       debugPrint('Error playing typing sound: $e');
     }
@@ -626,9 +660,31 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   void _playReceiveSound() async {
     if (SoundSettingsService.instance.messageSoundEnabled) {
       try {
-        await _receiveAudioPlayer.stop();
-        await _receiveAudioPlayer.setVolume(0.6);
-        await _receiveAudioPlayer.play(AssetSource('audio/message_received.wav'));
+        final canPlay = await DeviceSoundPolicyService.canPlayInAppSound();
+        if (!canPlay) return;
+
+        final sources = await AppSoundToneService.instance
+            .playbackSources(AppSoundToneType.message);
+        if (sources.isEmpty) {
+          if (!kIsWeb) {
+            await SystemSound.play(SystemSoundType.alert);
+          }
+        } else {
+          await _receiveAudioPlayer.stop();
+          await _receiveAudioPlayer.setVolume(0.6);
+          for (final source in sources) {
+            try {
+              if (source.isRemote) {
+                await _receiveAudioPlayer.play(UrlSource(source.value));
+              } else {
+                await _receiveAudioPlayer.play(AssetSource(source.value));
+              }
+              break;
+            } catch (_) {
+              continue;
+            }
+          }
+        }
       } catch (e) {
         debugPrint('Error playing receive sound: $e');
       }
@@ -660,7 +716,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   // due to a timing edge-case), AdminChatScreen still shows the call UI.
   void _setupCallListener() {
     _incomingCallSubscription?.cancel();
-    _incomingCallSubscription = NotificationService.incomingCalls.listen((data) {
+    _incomingCallSubscription =
+        NotificationService.incomingCalls.listen((data) {
       final isVideoCall =
           data['type'] == 'video_call' || data['isVideoCall'] == 'true';
       FocusManager.instance.primaryFocus?.unfocus();
@@ -672,14 +729,14 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         try {
           Navigator.of(context)
               .push(
-                MaterialPageRoute(
-                  settings: const RouteSettings(name: activeCallRouteName),
-                  fullscreenDialog: true,
-                  builder: (_) => isVideoCall
-                      ? IncomingVideoCallScreen(callData: data)
-                      : IncomingCallScreen(callData: data),
-                ),
-              )
+            MaterialPageRoute(
+              settings: const RouteSettings(name: activeCallRouteName),
+              fullscreenDialog: true,
+              builder: (_) => isVideoCall
+                  ? IncomingVideoCallScreen(callData: data)
+                  : IncomingCallScreen(callData: data),
+            ),
+          )
               .whenComplete(() {
             CallManager().isCallScreenShowing = false;
           });
@@ -743,8 +800,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           _cachedMessages = msgs;
         } else {
           // Prepend older messages, avoid duplicates
-          final existingIds = _cachedMessages.map((m) => m['messageId']).toSet();
-          final newMsgs = msgs.where((m) => !existingIds.contains(m['messageId'])).toList();
+          final existingIds =
+              _cachedMessages.map((m) => m['messageId']).toSet();
+          final newMsgs =
+              msgs.where((m) => !existingIds.contains(m['messageId'])).toList();
           _cachedMessages = [...newMsgs, ..._cachedMessages];
         }
         _streamLoading = false;
@@ -761,7 +820,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           // Sync-cache already positioned scroll; just jump to bottom for fresh data.
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && _scrollController.hasClients) {
-              _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+              _scrollController
+                  .jumpTo(_scrollController.position.maxScrollExtent);
             }
             if (mounted && _scrollLocked) setState(() => _scrollLocked = false);
           });
@@ -804,7 +864,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (!mounted) return;
           if (_scrollController.hasClients) {
-            _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+            _scrollController
+                .jumpTo(_scrollController.position.maxScrollExtent);
           }
           if (mounted) setState(() => _scrollLocked = false);
         });
@@ -812,7 +873,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         // Controller not yet attached; retry after layout
         Future.delayed(const Duration(milliseconds: 50), () {
           if (mounted && _scrollController.hasClients) {
-            _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+            _scrollController
+                .jumpTo(_scrollController.position.maxScrollExtent);
           }
           if (mounted) setState(() => _scrollLocked = false);
         });
@@ -823,9 +885,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   Future<void> _loadMoreMessages() async {
     if (_isLoadingMore || !_hasMoreMessages) return;
     setState(() => _isLoadingMore = true);
-    final prevOffset = _scrollController.hasClients
-        ? _scrollController.position.pixels
-        : 0.0;
+    final prevOffset =
+        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     final prevMaxExtent = _scrollController.hasClients
         ? _scrollController.position.maxScrollExtent
         : 0.0;
@@ -842,7 +903,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           .toList();
       final hasMore = result['hasMore'] == true;
       final existingIds = _cachedMessages.map((m) => m['messageId']).toSet();
-      final newMsgs = msgs.where((m) => !existingIds.contains(m['messageId'])).toList();
+      final newMsgs =
+          msgs.where((m) => !existingIds.contains(m['messageId'])).toList();
       setState(() {
         _cachedMessages = [...newMsgs, ..._cachedMessages];
         _hasMoreMessages = hasMore;
@@ -867,13 +929,15 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           userId: widget.senderID, limit: 50);
       final filtered = all
           .where((c) =>
-              (c.callerId == widget.senderID && c.recipientId == _adminUserId) ||
+              (c.callerId == widget.senderID &&
+                  c.recipientId == _adminUserId) ||
               (c.callerId == _adminUserId && c.recipientId == widget.senderID))
           .toList();
-      if (mounted) setState(() {
-        _callHistory = filtered;
-        _callHistoryLoaded = true;
-      });
+      if (mounted)
+        setState(() {
+          _callHistory = filtered;
+          _callHistoryLoaded = true;
+        });
     } catch (_) {
       if (mounted) setState(() => _callHistoryLoaded = true);
     }
@@ -897,14 +961,17 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   /// Send a profile card to admin.
   Future<void> _sendProfileCard() async {
     if (widget.initialProfileData == null || _profileCardSent) return;
-    setState(() { _profileCardSent = true; });
+    setState(() {
+      _profileCardSent = true;
+    });
     final profileData = Map<String, dynamic>.from(widget.initialProfileData!);
     profileData['timestamp'] = DateTime.now().toIso8601String();
     await _sendMessage('profile_card', jsonEncode(profileData));
   }
 
   /// Core send method — routes through Socket.IO.
-  Future<void> _sendMessage(String type, String content, {String? imageUrl}) async {
+  Future<void> _sendMessage(String type, String content,
+      {String? imageUrl}) async {
     final messageId = _uuid.v4();
     // Determine receiver
     final receiverId = widget.isAdmin ? widget.senderID : _adminUserId;
@@ -943,11 +1010,16 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     if (text.isNotEmpty) {
       _controller.clear();
       _messageFocusNode.requestFocus();
-      setState(() { _isSending = true; });
+      setState(() {
+        _isSending = true;
+      });
       try {
         await _sendMessage('text', text);
       } finally {
-        if (mounted) setState(() { _isSending = false; });
+        if (mounted)
+          setState(() {
+            _isSending = false;
+          });
       }
     }
   }
@@ -1056,14 +1128,16 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   Widget _buildMsgActionOverlay() {
     const emojis = ['❤️', '😂', '😮', '😢', '👍', '😡'];
     final msgId = _selectedMsg?['messageId']?.toString() ??
-        _selectedMsg?['id']?.toString() ?? '';
+        _selectedMsg?['id']?.toString() ??
+        '';
     final existingReactions = _selectedMsg?['reactions'];
     final Map<String, dynamic> reactions = (existingReactions is Map)
         ? Map<String, dynamic>.from(existingReactions as Map)
         : {};
     final myReaction = reactions[_mySenderId]?.toString() ?? '';
-    final msgType =
-        _selectedMsg?['messageType']?.toString() ?? _selectedMsg?['type']?.toString() ?? 'text';
+    final msgType = _selectedMsg?['messageType']?.toString() ??
+        _selectedMsg?['type']?.toString() ??
+        'text';
 
     final screenHeight = MediaQuery.of(context).size.height;
     final tapY = _selectedMsgOffset.dy;
@@ -1099,7 +1173,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   child: GestureDetector(
                     onTap: () {},
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(30),
@@ -1117,7 +1192,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                           final isSelected = myReaction == e;
                           return GestureDetector(
                             onTap: () {
-                              if (mounted) setState(() => _showMsgOverlay = false);
+                              if (mounted)
+                                setState(() => _showMsgOverlay = false);
                               if (msgId.isNotEmpty) _addReaction(msgId, e);
                             },
                             child: AnimatedContainer(
@@ -1132,7 +1208,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                               ),
                               child: Text(
                                 e,
-                                style: TextStyle(fontSize: isSelected ? 28 : 24),
+                                style:
+                                    TextStyle(fontSize: isSelected ? 28 : 24),
                               ),
                             ),
                           );
@@ -1152,7 +1229,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   child: Container(
                     decoration: const BoxDecoration(
                       color: Color(0xFF1E1E1E),
-                      borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(20)),
                     ),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     child: Column(
@@ -1169,21 +1247,25 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                         ),
                         if (_selectedMsg != null)
                           _overlayMenuItem(Icons.reply_rounded, "Reply", () {
-                            if (mounted) setState(() => _showMsgOverlay = false);
+                            if (mounted)
+                              setState(() => _showMsgOverlay = false);
                             if (_selectedMsg != null) {
                               _setReplyTo(
                                 _selectedMsg!['messageId']?.toString() ??
-                                    _selectedMsg!['id']?.toString() ?? '',
+                                    _selectedMsg!['id']?.toString() ??
+                                    '',
                                 _selectedMsg!,
                               );
                             }
                           }),
                         if (_selectedMsg != null && msgType == 'text')
                           _overlayMenuItem(Icons.copy, "Copy", () {
-                            final text = _selectedMsg?['message']?.toString() ?? '';
+                            final text =
+                                _selectedMsg?['message']?.toString() ?? '';
                             if (text.isNotEmpty) {
                               Clipboard.setData(ClipboardData(text: text));
-                              if (mounted) setState(() => _showMsgOverlay = false);
+                              if (mounted)
+                                setState(() => _showMsgOverlay = false);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Message copied'),
@@ -1213,7 +1295,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           children: [
             Icon(icon, color: Colors.white, size: 20),
             const SizedBox(width: 14),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 15)),
+            Text(label,
+                style: const TextStyle(color: Colors.white, fontSize: 15)),
           ],
         ),
       ),
@@ -1230,7 +1313,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('Microphone permission is required to send voice messages.'),
+              content: Text(
+                  'Microphone permission is required to send voice messages.'),
               backgroundColor: Colors.red,
             ),
           );
@@ -1248,8 +1332,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       }
       await _audioRecorder.start(
         kIsWeb
-            ? const RecordConfig(encoder: AudioEncoder.opus, bitRate: 64000, sampleRate: 44100)
-            : const RecordConfig(encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 44100),
+            ? const RecordConfig(
+                encoder: AudioEncoder.opus, bitRate: 64000, sampleRate: 44100)
+            : const RecordConfig(
+                encoder: AudioEncoder.aacLc, bitRate: 64000, sampleRate: 44100),
         path: path,
       );
       setState(() {
@@ -1263,7 +1349,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to start recording: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Failed to start recording: $e'),
+              backgroundColor: Colors.red),
         );
       }
     }
@@ -1298,11 +1386,17 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send voice message: $e'), backgroundColor: Colors.red),
+          SnackBar(
+              content: Text('Failed to send voice message: $e'),
+              backgroundColor: Colors.red),
         );
       }
     } finally {
-      if (mounted) setState(() { _isRecording = false; _isSendingVoice = false; });
+      if (mounted)
+        setState(() {
+          _isRecording = false;
+          _isSendingVoice = false;
+        });
     }
   }
 
@@ -1313,7 +1407,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     _recordingAnimController?.stop();
     _recordingAnimController?.reset();
     _audioRecorder.stop();
-    setState(() { _isRecording = false; _recordDuration = 0; });
+    setState(() {
+      _isRecording = false;
+      _recordDuration = 0;
+    });
   }
 
   String _formatRecordDuration(int seconds) {
@@ -1321,7 +1418,6 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     final s = (seconds % 60).toString().padLeft(2, '0');
     return '$m:$s';
   }
-
 
   Future<void> _setReplyTo(
       String messageID, Map<String, dynamic> messageData) async {
@@ -1364,9 +1460,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
     final bool isFromMe = senderIdR == _mySenderId;
     final bool isFromAdmin = senderIdR == _adminUserId;
-    final String senderName = isFromAdmin
-        ? 'Admin'
-        : (isFromMe ? 'You' : widget.userName);
+    final String senderName =
+        isFromAdmin ? 'Admin' : (isFromMe ? 'You' : widget.userName);
     return {
       'messageId': messageId,
       'message': _messagePreviewText(data),
@@ -1406,15 +1501,19 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 // Updated message builder with swipe-to-reply
   Widget _buildMessageItem(Map<String, dynamic> data) {
     // Support both Socket.IO field names (senderId) and legacy (senderid)
-    final String senderId = data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
+    final String senderId =
+        data['senderId']?.toString() ?? data['senderid']?.toString() ?? '';
     bool isMe = senderId == _mySenderId;
-    final String msgID = data['messageId']?.toString() ?? data['id']?.toString() ?? '';
+    final String msgID =
+        data['messageId']?.toString() ?? data['id']?.toString() ?? '';
     // Parse timestamp: ISO string from Socket.IO; convert UTC → device local time
     final dynamic tsRaw = data['timestamp'];
     DateTime? tsDate;
-    if (tsRaw is String) tsDate = DateTime.tryParse(tsRaw)?.toLocal();
+    if (tsRaw is String)
+      tsDate = DateTime.tryParse(tsRaw)?.toLocal();
     else if (tsRaw is DateTime) tsDate = tsRaw.isUtc ? tsRaw.toLocal() : tsRaw;
-    String formattedTime = tsDate != null ? DateFormat('HH:mm').format(tsDate) : '';
+    String formattedTime =
+        tsDate != null ? DateFormat('HH:mm').format(tsDate) : '';
 
     // Check if message is read
     final bool isRead = data['isRead'] == true || data['read'] == true;
@@ -1432,7 +1531,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     // Render report messages as a special card
     // Also detect legacy messages stored as 'text' where content is a report JSON payload
     {
-      final msgType = data['messageType']?.toString() ?? data['type']?.toString() ?? '';
+      final msgType =
+          data['messageType']?.toString() ?? data['type']?.toString() ?? '';
       final rawMessage = data['message']?.toString() ?? '';
       Map<String, dynamic>? decodedReport;
       if (msgType == 'report') {
@@ -1454,10 +1554,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     }
 
     double swipeOffset = _swipeOffsets[msgID] ?? 0.0;
-    final Map<String, dynamic> reactions =
-        (data['reactions'] is Map) ? Map<String, dynamic>.from(data['reactions'] as Map) : {};
+    final Map<String, dynamic> reactions = (data['reactions'] is Map)
+        ? Map<String, dynamic>.from(data['reactions'] as Map)
+        : {};
 
-    final String effectiveType = data['messageType']?.toString() ?? data['type']?.toString() ?? 'text';
+    final String effectiveType =
+        data['messageType']?.toString() ?? data['type']?.toString() ?? 'text';
     final String effectiveMessage = data['message'] ?? '';
 
     // Show a WhatsApp-style placeholder for unsent (or deleted-for-everyone) messages
@@ -1467,7 +1569,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 16),
         child: Row(
-          mainAxisAlignment: isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
+          mainAxisAlignment:
+              isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -1482,7 +1585,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   Icon(Icons.block, size: 14, color: Colors.grey.shade500),
                   const SizedBox(width: 6),
                   Text(
-                    isUnsent ? 'This message was unsent.' : 'This message was deleted.',
+                    isUnsent
+                        ? 'This message was unsent.'
+                        : 'This message was deleted.',
                     style: TextStyle(
                       color: Colors.grey.shade500,
                       fontSize: 14,
@@ -1514,7 +1619,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           onHorizontalDragUpdate: (details) {
             if (details.delta.dx > 0) {
               setItemState(() {
-                final newOffset = (swipeOffset + details.delta.dx).clamp(0.0, 70.0);
+                final newOffset =
+                    (swipeOffset + details.delta.dx).clamp(0.0, 70.0);
                 _swipeOffsets[msgID] = newOffset;
                 swipeOffset = newOffset;
               });
@@ -1535,7 +1641,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                 Positioned(
                   left: isMe ? null : 16,
                   right: isMe ? 16 : null,
-                  top: 0, bottom: 0,
+                  top: 0,
+                  bottom: 0,
                   child: Center(
                     child: AnimatedOpacity(
                       opacity: (swipeOffset / 50).clamp(0.0, 1.0),
@@ -1549,230 +1656,271 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                 offset: Offset(isMe ? -swipeOffset : swipeOffset, 0),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 300),
-                  margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                  margin:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                   child: Row(
                     mainAxisAlignment:
                         isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-            if (!isMe)
-              CircleAvatar(
-                backgroundColor: Colors.transparent,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient:
-                        isFromAdmin ? _primaryGradient : _secondaryGradient,
-                  ),
-                  child: Icon(
-                    isFromAdmin ? Icons.support_agent : Icons.person,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Column(
-                crossAxisAlignment:
-                    isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-                children: [
-                  if (!isMe)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 12, bottom: 6),
-                      child: Text(
-                        senderName,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: isRead ? _lightTextColor.withOpacity(0.8) : _lightTextColor,
-                          fontWeight: isRead ? FontWeight.w500 : FontWeight.w700,
-                         ),
-                      ),
-                    ),
-                  // Profile card: render directly without gradient bubble
-                  if (effectiveType == 'profile_card') ...[
-                    _buildProfileCardMessage(_parseProfileCardData(data), isMe),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisAlignment:
-                            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                        children: [
-                          Text(
-                            formattedTime,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: _lightTextColor,
+                      if (!isMe)
+                        CircleAvatar(
+                          backgroundColor: Colors.transparent,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: isFromAdmin
+                                  ? _primaryGradient
+                                  : _secondaryGradient,
+                            ),
+                            child: Icon(
+                              isFromAdmin ? Icons.support_agent : Icons.person,
+                              color: Colors.white,
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  ] else if (effectiveType == 'image') ...[
-                    // Single image: rendered outside the gradient bubble (fixes border issue)
-                    _buildChatImageMessage(
-                      _resolveImageUrl(data),
-                      isMe,
-                    ),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisAlignment:
-                            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                        children: [
-                          Text(
-                            formattedTime,
-                            style: TextStyle(fontSize: 12, color: _lightTextColor),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else if (effectiveType == 'image_gallery') ...[
-                    // Multiple images: rendered as WhatsApp-style grid outside the gradient bubble
-                    _buildChatGalleryGrid(
-                      _parseGalleryUrls(
-                        data['message']?.toString() ?? '[]',
-                        images: data['images'] as List<dynamic>?,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Row(
-                        mainAxisAlignment:
-                            isMe ? MainAxisAlignment.end : MainAxisAlignment.start,
-                        children: [
-                          Text(
-                            formattedTime,
-                            style: TextStyle(fontSize: 12, color: _lightTextColor),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ] else
-                  Container(
-                    constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.75),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      gradient: isMe
-                          ? (isRead
-                              // Read messages: lighter, faded gradient
-                              ? const LinearGradient(
-                                  colors: [Color(0xFFF3E8FF), Color(0xFFEDE0FA)],
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                )
-                              // Unread messages: darker, bolder gradient
-                              : const LinearGradient(
-                                  colors: [Color(0xFFD6BCFA), Color(0xFFC4B0E8)],
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                ))
-                          : _primaryGradient,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(20),
-                        topRight: const Radius.circular(20),
-                        bottomLeft: isMe
-                            ? const Radius.circular(20)
-                            : const Radius.circular(4),
-                        bottomRight: isMe
-                            ? const Radius.circular(4)
-                            : const Radius.circular(20),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withOpacity(isMe || !isRead ? 0.15 : 0.08),
-                          blurRadius: 8,
-                          offset: const Offset(0, 3),
-                        )
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Reply preview — support both Socket.IO repliedTo map and legacy replyto string
-                        Builder(builder: (_) {
-                          final repliedToMap = data['repliedTo'] is Map
-                              ? Map<String, dynamic>.from(data['repliedTo'] as Map)
-                              : null;
-                          final replyToId = repliedToMap?['messageId']?.toString()
-                              ?? data['replyto']?.toString() ?? '';
-                          if (replyToId.isNotEmpty) {
-                            return Column(children: [
-                              _buildReplyPreview(replyToId, isMe, inlinePayload: repliedToMap),
-                              const SizedBox(height: 8),
-                            ]);
-                          }
-                          return const SizedBox.shrink();
-                        }),
-                        if (effectiveType == 'text')
-                          Text(
-                            effectiveMessage,
-                            style: TextStyle(
-                              color: isMe
-                                  ? (isRead
-                                      ? _textColor.withOpacity(0.7)
-                                      : _textColor)
-                                  : Colors.white,
-                              fontSize: 17,
-                              fontWeight: !isMe || !isRead
-                                  ? FontWeight.w500
-                                  : FontWeight.w400,
-                            ),
-                          ),
-                        if (effectiveType == 'voice')
-                          _buildVoiceMessage(effectiveMessage, isMe),
-                        if (effectiveType == 'doc')
-                          _buildDocumentMessage(effectiveMessage, isMe),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          mainAxisSize: MainAxisSize.min,
+                        ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Column(
+                          crossAxisAlignment: isMe
+                              ? CrossAxisAlignment.end
+                              : CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              formattedTime,
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: isMe
-                                    ? (isRead
-                                        ? _lightTextColor.withOpacity(0.7)
-                                        : _lightTextColor)
-                                    : Colors.white70,
-                                fontWeight: isMe && !isRead ? FontWeight.w500 : FontWeight.normal,
+                            if (!isMe)
+                              Padding(
+                                padding:
+                                    const EdgeInsets.only(left: 12, bottom: 6),
+                                child: Text(
+                                  senderName,
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: isRead
+                                        ? _lightTextColor.withOpacity(0.8)
+                                        : _lightTextColor,
+                                    fontWeight: isRead
+                                        ? FontWeight.w500
+                                        : FontWeight.w700,
+                                  ),
+                                ),
                               ),
-                            ),
+                            // Profile card: render directly without gradient bubble
+                            if (effectiveType == 'profile_card') ...[
+                              _buildProfileCardMessage(
+                                  _parseProfileCardData(data), isMe),
+                              const SizedBox(height: 4),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: Row(
+                                  mainAxisAlignment: isMe
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      formattedTime,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: _lightTextColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else if (effectiveType == 'image') ...[
+                              // Single image: rendered outside the gradient bubble (fixes border issue)
+                              _buildChatImageMessage(
+                                _resolveImageUrl(data),
+                                isMe,
+                              ),
+                              const SizedBox(height: 4),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: Row(
+                                  mainAxisAlignment: isMe
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      formattedTime,
+                                      style: TextStyle(
+                                          fontSize: 12, color: _lightTextColor),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else if (effectiveType == 'image_gallery') ...[
+                              // Multiple images: rendered as WhatsApp-style grid outside the gradient bubble
+                              _buildChatGalleryGrid(
+                                _parseGalleryUrls(
+                                  data['message']?.toString() ?? '[]',
+                                  images: data['images'] as List<dynamic>?,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 4),
+                                child: Row(
+                                  mainAxisAlignment: isMe
+                                      ? MainAxisAlignment.end
+                                      : MainAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      formattedTime,
+                                      style: TextStyle(
+                                          fontSize: 12, color: _lightTextColor),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ] else
+                              Container(
+                                constraints: BoxConstraints(
+                                    maxWidth:
+                                        MediaQuery.of(context).size.width *
+                                            0.75),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  gradient: isMe
+                                      ? (isRead
+                                          // Read messages: lighter, faded gradient
+                                          ? const LinearGradient(
+                                              colors: [
+                                                Color(0xFFF3E8FF),
+                                                Color(0xFFEDE0FA)
+                                              ],
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                            )
+                                          // Unread messages: darker, bolder gradient
+                                          : const LinearGradient(
+                                              colors: [
+                                                Color(0xFFD6BCFA),
+                                                Color(0xFFC4B0E8)
+                                              ],
+                                              begin: Alignment.topCenter,
+                                              end: Alignment.bottomCenter,
+                                            ))
+                                      : _primaryGradient,
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(20),
+                                    topRight: const Radius.circular(20),
+                                    bottomLeft: isMe
+                                        ? const Radius.circular(20)
+                                        : const Radius.circular(4),
+                                    bottomRight: isMe
+                                        ? const Radius.circular(4)
+                                        : const Radius.circular(20),
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(
+                                          isMe || !isRead ? 0.15 : 0.08),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 3),
+                                    )
+                                  ],
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // Reply preview — support both Socket.IO repliedTo map and legacy replyto string
+                                    Builder(builder: (_) {
+                                      final repliedToMap =
+                                          data['repliedTo'] is Map
+                                              ? Map<String, dynamic>.from(
+                                                  data['repliedTo'] as Map)
+                                              : null;
+                                      final replyToId =
+                                          repliedToMap?['messageId']
+                                                  ?.toString() ??
+                                              data['replyto']?.toString() ??
+                                              '';
+                                      if (replyToId.isNotEmpty) {
+                                        return Column(children: [
+                                          _buildReplyPreview(replyToId, isMe,
+                                              inlinePayload: repliedToMap),
+                                          const SizedBox(height: 8),
+                                        ]);
+                                      }
+                                      return const SizedBox.shrink();
+                                    }),
+                                    if (effectiveType == 'text')
+                                      Text(
+                                        effectiveMessage,
+                                        style: TextStyle(
+                                          color: isMe
+                                              ? (isRead
+                                                  ? _textColor.withOpacity(0.7)
+                                                  : _textColor)
+                                              : Colors.white,
+                                          fontSize: 17,
+                                          fontWeight: !isMe || !isRead
+                                              ? FontWeight.w500
+                                              : FontWeight.w400,
+                                        ),
+                                      ),
+                                    if (effectiveType == 'voice')
+                                      _buildVoiceMessage(
+                                          effectiveMessage, isMe),
+                                    if (effectiveType == 'doc')
+                                      _buildDocumentMessage(
+                                          effectiveMessage, isMe),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          formattedTime,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            color: isMe
+                                                ? (isRead
+                                                    ? _lightTextColor
+                                                        .withOpacity(0.7)
+                                                    : _lightTextColor)
+                                                : Colors.white70,
+                                            fontWeight: isMe && !isRead
+                                                ? FontWeight.w500
+                                                : FontWeight.normal,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (reactions.isNotEmpty)
+                              _buildReactionBadge(reactions, isMe),
                           ],
+                        ),
                       ),
+                      if (isMe) const SizedBox(width: 8),
+                      if (isMe)
+                        CircleAvatar(
+                          backgroundColor: Colors.transparent,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: widget.isAdmin
+                                  ? _primaryGradient
+                                  : _secondaryGradient,
+                            ),
+                            child: Icon(
+                              widget.isAdmin
+                                  ? Icons.support_agent
+                                  : Icons.person,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
-                  if (reactions.isNotEmpty)
-                    _buildReactionBadge(reactions, isMe),
-                ],
               ),
-            ),
-            if (isMe) const SizedBox(width: 8),
-            if (isMe)
-              CircleAvatar(
-                backgroundColor: Colors.transparent,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient:
-                        widget.isAdmin ? _primaryGradient : _secondaryGradient,
-                  ),
-                  child: Icon(
-                    widget.isAdmin ? Icons.support_agent : Icons.person,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-          ],
-        ),
-              ),
-            ),
             ],
           ),
         );
@@ -1807,7 +1955,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _accentColor.withOpacity(0.3), width: 1),
+              border:
+                  Border.all(color: _accentColor.withOpacity(0.3), width: 1),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(0.08),
@@ -1869,7 +2018,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       final tsRaw = data['timestamp'];
       if (tsRaw != null) {
         DateTime? dt;
-        if (tsRaw is String) dt = DateTime.tryParse(tsRaw)?.toLocal();
+        if (tsRaw is String)
+          dt = DateTime.tryParse(tsRaw)?.toLocal();
         else if (tsRaw is DateTime) dt = tsRaw.isUtc ? tsRaw.toLocal() : tsRaw;
         if (dt != null) {
           final label = _formatDateForGrouping(dt);
@@ -1893,7 +2043,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     final reportedUserName = data['reportedUserName']?.toString() ?? '';
     final reportedUserId = data['reportedUserId']?.toString() ?? '';
     final initials = reportedUserName.isNotEmpty
-        ? reportedUserName.trim().split(' ').map((w) => w.isEmpty ? '' : w[0].toUpperCase()).take(2).join()
+        ? reportedUserName
+            .trim()
+            .split(' ')
+            .map((w) => w.isEmpty ? '' : w[0].toUpperCase())
+            .take(2)
+            .join()
         : '?';
 
     return Padding(
@@ -1928,7 +2083,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
               // Header banner
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     colors: [Color(0xFFF9A825), Color(0xFFF57F17)],
@@ -2029,7 +2185,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      reportReason.isNotEmpty ? reportReason : 'No reason provided',
+                      reportReason.isNotEmpty
+                          ? reportReason
+                          : 'No reason provided',
                       style: const TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -2046,8 +2204,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   alignment: Alignment.centerRight,
                   child: Text(
                     formattedTime,
-                    style: TextStyle(
-                        fontSize: 11, color: Colors.grey.shade600),
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
                   ),
                 ),
               ),
@@ -2070,10 +2227,19 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       } catch (_) {}
     }
 
-    final callType = callPayload['callType']?.toString() ?? data['callType']?.toString() ?? 'audio';
-    final callStatus = callPayload['callStatus']?.toString() ?? data['callStatus']?.toString() ?? 'missed';
-    final callerId = callPayload['callerId']?.toString() ?? data['callerId']?.toString() ?? data['senderId']?.toString() ?? '';
-    final duration = (callPayload['duration'] as num?)?.toInt() ?? (data['duration'] as num?)?.toInt() ?? 0;
+    final callType = callPayload['callType']?.toString() ??
+        data['callType']?.toString() ??
+        'audio';
+    final callStatus = callPayload['callStatus']?.toString() ??
+        data['callStatus']?.toString() ??
+        'missed';
+    final callerId = callPayload['callerId']?.toString() ??
+        data['callerId']?.toString() ??
+        data['senderId']?.toString() ??
+        '';
+    final duration = (callPayload['duration'] as num?)?.toInt() ??
+        (data['duration'] as num?)?.toInt() ??
+        0;
     final timeStr = tsDate != null ? DateFormat('HH:mm').format(tsDate) : '';
 
     final isVideo = callType == 'video';
@@ -2094,7 +2260,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         directionIcon = isOutgoing
             ? (isVideo ? Icons.videocam : Icons.call_made)
             : (isVideo ? Icons.videocam : Icons.call_received);
-        label = isOutgoing ? 'Outgoing $callLabel Call' : 'Incoming $callLabel Call';
+        label = isOutgoing
+            ? 'Outgoing $callLabel Call'
+            : 'Incoming $callLabel Call';
         if (duration > 0) {
           final m = duration ~/ 60;
           final s = duration % 60;
@@ -2107,9 +2275,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       case 'missed':
         if (isOutgoing) {
           iconColor = Colors.amber[700]!;
-          directionIcon = isVideo ? Icons.videocam_off : Icons.call_missed_outgoing;
+          directionIcon =
+              isVideo ? Icons.videocam_off : Icons.call_missed_outgoing;
           label = 'No Answer';
-          subtitle = isVideo ? 'They didn\'t pick up the video call' : 'They didn\'t pick up';
+          subtitle = isVideo
+              ? 'They didn\'t pick up the video call'
+              : 'They didn\'t pick up';
           bubbleColor = Colors.amber.withOpacity(0.06);
           borderColor = Colors.amber.withOpacity(0.35);
         } else {
@@ -2133,7 +2304,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           iconColor = Colors.indigo[400]!;
           directionIcon = isVideo ? Icons.videocam_off : Icons.call_end;
           label = 'You Declined';
-          subtitle = isVideo ? 'You declined the video call' : 'You declined the call';
+          subtitle =
+              isVideo ? 'You declined the video call' : 'You declined the call';
           bubbleColor = Colors.indigo.withOpacity(0.05);
           borderColor = Colors.indigo.withOpacity(0.22);
         }
@@ -2285,7 +2457,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(Icons.history, color: _primaryGradient.colors[0], size: 20),
+                  Icon(Icons.history,
+                      color: _primaryGradient.colors[0], size: 20),
                   const SizedBox(width: 10),
                   Text('Call History (${_callHistory.length})',
                       style: TextStyle(
@@ -2352,14 +2525,14 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         directionIcon = outgoing
             ? (isVideo ? Icons.videocam : Icons.call_made)
             : (isVideo ? Icons.videocam : Icons.call_received);
-        statusLabel = outgoing
-            ? 'Outgoing $callLabel call'
-            : 'Incoming $callLabel call';
+        statusLabel =
+            outgoing ? 'Outgoing $callLabel call' : 'Incoming $callLabel call';
         break;
       case CallStatus.missed:
         if (outgoing) {
           iconColor = Colors.amber[700]!;
-          directionIcon = isVideo ? Icons.videocam_off : Icons.call_missed_outgoing;
+          directionIcon =
+              isVideo ? Icons.videocam_off : Icons.call_missed_outgoing;
           statusLabel = 'No Answer';
         } else {
           iconColor = Colors.red;
@@ -2451,25 +2624,33 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     // Fall back to the repliedTo map passed directly (from the parent message).
     if (replyData == null && inlinePayload == null) {
       // Minimal placeholder – no network call
+      // isMe==true  → light lavender bubble → dark accent
+      // isMe==false → dark purple gradient  → white
+      final Color _replyBgColor = isMe
+          ? Colors.white.withOpacity(0.85)
+          : Colors.white.withOpacity(0.15);
+      final Color _replyIconColor =
+          isMe ? _primaryGradient.colors[0] : Colors.white.withOpacity(0.9);
+      final Color _replyTextColor =
+          isMe ? _textColor.withOpacity(0.75) : Colors.white.withOpacity(0.8);
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: isMe
-              ? Colors.white.withOpacity(0.9)
-              : _primaryGradient.colors[0].withOpacity(0.1),
+          color: _replyBgColor,
           borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+              color: isMe ? Colors.white : Colors.white.withOpacity(0.25)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.reply, size: 14,
-                color: isMe ? _primaryGradient.colors[0] : _primaryGradient.colors[0]),
+            Icon(Icons.reply, size: 14, color: _replyIconColor),
             const SizedBox(width: 6),
             Text('Replied message',
                 style: TextStyle(
                     fontSize: 12,
                     fontStyle: FontStyle.italic,
-                    color: isMe ? Colors.black87 : _lightTextColor)),
+                    color: _replyTextColor)),
           ],
         ),
       );
@@ -2478,13 +2659,15 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     // Prefer the full cached message for type detection; fall back to inline.
     final Map<String, dynamic> source = replyData ?? inlinePayload!;
 
-    final String msgType =
-        source['messageType']?.toString() ?? source['type']?.toString() ?? 'text';
+    final String msgType = source['messageType']?.toString() ??
+        source['type']?.toString() ??
+        'text';
 
     final String senderName;
     if (replyData != null) {
-      final String senderIdR =
-          replyData['senderId']?.toString() ?? replyData['senderid']?.toString() ?? '';
+      final String senderIdR = replyData['senderId']?.toString() ??
+          replyData['senderid']?.toString() ??
+          '';
       final bool isReplyFromMe = senderIdR == _mySenderId;
       final bool isReplyFromAdmin = senderIdR == _adminUserId;
       senderName = isReplyFromAdmin
@@ -2505,10 +2688,22 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     String? imageUrl;
     if (msgType == 'image') {
       imageUrl = replyData != null
-          ? (replyData['message']?.toString() ?? replyData['imageUrl']?.toString())
+          ? (replyData['message']?.toString() ??
+              replyData['imageUrl']?.toString())
           : inlinePayload!['imageUrl']?.toString();
     }
     final bool hasImage = imageUrl != null && imageUrl.isNotEmpty;
+
+    // isMe==true  → light lavender bubble → use dark accent colors
+    // isMe==false → dark purple gradient  → use white colors
+    final Color rAccent =
+        isMe ? _primaryGradient.colors[0] : Colors.white.withOpacity(0.95);
+    final Color rBg =
+        isMe ? Colors.white.withOpacity(0.85) : Colors.white.withOpacity(0.15);
+    final Color rBorder =
+        isMe ? Colors.white.withOpacity(0.95) : Colors.white.withOpacity(0.25);
+    final Color rPreviewText =
+        isMe ? _textColor.withOpacity(0.8) : Colors.white.withOpacity(0.8);
 
     return Container(
       constraints: BoxConstraints(
@@ -2516,15 +2711,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         maxWidth: MediaQuery.of(context).size.width * 0.6,
       ),
       decoration: BoxDecoration(
-        color: isMe
-            ? Colors.white.withOpacity(0.9)
-            : _primaryGradient.colors[0].withOpacity(0.1),
+        color: rBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: isMe
-              ? Colors.white.withOpacity(0.95)
-              : _primaryGradient.colors[0].withOpacity(0.3),
-        ),
+        border: Border.all(color: rBorder),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2534,9 +2723,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
             width: 3,
             height: hasImage ? 64 : 46,
             decoration: BoxDecoration(
-              color: isMe
-                  ? _primaryGradient.colors[0]
-                  : _primaryGradient.colors[0],
+              color: rAccent,
               borderRadius: const BorderRadius.only(
                 topLeft: Radius.circular(12),
                 bottomLeft: Radius.circular(12),
@@ -2553,17 +2740,13 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: isMe
-                            ? _primaryGradient.colors[0]
-                            : _primaryGradient.colors[0],
+                        color: rAccent,
                       )),
                   const SizedBox(height: 3),
                   Text(previewText,
                       style: TextStyle(
                         fontSize: 12,
-                        color: isMe
-                            ? Colors.black87
-                            : _lightTextColor,
+                        color: rPreviewText,
                         fontStyle: FontStyle.italic,
                       ),
                       maxLines: 2,
@@ -2611,12 +2794,29 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     final isCurrentlyPlaying = _playingMessageId == voiceUrl && _isPlaying;
     final isCurrentMessage = _playingMessageId == voiceUrl;
     final progressValue = isCurrentMessage && _playbackDuration.inSeconds > 0
-        ? (_playbackPosition.inMilliseconds / _playbackDuration.inMilliseconds).clamp(0.0, 1.0)
+        ? (_playbackPosition.inMilliseconds / _playbackDuration.inMilliseconds)
+            .clamp(0.0, 1.0)
         : 0.0;
     final displaySecs = isCurrentMessage && _playbackDuration.inSeconds > 0
         ? _playbackPosition.inSeconds
         : 0;
-    final displayTime = '${(displaySecs ~/ 60).toString().padLeft(2, '0')}:${(displaySecs % 60).toString().padLeft(2, '0')}';
+    final displayTime =
+        '${(displaySecs ~/ 60).toString().padLeft(2, '0')}:${(displaySecs % 60).toString().padLeft(2, '0')}';
+
+    // isMe==true  → pale lavender bubble → need DARK accent colors
+    // isMe==false → dark purple gradient  → need WHITE colors
+    final Color _voiceIconColor =
+        isMe ? _primaryGradient.colors[0] : Colors.white;
+    final Color _voiceIconBg = isMe
+        ? _primaryGradient.colors[0].withOpacity(0.12)
+        : Colors.white.withOpacity(0.25);
+    final Color _voiceProgressColor =
+        isMe ? _primaryGradient.colors[0] : Colors.white;
+    final Color _voiceProgressBg = isMe
+        ? _primaryGradient.colors[0].withOpacity(0.2)
+        : Colors.white.withOpacity(0.25);
+    final Color _voiceTimeColor =
+        isMe ? _lightTextColor : Colors.white.withOpacity(0.75);
 
     return GestureDetector(
       onTap: () => _toggleVoicePlayback(voiceUrl),
@@ -2630,12 +2830,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                color: isMe ? Colors.white.withOpacity(0.25) : _primaryGradient.colors[0].withOpacity(0.15),
+                color: _voiceIconBg,
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 isCurrentlyPlaying ? Icons.pause : Icons.play_arrow,
-                color: isMe ? Colors.white : _primaryGradient.colors[0],
+                color: _voiceIconColor,
                 size: 22,
               ),
             ),
@@ -2650,17 +2850,16 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                     child: LinearProgressIndicator(
                       value: progressValue,
                       minHeight: 3,
-                      backgroundColor: (isMe ? Colors.white : _primaryGradient.colors[0]).withOpacity(0.25),
-                      valueColor: AlwaysStoppedAnimation<Color>(
-                        isMe ? Colors.white : _primaryGradient.colors[0],
-                      ),
+                      backgroundColor: _voiceProgressBg,
+                      valueColor:
+                          AlwaysStoppedAnimation<Color>(_voiceProgressColor),
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     displayTime,
                     style: TextStyle(
-                      color: isMe ? Colors.white70 : _lightTextColor,
+                      color: _voiceTimeColor,
                       fontSize: 11,
                     ),
                   ),
@@ -2779,8 +2978,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
-          bottomLeft: isMe ? const Radius.circular(16) : const Radius.circular(4),
-          bottomRight: isMe ? const Radius.circular(4) : const Radius.circular(16),
+          bottomLeft:
+              isMe ? const Radius.circular(16) : const Radius.circular(4),
+          bottomRight:
+              isMe ? const Radius.circular(4) : const Radius.circular(16),
         ),
         child: CachedNetworkImage(
           imageUrl: imageUrl,
@@ -2802,7 +3003,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
             width: imgW,
             height: imgW * 0.75,
             color: Colors.grey.shade200,
-            child: Icon(Icons.broken_image, color: Colors.grey.shade400, size: 40),
+            child:
+                Icon(Icons.broken_image, color: Colors.grey.shade400, size: 40),
           ),
         ),
       ),
@@ -2930,8 +3132,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
     // 5+ images: 2-column grid, last visible cell shows "+N"
     const int maxVisible = 6;
-    final int displayCount = urls.length > maxVisible ? maxVisible : urls.length;
-    final int extraCount = urls.length > maxVisible ? urls.length - maxVisible + 1 : 0;
+    final int displayCount =
+        urls.length > maxVisible ? maxVisible : urls.length;
+    final int extraCount =
+        urls.length > maxVisible ? urls.length - maxVisible + 1 : 0;
     final double cellW = (gridW - gap) / 2;
     final List<Widget> cells = List.generate(displayCount, (i) {
       final isLast = i == displayCount - 1 && extraCount > 0;
@@ -3007,407 +3211,48 @@ class _AdminChatScreenState extends State<AdminChatScreen>
     );
   }
 
-// Updated Profile Card Message with Pro-Level Design
+// ── Profile Card ─────────────────────────────────────────────────────────
   Widget _buildProfileCardMessage(
       Map<String, dynamic>? profileData, bool isMe) {
     if (profileData == null) {
       return Text('Profile Card',
-          style: TextStyle(
-            color: isMe ? Colors.white : _textColor,
-          ));
+          style: TextStyle(color: isMe ? Colors.white : _textColor));
     }
-
-    final bool shouldBlurPhotoFallback = profileData['shouldBlurPhoto'] ?? true;
-    final String privacy = profileData['privacy']?.toString() ?? '';
-    final String photoRequest = profileData['photo_request']?.toString() ?? '';
-    // Determine visibility: use PrivacyUtils when either privacy or photo_request
-    // field is present in the data; otherwise fall back to the legacy
-    // shouldBlurPhoto flag that older messages or admin-shared profiles carry.
-    final bool hasPrivacyData = profileData.containsKey('privacy') ||
-        profileData.containsKey('photo_request');
-    final bool shouldShowClear = hasPrivacyData
-        ? PrivacyUtils.shouldShowClearImage(
-            privacy: privacy, photoRequest: photoRequest)
-        : !shouldBlurPhotoFallback;
-
-    final String userId = (profileData['userId'] ?? profileData['id'] ?? '').toString();
-    final String firstName = (profileData['firstName'] ?? profileData['first'] ?? '').toString();
-    final String lastName = (profileData['lastName'] ?? profileData['last'] ?? '').toString();
-    final String fullName = '$firstName $lastName'.trim();
-    final String displayName =
-        fullName.isNotEmpty ? fullName : (profileData['name']?.toString() ?? 'Unknown');
-    final String? photoUrl = profileData['profileImage']?.toString();
-    final bool hasPhoto = photoUrl != null && photoUrl.isNotEmpty;
-
-    // Gallery images: list of URL strings
-    final List<String> galleryImages = [];
-    final rawGallery = profileData['galleryImages'];
-    if (rawGallery is List) {
-      for (final item in rawGallery) {
-        final url = item?.toString() ?? '';
-        if (url.isNotEmpty) galleryImages.add(url);
-      }
-    }
-    // Build all viewable images (main photo first, then gallery)
-    final List<String> allImages = [
-      if (hasPhoto) photoUrl!,
-      ...galleryImages.where((u) => u != photoUrl),
-    ];
-
-    return Container(
-      width: 300,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: _primaryGradient.colors[0].withOpacity(0.18),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Gradient header banner ──
-            Container(
-              height: 60,
-              decoration: BoxDecoration(
-                gradient: _primaryGradient,
-              ),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              child: Row(
-                children: [
-                  Icon(Icons.favorite, color: Colors.white.withOpacity(0.7), size: 16),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Profile Card',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.3,
-                    ),
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.25),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      'MS-$userId',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
+    return SharedProfileCard(
+      profileData: profileData,
+      isAdminViewer: widget.isAdmin,
+      onOpenPhotoViewer: (images, index) =>
+          _openPhotoViewer(context, images, index),
+      onPrivatePhotoTap: (uid, photoReq) =>
+          _showPhotoPrivacyDialog(context, uid, photoReq),
+      onChat: (uid, displayName) {
+        if (uid.isEmpty) return;
+        if (widget.isAdmin) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => AdminChatScreen(
+                senderID: uid,
+                userName: displayName,
+                isAdmin: widget.isAdmin,
               ),
             ),
-
-            // ── Profile photo + name (Centered layout) ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
-              child: Column(
-                children: [
-                  Transform.translate(
-                    offset: const Offset(0, -30),
-                    child: Column(
-                      children: [
-                        // Profile photo - centered, tappable to open fullscreen viewer
-                        // (shows privacy dialog instead if photo is private and viewer is a non-admin user)
-                        GestureDetector(
-                          onTap: allImages.isNotEmpty
-                              ? () {
-                                  if (!shouldShowClear && !widget.isAdmin) {
-                                    _showPhotoPrivacyDialog(
-                                        context, userId, photoRequest);
-                                  } else {
-                                    _openPhotoViewer(context, allImages, 0);
-                                  }
-                                }
-                              : null,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 3),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.15),
-                                  blurRadius: 8,
-                                ),
-                              ],
-                            ),
-                            child: ClipOval(
-                              child: !shouldShowClear
-                                  ? ImageFiltered(
-                                      imageFilter: ImageFilter.blur(
-                                        sigmaX: PrivacyUtils.kStandardBlurSigmaX,
-                                        sigmaY: PrivacyUtils.kStandardBlurSigmaY,
-                                      ),
-                                      child: Container(
-                                        width: 80,
-                                        height: 80,
-                                        color: Colors.grey.shade200,
-                                        child: hasPhoto
-                                            ? CachedNetworkImage(
-                                                imageUrl: photoUrl!,
-                                                fit: BoxFit.cover,
-                                                errorWidget: (_, __, ___) =>
-                                                    Icon(Icons.person, size: 40, color: Colors.grey.shade400),
-                                              )
-                                            : Icon(Icons.person, size: 40, color: Colors.grey.shade400),
-                                      ),
-                                    )
-                                  : Container(
-                                      width: 80,
-                                      height: 80,
-                                      color: Colors.grey.shade200,
-                                      child: hasPhoto
-                                          ? CachedNetworkImage(
-                                              imageUrl: photoUrl!,
-                                              fit: BoxFit.cover,
-                                              errorWidget: (_, __, ___) =>
-                                                  Icon(Icons.person, size: 40, color: Colors.grey.shade400),
-                                            )
-                                          : Icon(Icons.person, size: 40, color: Colors.grey.shade400),
-                                    ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        // Name + meta - centered below
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Flexible(
-                                  child: Text(
-                                    displayName,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                      color: _textColor,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                // Photo lock/unlock badge
-                                Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: shouldShowClear ? Colors.green.shade100 : Colors.orange.shade100,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Icon(
-                                    shouldShowClear ? Icons.lock_open_outlined : Icons.lock_outline,
-                                    size: 12,
-                                    color: shouldShowClear ? Colors.green.shade700 : Colors.orange.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 6),
-                            if (profileData['age'] != null && profileData['age'] != 'N/A')
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(Icons.cake_outlined, size: 13, color: _lightTextColor),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${profileData['age']} years',
-                                    style: TextStyle(fontSize: 13, color: _lightTextColor, fontWeight: FontWeight.w500),
-                                  ),
-                                ],
-                              ),
-                            if ((profileData['location'] ?? profileData['country']) != null &&
-                                (profileData['location'] ?? profileData['country']).toString().isNotEmpty &&
-                                (profileData['location'] ?? profileData['country']) != 'Location not specified')
-                              Padding(
-                                padding: const EdgeInsets.only(top: 4),
-                                child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(Icons.location_on_outlined, size: 13, color: _lightTextColor),
-                                    const SizedBox(width: 4),
-                                    Flexible(
-                                      child: Text(
-                                        (profileData['location'] ?? profileData['country']).toString(),
-                                        style: TextStyle(fontSize: 12, color: _lightTextColor),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // ── Info chips ──
-                  Transform.translate(
-                    offset: const Offset(0, -22),
-                    child: Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        if (profileData['religion'] != null && profileData['religion'] != 'N/A')
-                          _buildInfoChip(Icons.menu_book_outlined, profileData['religion']),
-                        if (profileData['community'] != null && profileData['community'] != 'N/A')
-                          _buildInfoChip(Icons.groups_outlined, profileData['community']),
-                        if (profileData['occupation'] != null && profileData['occupation'] != 'N/A')
-                          _buildInfoChip(Icons.work_outline, profileData['occupation']),
-                        if (profileData['education'] != null && profileData['education'] != 'N/A')
-                          _buildInfoChip(Icons.school_outlined, profileData['education']),
-                        if (profileData['height'] != null && profileData['height'] != 'N/A')
-                          _buildInfoChip(Icons.height, profileData['height']),
-                      ],
-                    ),
-                  ),
-
-                  // ── Bio ──
-                  if (profileData['bio'] != null &&
-                      profileData['bio'].toString().isNotEmpty &&
-                      profileData['bio'] != 'No bio available')
-                    Transform.translate(
-                      offset: const Offset(0, -14),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        decoration: BoxDecoration(
-                          color: _primaryGradient.colors[0].withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '"${profileData['bio']}"',
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: _lightTextColor,
-                            fontStyle: FontStyle.italic,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-
-                  // ── Gallery strip (only when there are extra photos) ──
-                  if (allImages.length > 1)
-                    Transform.translate(
-                      offset: const Offset(0, -10),
-                      child: _buildGalleryStrip(allImages, shouldShowClear,
-                          onPrivateTap: !widget.isAdmin
-                              ? () => _showPhotoPrivacyDialog(
-                                  context, userId, photoRequest)
-                              : null),
-                    ),
-                ],
-              ),
-            ),
-
-            // ── Divider ──
-            Divider(height: 1, color: Colors.grey.shade200),
-
-            // ── Action buttons ──
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextButton.icon(
-                      onPressed: () {
-                        if (userId.isNotEmpty) {
-                          if (widget.isAdmin) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => AdminChatScreen(
-                                  senderID: userId,
-                                  userName: displayName,
-                                  isAdmin: widget.isAdmin,
-                                ),
-                              ),
-                            );
-                          } else {
-                            _handleProfileCardChat(context, userId, displayName);
-                          }
-                        }
-                      },
-                      icon: Icon(Icons.chat_bubble_outline,
-                          size: 16, color: _primaryGradient.colors[0]),
-                      label: Text(
-                        'Chat',
-                        style: TextStyle(
-                          color: _primaryGradient.colors[0],
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(width: 1, height: 28, color: Colors.grey.shade200),
-                  Expanded(
-                    child: TextButton.icon(
-                      onPressed: () {
-                        if (userId.isNotEmpty) {
-                          if (widget.isAdmin) {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => ProfileScreen(userId: userId),
-                              ),
-                            );
-                          } else {
-                            _handleProfileCardViewProfile(context, userId);
-                          }
-                        }
-                      },
-                      icon: Icon(Icons.person_outline,
-                          size: 16, color: _primaryGradient.colors[0]),
-                      label: Text(
-                        'View Profile',
-                        style: TextStyle(
-                          color: _primaryGradient.colors[0],
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+          );
+        } else {
+          _handleProfileCardChat(context, uid, displayName);
+        }
+      },
+      onViewProfile: (uid) {
+        if (uid.isEmpty) return;
+        if (widget.isAdmin) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => ProfileScreen(userId: uid)),
+          );
+        } else {
+          _handleProfileCardViewProfile(context, uid);
+        }
+      },
     );
   }
 
@@ -3481,7 +3326,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                           fit: BoxFit.cover,
                           errorWidget: (_, __, ___) => Container(
                             color: Colors.grey.shade200,
-                            child: Icon(Icons.image, size: 20, color: Colors.grey.shade400),
+                            child: Icon(Icons.image,
+                                size: 20, color: Colors.grey.shade400),
                           ),
                         ),
                       )
@@ -3490,7 +3336,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                         fit: BoxFit.cover,
                         errorWidget: (_, __, ___) => Container(
                           color: Colors.grey.shade200,
-                          child: Icon(Icons.image, size: 20, color: Colors.grey.shade400),
+                          child: Icon(Icons.image,
+                              size: 20, color: Colors.grey.shade400),
                         ),
                       ),
               ),
@@ -3506,6 +3353,12 @@ class _AdminChatScreenState extends State<AdminChatScreen>
   /// a new photo request if one has not been sent yet.
   Future<void> _showPhotoPrivacyDialog(
       BuildContext context, String targetUserId, String currentRequest) async {
+    final bool hasPackage = context.read<UserState>().hasPackage;
+    if (!widget.isAdmin && !hasPackage) {
+      await _showPackageRequiredDialog(context);
+      return;
+    }
+
     String photoRequestStatus = currentRequest.toLowerCase().trim();
     bool isSending = false;
 
@@ -3520,42 +3373,31 @@ class _AdminChatScreenState extends State<AdminChatScreen>
 
           IconData statusIcon;
           Color statusColor;
-          String nepaliTitle;
-          String englishTitle;
-          String nepaliMessage;
-          String englishMessage;
+          String title;
+          String message;
 
           if (isPending) {
             statusIcon = Icons.hourglass_bottom;
             statusColor = Colors.orange;
-            nepaliTitle = 'रिक्वेस्ट पठाइएको छ';
-            englishTitle = 'Request Sent';
-            nepaliMessage = 'तपाईंको फोटो हेर्ने रिक्वेस्ट पेन्डिङ छ।';
-            englishMessage = 'Your photo request is pending approval.';
+            title = 'Request Sent';
+            message = 'Your photo request is pending approval.';
           } else if (isRejected) {
             statusIcon = Icons.cancel_outlined;
             statusColor = Colors.grey.shade600;
-            nepaliTitle = 'रिक्वेस्ट अस्वीकार गरियो';
-            englishTitle = 'Request Rejected';
-            nepaliMessage =
-                'यो युजरले तपाईंको फोटो रिक्वेस्ट अस्वीकार गरेको छ।';
-            englishMessage = 'Your photo request was rejected by this user.';
+            title = 'Request Rejected';
+            message = 'Your photo request was rejected by this user.';
           } else {
             statusIcon = Icons.lock_outline;
             statusColor = Colors.red.shade600;
-            nepaliTitle = 'यो फोटो प्राइभेट छ';
-            englishTitle = 'Photo is Private';
-            nepaliMessage = 'यो फोटो हेर्नको लागि रिक्वेस्ट पठाउनुहोस्।';
-            englishMessage = 'Send a request to view this photo.';
+            title = 'Photo is Private';
+            message = 'Send a request to view this photo.';
           }
 
           return AlertDialog(
-            shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16)),
-            contentPadding:
-                const EdgeInsets.fromLTRB(24, 20, 24, 0),
-            actionsPadding:
-                const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -3569,7 +3411,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                 ),
                 const SizedBox(height: 14),
                 Text(
-                  nepaliTitle,
+                  title,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
@@ -3577,24 +3419,10 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   ),
                   textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  englishTitle,
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
-                  textAlign: TextAlign.center,
-                ),
                 const SizedBox(height: 12),
                 Text(
-                  nepaliMessage,
-                  style:
-                      TextStyle(fontSize: 13, color: Colors.grey.shade800),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  englishMessage,
-                  style:
-                      TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  message,
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade800),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -3602,7 +3430,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('बन्द गर्नुहोस् / Close'),
+                child: const Text('Close'),
               ),
               if (notSent)
                 ElevatedButton(
@@ -3613,10 +3441,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                             isSending = true;
                           });
                           try {
-                            final prefs =
-                                await SharedPreferences.getInstance();
-                            final userDataString =
-                                prefs.getString('user_data');
+                            final prefs = await SharedPreferences.getInstance();
+                            final userDataString = prefs.getString('user_data');
                             if (userDataString == null) {
                               setDialogState(() {
                                 isSending = false;
@@ -3624,21 +3450,16 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                               return;
                             }
                             final userData = jsonDecode(userDataString);
-                            final senderId =
-                                userData['id']?.toString() ?? '';
-                            if (senderId.isEmpty ||
-                                targetUserId.isEmpty) {
+                            final senderId = userData['id']?.toString() ?? '';
+                            if (senderId.isEmpty || targetUserId.isEmpty) {
                               setDialogState(() {
                                 isSending = false;
                               });
                               return;
                             }
                             final response = await http.post(
-                              Uri.parse(
-                                  '${kApiBaseUrl}/Api2/send_request.php'),
-                              headers: {
-                                'Content-Type': 'application/json'
-                              },
+                              Uri.parse('${kApiBaseUrl}/Api2/send_request.php'),
+                              headers: {'Content-Type': 'application/json'},
                               body: jsonEncode({
                                 'sender_id': senderId,
                                 'receiver_id': targetUserId,
@@ -3648,6 +3469,13 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                             if (response.statusCode == 200) {
                               final data = jsonDecode(response.body);
                               if (data['success'] == true) {
+                                SocketService().emitNewProposal(
+                                  receiverId: targetUserId,
+                                  senderId: senderId,
+                                  requestType: 'Photo',
+                                  proposalId:
+                                      data['proposal_id']?.toString() ?? '',
+                                );
                                 setDialogState(() {
                                   photoRequestStatus = 'pending';
                                   isSending = false;
@@ -3679,11 +3507,74 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                           child: CircularProgressIndicator(
                               color: Colors.white, strokeWidth: 2),
                         )
-                      : const Text('Photo Request पठाउनुहोस्'),
+                      : const Text('Send Photo Request'),
                 ),
             ],
           );
         },
+      ),
+    );
+  }
+
+  Future<void> _showPackageRequiredDialog(BuildContext context) async {
+    await showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: _primaryGradient.colors.first.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.workspace_premium_rounded,
+                size: 20,
+                color: _primaryGradient.colors.first,
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Premium Package Required',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'You need an active premium package to send photo requests. '
+          'Please upgrade to continue.',
+          style: TextStyle(fontSize: 13.5, height: 1.35),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _primaryGradient.colors.first,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const SubscriptionPage(),
+                ),
+              );
+            },
+            child: const Text('View Packages'),
+          ),
+        ],
       ),
     );
   }
@@ -3726,7 +3617,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                             imageUrl: images[i],
                             fit: BoxFit.contain,
                             placeholder: (_, __) => const Center(
-                              child: CircularProgressIndicator(color: Colors.white),
+                              child: CircularProgressIndicator(
+                                  color: Colors.white),
                             ),
                             errorWidget: (_, __, ___) => const Icon(
                                 Icons.broken_image,
@@ -3773,9 +3665,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                             height: 7,
                             margin: const EdgeInsets.symmetric(horizontal: 3),
                             decoration: BoxDecoration(
-                              color: i == idx
-                                  ? Colors.white
-                                  : Colors.white38,
+                              color: i == idx ? Colors.white : Colors.white38,
                               borderRadius: BorderRadius.circular(4),
                             ),
                           ),
@@ -3831,10 +3721,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
       children: [
         Icon(icon, size: 16, color: iconColor),
         const SizedBox(width: 8),
-        Text(text,
-            style: TextStyle(
-                fontSize: 14,
-                color: color ?? _textColor)),
+        Text(text, style: TextStyle(fontSize: 14, color: color ?? _textColor)),
       ],
     );
   }
@@ -3932,8 +3819,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                       itemCount: docs.length,
                       separatorBuilder: (_, __) => const Divider(height: 1),
                       itemBuilder: (ctx, i) {
-                        final data =
-                            docs[i].data() as Map<String, dynamic>;
+                        final data = docs[i].data() as Map<String, dynamic>;
                         final profileName =
                             data['profile_name']?.toString() ?? 'Unknown';
                         final memberId =
@@ -4049,15 +3935,13 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                     Text(
                       formatLastSeen(_adminLastSeen!),
                       style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white.withOpacity(0.85)),
+                          fontSize: 12, color: Colors.white.withOpacity(0.85)),
                     )
                   else if (!widget.isAdmin)
                     Text(
                       'Replies within 10 minutes',
                       style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.white.withOpacity(0.9)),
+                          fontSize: 12, color: Colors.white.withOpacity(0.9)),
                     )
                   else
                     Row(
@@ -4094,7 +3978,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                 MaterialPageRoute(
                   builder: (_) => CallScreen(
                     currentUserId: widget.senderID,
-                    currentUserName: _currentUserName.isNotEmpty ? _currentUserName : widget.senderID,
+                    currentUserName: _currentUserName.isNotEmpty
+                        ? _currentUserName
+                        : widget.senderID,
                     currentUserImage: _currentUserImage,
                     otherUserId: _adminUserId,
                     otherUserName: _adminUserName,
@@ -4115,7 +4001,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                 MaterialPageRoute(
                   builder: (_) => VideoCallScreen(
                     currentUserId: widget.senderID,
-                    currentUserName: _currentUserName.isNotEmpty ? _currentUserName : widget.senderID,
+                    currentUserName: _currentUserName.isNotEmpty
+                        ? _currentUserName
+                        : widget.senderID,
                     currentUserImage: _currentUserImage,
                     otherUserId: _adminUserId,
                     otherUserName: _adminUserName,
@@ -4185,8 +4073,7 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.support_agent,
-                        size: 72,
-                        color: Colors.white.withOpacity(0.9)),
+                        size: 72, color: Colors.white.withOpacity(0.9)),
                     const SizedBox(height: 20),
                     Text('How can we help you?',
                         style: const TextStyle(
@@ -4231,7 +4118,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
         child: ListView(
           controller: _scrollController,
           // Use ClampingScrollPhysics to prevent bounce effect that causes shaking
-          physics: const ClampingScrollPhysics(parent: AlwaysScrollableScrollPhysics()),
+          physics: const ClampingScrollPhysics(
+              parent: AlwaysScrollableScrollPhysics()),
           padding: const EdgeInsets.only(top: 16, bottom: 12),
           children: [
             if (_isLoadingMore)
@@ -4430,7 +4318,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
           children: [
             IconButton(
               onPressed: _cancelRecording,
-              icon: const Icon(Icons.delete_outline, color: Colors.red, size: 26),
+              icon:
+                  const Icon(Icons.delete_outline, color: Colors.red, size: 26),
               tooltip: 'Cancel',
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
@@ -4452,7 +4341,13 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                       animation: _recordingAnimController!,
                       builder: (context, _) {
                         // maps sin output [-1,1] → opacity [0.4, 1.0]
-                        final pulse = 0.4 + 0.6 * (0.5 + 0.5 * sin(2 * pi * _recordingAnimController!.value));
+                        final pulse = 0.4 +
+                            0.6 *
+                                (0.5 +
+                                    0.5 *
+                                        sin(2 *
+                                            pi *
+                                            _recordingAnimController!.value));
                         return Opacity(
                           opacity: pulse,
                           child: Container(
@@ -4492,7 +4387,9 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                               // phase offset per bar creates a travelling-wave effect
                               final phase = (i / barCount) * 2 * pi;
                               // maps sin output [-1,1] → [minH, maxH]
-                              final h = minH + (maxH - minH) * (0.5 + 0.5 * sin(2 * pi * t + phase));
+                              final h = minH +
+                                  (maxH - minH) *
+                                      (0.5 + 0.5 * sin(2 * pi * t + phase));
                               return Container(
                                 width: 3,
                                 height: h,
@@ -4529,7 +4426,8 @@ class _AdminChatScreenState extends State<AdminChatScreen>
                       gradient: _primaryGradient,
                     ),
                     child: IconButton(
-                      icon: const Icon(Icons.send, color: Colors.white, size: 22),
+                      icon:
+                          const Icon(Icons.send, color: Colors.white, size: 22),
                       onPressed: _stopAndSendRecording,
                     ),
                   ),
@@ -4742,7 +4640,8 @@ class _ImagePreviewSheet extends StatelessWidget {
                       if (snapshot.connectionState == ConnectionState.waiting) {
                         return Container(
                           color: Colors.grey.shade200,
-                          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                          child: const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2)),
                         );
                       }
                       if (snapshot.hasData) {
@@ -4753,7 +4652,8 @@ class _ImagePreviewSheet extends StatelessWidget {
                       }
                       return Container(
                         color: Colors.grey.shade200,
-                        child: const Icon(Icons.broken_image, color: Colors.grey),
+                        child:
+                            const Icon(Icons.broken_image, color: Colors.grey),
                       );
                     },
                   );
@@ -4799,7 +4699,8 @@ class _ImagePreviewSheet extends StatelessWidget {
                   icon: const Icon(Icons.send, size: 18, color: Colors.white),
                   label: Text(
                     'Send ${files.length} Photo${files.length == 1 ? '' : 's'}',
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                        color: Colors.white, fontWeight: FontWeight.w600),
                   ),
                 ),
               ),

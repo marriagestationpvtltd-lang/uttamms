@@ -31,6 +31,14 @@ function normalizeBaseUrl(input) {
   return base.replace(/\/$/, '');
 }
 
+function formatError(err) {
+  if (!err) return 'unknown error';
+  if (typeof err === 'string') return err;
+  const code = err.code ? `[${err.code}] ` : '';
+  const msg = err.message || err.sqlMessage || err.errno || 'unknown error';
+  return `${code}${msg}`;
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuration
 // ──────────────────────────────────────────────────────────────────────────────
@@ -51,6 +59,9 @@ const API_BASE_URL = (process.env.API_BASE_URL || 'https://digitallami.com').rep
 // Set CALLS_ENABLED=false in .env to disable call signaling while keeping chat working.
 // Any value other than the exact string 'false' (including undefined/missing) enables calls.
 const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
+// Set STRICT_AUTH=false in local development to bypass token validation failures.
+// Keep this true in production.
+const STRICT_AUTH = (process.env.STRICT_AUTH ?? 'true') !== 'false';
 
 // Log configuration on startup for debugging
 console.log(`⚙️  Loaded configuration:`);
@@ -59,6 +70,7 @@ console.log(`   ALLOWED_ORIGINS: ${ALLOWED_ORIGINS.join(', ')}`);
 console.log(`   PUBLIC_URL: ${PUBLIC_URL || '(not set - will use request headers)'}`);
 console.log(`   API_BASE_URL: ${API_BASE_URL}`);
 console.log(`   CALLS_ENABLED: ${CALLS_ENABLED}`);
+console.log(`   STRICT_AUTH: ${STRICT_AUTH}`);
 
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
@@ -1247,6 +1259,11 @@ app.get('/api/call-join-list', async (req, res) => {
  * On failure, returns 401.
  */
 async function requireAdminToken(req, res, next) {
+  if (!STRICT_AUTH) {
+    req.adminId = 1;
+    return next();
+  }
+
   const authHeader = (req.headers['authorization'] || '').trim();
   const match = authHeader.match(/^Bearer\s+(\S+)$/i);
   if (!match) {
@@ -1274,7 +1291,7 @@ async function requireAdminToken(req, res, next) {
     req.adminId = row.id;
     next();
   } catch (err) {
-    console.error('requireAdminToken error:', err.message);
+    console.error('requireAdminToken error:', formatError(err));
     res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -1314,12 +1331,12 @@ app.get('/api/admin/chat-history', requireAdminToken, async (req, res) => {
       where.push('m.chat_room_id = ?');
       params.push(chatRoomId);
     } else if (user1Id && user2Id) {
-      // The chat room id contains both user IDs — use JSON_CONTAINS on chat_rooms
+      // Use LIKE to search for both user IDs in participants JSON array (MariaDB compatible)
       where.push(
         `m.chat_room_id IN (
            SELECT id FROM chat_rooms
-            WHERE JSON_CONTAINS(participants, JSON_QUOTE(?))
-              AND JSON_CONTAINS(participants, JSON_QUOTE(?))
+            WHERE participants LIKE CONCAT('%"', ?, '"%')
+              AND participants LIKE CONCAT('%"', ?, '"%')
          )`,
       );
       params.push(user1Id, user2Id);
@@ -1541,7 +1558,12 @@ async function ensureChatRoom({ chatRoomId, user1Id, user2Id, user1Name, user2Na
       `UPDATE chat_rooms
           SET participant_names = ?
         WHERE id = ?
-          AND (participant_names IS NULL OR JSON_LENGTH(participant_names) = 0 OR participant_names = '{}')`,
+          AND (
+            participant_names IS NULL
+            OR TRIM(participant_names) = ''
+            OR TRIM(participant_names) = '{}'
+            OR JSON_VALID(participant_names) = 0
+          )`,
       [namesJson, chatRoomId],
     );
   }
@@ -1550,7 +1572,12 @@ async function ensureChatRoom({ chatRoomId, user1Id, user2Id, user1Name, user2Na
       `UPDATE chat_rooms
           SET participant_images = ?
         WHERE id = ?
-          AND (participant_images IS NULL OR JSON_LENGTH(participant_images) = 0 OR participant_images = '{}')`,
+          AND (
+            participant_images IS NULL
+            OR TRIM(participant_images) = ''
+            OR TRIM(participant_images) = '{}'
+            OR JSON_VALID(participant_images) = 0
+          )`,
       [imagesJson, chatRoomId],
     );
   }
@@ -1566,8 +1593,8 @@ async function saveMessage(msg) {
   await pool.query(
     `INSERT INTO chat_messages
        (message_id, chat_room_id, sender_id, receiver_id, message, message_type,
-        is_read, is_delivered, replied_to, created_at, liked)
-     VALUES (?,?,?,?,?,?,?,?,?,?,0)`,
+        is_read, is_delivered, replied_to, created_at, liked, is_unsent)
+     VALUES (?,?,?,?,?,?,?,?,?,?,0,0)`,
     [
       msg.messageId,
       msg.chatRoomId,
@@ -1602,14 +1629,16 @@ async function saveMessageBatch(messages) {
       msg.isDelivered ? 1 : 0,
       msg.repliedTo ? JSON.stringify(msg.repliedTo) : null,
       new Date(), // always use server UTC time; never trust client-supplied timestamp
+      0, // liked
+      0  // is_unsent
     );
-    return '(?,?,?,?,?,?,?,?,?,?,0)';
+    return '(?,?,?,?,?,?,?,?,?,?,?,?)';
   }).join(',');
 
   await pool.query(
     `INSERT IGNORE INTO chat_messages
        (message_id, chat_room_id, sender_id, receiver_id, message, message_type,
-        is_read, is_delivered, replied_to, created_at, liked)
+        is_read, is_delivered, replied_to, created_at, liked, is_unsent)
      VALUES ${placeholders}`,
     values,
   );
@@ -1637,29 +1666,52 @@ async function getChatRooms(userId) {
   const safeUserId = (userId || '').toString().trim();
   if (!safeUserId) return [];
 
-  const numericUserId = Number(safeUserId);
-  const hasNumericVariant =
-    Number.isInteger(numericUserId) && String(numericUserId) === safeUserId;
-
-  const membershipCondition = hasNumericVariant
-    ? '(JSON_CONTAINS(cr.participants, JSON_QUOTE(?)) OR JSON_CONTAINS(cr.participants, CAST(? AS JSON)))'
-    : 'JSON_CONTAINS(cr.participants, JSON_QUOTE(?))';
-
-  const queryParams = hasNumericVariant
-    ? [safeUserId, safeUserId, safeUserId]
-    : [safeUserId, safeUserId];
+  // Use LIKE to search for userId in JSON array (MariaDB compatible)
+  // participants is stored as: ["id1", "id2"]
+  const queryParams = [safeUserId, safeUserId];
 
   const [rooms] = await pool.query(
     `SELECT cr.*, 
             COALESCE(uc.unread_count, 0) AS unread_count
        FROM chat_rooms cr
        LEFT JOIN chat_unread_counts uc ON uc.chat_room_id = cr.id AND uc.user_id = ?
-      WHERE ${membershipCondition}
+      WHERE cr.participants LIKE CONCAT('%"', ?, '"%')
       ORDER BY cr.last_message_time DESC`,
     queryParams,
   );
 
   if (rooms.length === 0) return [];
+
+  // Fetch all peers blocked in either direction with this user so blocked
+  // conversations can be hidden from the list (Facebook-like behavior).
+  const blockedPeerIds = new Set();
+  const allPeerIds = new Set();
+  for (const r of rooms) {
+    try {
+      const participants = JSON.parse(r.participants);
+      if (!Array.isArray(participants)) continue;
+      for (const pid of participants) {
+        const pidStr = pid?.toString() || '';
+        if (pidStr && pidStr !== safeUserId) allPeerIds.add(pidStr);
+      }
+    } catch (_) {}
+  }
+  if (allPeerIds.size > 0) {
+    const pidArray = Array.from(allPeerIds);
+    const placeholders = pidArray.map(() => '?').join(',');
+    const [blockRows] = await pool.query(
+      `SELECT blocker_id, blocked_id FROM blocks
+        WHERE (blocker_id = ? AND blocked_id IN (${placeholders}))
+           OR (blocked_id = ? AND blocker_id IN (${placeholders}))`,
+      [safeUserId, ...pidArray, safeUserId, ...pidArray],
+    );
+    for (const b of blockRows) {
+      const blocker = b.blocker_id?.toString() || '';
+      const blocked = b.blocked_id?.toString() || '';
+      if (blocker === safeUserId && blocked) blockedPeerIds.add(blocked);
+      if (blocked === safeUserId && blocker) blockedPeerIds.add(blocker);
+    }
+  }
 
   // Collect all unique other-participant IDs across all rooms
   const otherParticipantIds = new Set();
@@ -1745,16 +1797,48 @@ async function getChatRooms(userId) {
   }
 
   return rooms.map(r => {
-    const participants = JSON.parse(r.participants);
+    let participants = [];
+    try {
+      const parsedParticipants = JSON.parse(r.participants);
+      if (Array.isArray(parsedParticipants)) {
+        participants = parsedParticipants;
+      }
+    } catch (e) {
+      console.warn(`getChatRooms: failed to parse participants for room ${r.id}:`, formatError(e));
+    }
+    if (!participants.length) return null;
+
+    // Hide room if any peer in the room has a block relation with viewer.
+    const hasBlockedPeer = participants.some(pid => {
+      const pidStr = pid.toString();
+      return pidStr !== safeUserId && blockedPeerIds.has(pidStr);
+    });
+    if (hasBlockedPeer) return null;
 
     // Parse stored names/images — fall back to empty object on parse errors.
     let storedNames  = {};
     let storedImages = {};
     try { storedNames  = JSON.parse(r.participant_names)  || {}; } catch (e) {
-      console.warn(`getChatRooms: failed to parse participant_names for room ${r.id}:`, e.message);
+      console.warn(`getChatRooms: failed to parse participant_names for room ${r.id}:`, formatError(e));
     }
     try { storedImages = JSON.parse(r.participant_images) || {}; } catch (e) {
-      console.warn(`getChatRooms: failed to parse participant_images for room ${r.id}:`, e.message);
+      console.warn(`getChatRooms: failed to parse participant_images for room ${r.id}:`, formatError(e));
+    }
+
+    // Legacy rows may store participant_names/images as arrays aligned with participants.
+    if (Array.isArray(storedNames)) {
+      const remapped = {};
+      for (let i = 0; i < participants.length; i++) {
+        remapped[participants[i].toString()] = (storedNames[i] || '').toString();
+      }
+      storedNames = remapped;
+    }
+    if (Array.isArray(storedImages)) {
+      const remapped = {};
+      for (let i = 0; i < participants.length; i++) {
+        remapped[participants[i].toString()] = (storedImages[i] || '').toString();
+      }
+      storedImages = remapped;
     }
 
     const participantNames           = {};
@@ -1803,7 +1887,7 @@ async function getChatRooms(userId) {
       lastMessageSenderId:       r.last_message_sender_id,
       unreadCount:               r.unread_count,
     };
-  });
+  }).filter(Boolean);
 }
 
 async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
@@ -1927,7 +2011,7 @@ async function upsertOnlineStatus(userId, isOnline, activeChatRoomId = null) {
       [isOnline ? 1 : 0, userId, isOnline ? 1 : 0],
     );
   } catch (err) {
-    console.error(`Failed to update online status for user ${userId}:`, err.message);
+    console.error(`Failed to update online status for user ${userId}:`, formatError(err));
   }
 }
 
@@ -2062,12 +2146,17 @@ io.on('connection', (socket) => {
             [handshakeToken],
           );
           if (!adminRow) {
-            console.warn(`authenticate: invalid admin token (socket=${socket.id})`);
-            socket.emit('authentication_error', { error: 'Invalid or expired admin token' });
-            socket.disconnect(true);
-            return;
+            if (STRICT_AUTH) {
+              console.warn(`authenticate: invalid admin token (socket=${socket.id})`);
+              socket.emit('authentication_error', { error: 'Invalid or expired admin token' });
+              socket.disconnect(true);
+              return;
+            }
+            console.warn(`authenticate: invalid admin token (socket=${socket.id}) — bypassed (STRICT_AUTH=false)`);
+            authenticatedUserId = claimedUserId;
+          } else {
+            authenticatedUserId = '1';
           }
-          authenticatedUserId = '1';
         } else {
           // Regular user — validate against user_tokens
           const [[userRow]] = await pool.query(
@@ -2078,21 +2167,30 @@ io.on('connection', (socket) => {
             [handshakeToken],
           );
           if (!userRow) {
-            console.warn(`authenticate: invalid user token for claimed userId=${claimedUserId} (socket=${socket.id})`);
-            socket.emit('authentication_error', { error: 'Invalid or expired token' });
-            socket.disconnect(true);
-            return;
+            if (STRICT_AUTH) {
+              console.warn(`authenticate: invalid user token for claimed userId=${claimedUserId} (socket=${socket.id})`);
+              socket.emit('authentication_error', { error: 'Invalid or expired token' });
+              socket.disconnect(true);
+              return;
+            }
+            console.warn(`authenticate: invalid user token for claimed userId=${claimedUserId} (socket=${socket.id}) — bypassed (STRICT_AUTH=false)`);
+            authenticatedUserId = claimedUserId;
           }
-          const dbUserId = userRow.userid.toString();
-          if (dbUserId !== claimedUserId) {
-            // Token belongs to a different user — use the DB-verified userId
-            console.warn(`authenticate: token userId mismatch (claimed=${claimedUserId}, actual=${dbUserId}); using actual`);
+          const dbUserId = userRow?.userid?.toString();
+          if (!dbUserId) {
+            // strict mode already returned above; in local bypass mode continue with claimed id
+            authenticatedUserId = authenticatedUserId || claimedUserId;
+          } else {
+            if (dbUserId !== claimedUserId) {
+              // Token belongs to a different user — use the DB-verified userId
+              console.warn(`authenticate: token userId mismatch (claimed=${claimedUserId}, actual=${dbUserId}); using actual`);
+            }
+            authenticatedUserId = dbUserId;
           }
-          authenticatedUserId = dbUserId;
         }
       } catch (err) {
         // DB error — fail open (trust client userId) to avoid breaking existing flow
-        console.error('authenticate token validation error:', err.message);
+        console.error('authenticate token validation error:', formatError(err));
         authenticatedUserId = claimedUserId;
       }
     } else {
@@ -2143,7 +2241,7 @@ io.on('connection', (socket) => {
       socket.emit('chat_rooms_update', { chatRooms: rooms });
       socket.emit('chat_list_update', { chatRooms: rooms });
     }).catch(err => {
-      console.error('authenticate: getChatRooms error:', err.message);
+      console.error('authenticate: getChatRooms error:', formatError(err));
     });
   });
 
@@ -2239,6 +2337,46 @@ io.on('connection', (socket) => {
     });
   });
 
+  // ── new_proposal ─────────────────────────────────────────────────────────
+  // Emitted by the sender right after a proposal/request is saved to the DB.
+  // Payload: { receiverId, senderId, senderName, requestType, proposalId }
+  // The event is forwarded to the receiver so their Proposals screen refreshes
+  // instantly without polling.
+  socket.on('new_proposal', (data) => {
+    const { receiverId, senderId, senderName = '', requestType = 'Chat', proposalId = '' } = data || {};
+    if (!receiverId || !senderId) return;
+    console.log(`📨 new_proposal: from=${senderId} to=${receiverId} type=${requestType}`);
+    // Deliver to the receiver if they are currently online
+    // Forward to the receiver via their personal room (user:{userId})
+    io.to(`user:${receiverId}`).emit('new_proposal', {
+      senderId:    senderId.toString(),
+      receiverId:  receiverId.toString(),
+      senderName:  senderName,
+      requestType: requestType,
+      proposalId:  proposalId.toString(),
+      timestamp:   new Date().toISOString(),
+    });
+  });
+
+  // ── proposal_accepted ────────────────────────────────────────────────────
+  // Emitted by the acceptor after accepting a proposal.
+  // Payload: { originalSenderId, acceptorId, acceptorName, requestType, proposalId }
+  // The event is forwarded to the original sender so their Sent tab refreshes.
+  socket.on('proposal_accepted', (data) => {
+    const { originalSenderId, acceptorId, acceptorName = '', requestType = 'Chat', proposalId = '' } = data || {};
+    if (!originalSenderId || !acceptorId) return;
+    console.log(`✅ proposal_accepted: acceptor=${acceptorId} → original sender=${originalSenderId} type=${requestType}`);
+    // Forward to the original sender via their personal room (user:{userId})
+    io.to(`user:${originalSenderId}`).emit('proposal_accepted', {
+      originalSenderId: originalSenderId.toString(),
+      acceptorId:       acceptorId.toString(),
+      acceptorName:     acceptorName,
+      requestType:      requestType,
+      proposalId:       proposalId.toString(),
+      timestamp:        new Date().toISOString(),
+    });
+  });
+
   // ── payment_updated ───────────────────────────────────────────────────────
   // Emitted by the payment handler (PHP webhook or admin panel) to notify the
   // admin chat list that a user's payment/subscription status has changed.
@@ -2287,6 +2425,14 @@ io.on('connection', (socket) => {
     // Drop the message silently if either party has blocked the other.
     if (await isEitherBlocked(senderId.toString(), receiverId.toString())) {
       console.log(`🚫 send_message blocked: sender=${senderId} receiver=${receiverId}`);
+      socket.emit('message_blocked', {
+        chatRoomId: chatRoomId.toString(),
+        senderId: senderId.toString(),
+        receiverId: receiverId.toString(),
+        messageId: messageId.toString(),
+        code: 'USER_BLOCKED',
+        error: 'Messaging is blocked between these users',
+      });
       return;
     }
 
@@ -2369,11 +2515,48 @@ io.on('connection', (socket) => {
   // ── get_messages ──────────────────────────────────────────────────────────
   socket.on('get_messages', async ({ chatRoomId, page = 1, limit = 20 }, ack) => {
     try {
+      const requesterId = (authenticatedUserId || '').toString();
+      if (!requesterId) {
+        if (typeof ack === 'function') ack({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!chatRoomId) {
+        if (typeof ack === 'function') ack({ success: false, error: 'chatRoomId is required' });
+        return;
+      }
+
+      // Verify requester belongs to the room and enforce block gate.
+      const [roomRows] = await pool.query(
+        'SELECT participants FROM chat_rooms WHERE id = ? LIMIT 1',
+        [chatRoomId],
+      );
+      if (!roomRows.length) {
+        if (typeof ack === 'function') ack({ success: true, messages: [], hasMore: false, page });
+        return;
+      }
+
+      let participants = [];
+      try {
+        const parsed = JSON.parse(roomRows[0].participants);
+        if (Array.isArray(parsed)) participants = parsed.map(p => p.toString());
+      } catch (_) {}
+
+      if (!participants.includes(requesterId)) {
+        if (typeof ack === 'function') ack({ success: false, error: 'Access denied' });
+        return;
+      }
+
+      const peerId = participants.find(p => p !== requesterId);
+      if (peerId && await isEitherBlocked(requesterId, peerId)) {
+        if (typeof ack === 'function') ack({ success: false, error: 'Conversation unavailable (blocked)' });
+        return;
+      }
+
       const result = await getMessages({ chatRoomId, page, limit });
       if (typeof ack === 'function') ack({ success: true, ...result });
     } catch (err) {
-      console.error('get_messages error:', err.message);
-      if (typeof ack === 'function') ack({ success: false, error: err.message });
+      console.error('get_messages error:', formatError(err));
+      if (typeof ack === 'function') ack({ success: false, error: formatError(err) });
     }
   });
 
@@ -2385,8 +2568,8 @@ io.on('connection', (socket) => {
       const chatRooms = await getChatRooms(uid);
       if (typeof ack === 'function') ack({ success: true, chatRooms });
     } catch (err) {
-      console.error('get_chat_rooms error:', err.message);
-      if (typeof ack === 'function') ack({ success: false, error: err.message });
+      console.error('get_chat_rooms error:', formatError(err));
+      if (typeof ack === 'function') ack({ success: false, error: formatError(err) });
     }
   });
 
@@ -2416,7 +2599,7 @@ io.on('connection', (socket) => {
       socket.emit('chat_rooms_update', { chatRooms: rooms });
       socket.emit('chat_list_update', { chatRooms: rooms });
     } catch (err) {
-      console.error('mark_read error:', err.message);
+      console.error('mark_read error:', formatError(err));
     }
   });
 
@@ -2469,10 +2652,9 @@ io.on('connection', (socket) => {
       if (!authenticatedUserId) return; // Require authentication
 
       // Verify the authenticated user is a participant in the chat room
-      // (uses JSON_CONTAINS since participants is stored as a JSON array)
       const [[room]] = await pool.query(
         `SELECT 1 FROM chat_rooms
-          WHERE id = ? AND JSON_CONTAINS(participants, JSON_QUOTE(?))
+          WHERE id = ? AND participants LIKE CONCAT('%"', ?, '"%')
           LIMIT 1`,
         [chatRoomId, authenticatedUserId],
       );
@@ -2512,7 +2694,7 @@ io.on('connection', (socket) => {
       // Verify participant
       const [[room]] = await pool.query(
         `SELECT 1 FROM chat_rooms
-          WHERE id = ? AND JSON_CONTAINS(participants, JSON_QUOTE(?))
+          WHERE id = ? AND participants LIKE CONCAT('%"', ?, '"%')
           LIMIT 1`,
         [chatRoomId, uid],
       );
@@ -2867,12 +3049,26 @@ io.on('connection', (socket) => {
   // ── add_participant_to_call ───────────────────────────────────────────────
   // Admin emits this to add a participant to an ongoing group call.
   // Notifies the new participant AND all existing participants in the channel.
-  socket.on('add_participant_to_call', (data) => {
+  socket.on('add_participant_to_call', async (data) => {
     const { newParticipantId, channelName, callType, adminId, adminName, existingParticipantId, ...rest } = data || {};
     if (!newParticipantId || !channelName) return;
 
     const newParticipantStr = newParticipantId.toString();
     const adminStr = adminId ? adminId.toString() : undefined;
+    const inferredType = rest.type === 'video_call' || rest.isVideoCall === true || rest.isVideoCall === 'true'
+      ? 'video'
+      : 'audio';
+    const safeCallType = callType === 'video' || callType === 'audio' ? callType : inferredType;
+
+    // Do not add participant if admin and participant are blocked either side.
+    if (adminStr && await isEitherBlocked(adminStr, newParticipantStr)) {
+      io.to(`user:${adminStr}`).emit('call_blocked', {
+        channelName,
+        callerId: adminStr,
+        recipientId: newParticipantStr,
+      });
+      return;
+    }
 
     // Update in-memory group-call participant set for this channel.
     if (!groupCallParticipants.has(channelName)) {
@@ -2885,12 +3081,14 @@ io.on('connection', (socket) => {
     groupCallParticipants.get(channelName).add(newParticipantStr);
 
     // Persist updated participants list to DB asynchronously.
-    persistGroupCallParticipants(channelName, callType || 'audio', adminStr || '1').catch(() => {});
+    persistGroupCallParticipants(channelName, safeCallType, adminStr || '1').catch(() => {});
 
     // Notify the new participant they're being added to a call.
     io.to(`user:${newParticipantStr}`).emit('added_to_call', {
       channelName,
-      callType: callType || 'audio',
+      callType: safeCallType,
+      type: safeCallType === 'video' ? 'video_call' : 'call',
+      isVideoCall: safeCallType === 'video' ? 'true' : 'false',
       adminId: adminStr,
       adminName,
       existingParticipantId: existingParticipantId ? existingParticipantId.toString() : undefined,
@@ -2905,7 +3103,9 @@ io.on('connection', (socket) => {
       io.to(`user:${uid}`).emit('participant_added_to_call', {
         newParticipantId: newParticipantStr,
         channelName,
-        callType: callType || 'audio',
+        callType: safeCallType,
+        type: safeCallType === 'video' ? 'video_call' : 'call',
+        isVideoCall: safeCallType === 'video' ? 'true' : 'false',
         ...rest,
       });
     }
@@ -2914,7 +3114,7 @@ io.on('connection', (socket) => {
   // ── participant_call_accept ───────────────────────────────────────────────
   // New participant accepts the conference call invitation
   socket.on('participant_call_accept', (data) => {
-    const { adminId, existingParticipantId, channelName, acceptedById, ...rest } = data || {};
+    const { adminId, existingParticipantId, channelName, acceptedById, callType, ...rest } = data || {};
     if (!channelName) return;
 
     // Add the accepted participant to the group-call tracking set.
@@ -2927,7 +3127,8 @@ io.on('connection', (socket) => {
       if (acceptedById.toString() !== '1') {
         activeCallUsers.set(acceptedById.toString(), channelName);
       }
-      persistGroupCallParticipants(channelName, 'audio', adminId ? adminId.toString() : '1').catch(() => {});
+      const safeCallType = callType === 'video' ? 'video' : 'audio';
+      persistGroupCallParticipants(channelName, safeCallType, adminId ? adminId.toString() : '1').catch(() => {});
     }
 
     // Notify ALL current participants that the new member accepted.
@@ -3077,7 +3278,7 @@ io.on('connection', (socket) => {
         [authenticatedUserId],
       );
     } catch (err) {
-      console.error('ping handler error:', err.message);
+      console.error('ping handler error:', formatError(err));
     }
   });
 
@@ -3141,7 +3342,7 @@ setInterval(async () => {
         user1Image: msg.user1Image, user2Image: msg.user2Image,
       });
     } catch (err) {
-      console.error(`Worker ensureChatRoom error [${chatRoomId}]:`, err.message);
+      console.error(`Worker ensureChatRoom error [${chatRoomId}]:`, formatError(err));
     }
   }
 
@@ -3152,7 +3353,7 @@ setInterval(async () => {
     const dbMs = Date.now() - dbStart;
     if (dbMs > 500) console.warn(`⚠️  Slow batch insert: ${dbMs}ms for ${batch.length} messages`);
   } catch (err) {
-    console.error('Worker batch insert error:', err.message);
+    console.error('Worker batch insert error:', formatError(err));
     // Re-queue messages that haven't exceeded max retries
     const toRetry = batch.filter(m => (m._retries || 0) < MAX_RETRIES).map(m => {
       m._retries = (m._retries || 0) + 1;
@@ -3222,7 +3423,7 @@ setInterval(async () => {
       io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
       io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
     } catch (err) {
-      console.error(`Worker getChatRooms error [userId=${uid}]:`, err.message);
+      console.error(`Worker getChatRooms error [userId=${uid}]:`, formatError(err));
     }
   }
 }, BATCH_INTERVAL);
@@ -3238,12 +3439,13 @@ setInterval(async () => {
 const STALE_THRESHOLD_S = 90; // seconds without a heartbeat ping before marking offline
 setInterval(async () => {
   try {
+    const staleCutoffSeconds = Number(STALE_THRESHOLD_S) || 90;
+    const staleWindowSeconds = staleCutoffSeconds + 65;
     const [result] = await pool.query(
       `UPDATE user_online_status
           SET is_online = 0
         WHERE is_online = 1
-          AND last_seen < UTC_TIMESTAMP() - INTERVAL ? SECOND`,
-      [STALE_THRESHOLD_S],
+          AND last_seen < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${staleCutoffSeconds} SECOND)`,
     );
     if (result.affectedRows > 0) {
       console.log(`🧹 Stale cleanup: marked ${result.affectedRows} user(s) offline`);
@@ -3251,9 +3453,8 @@ setInterval(async () => {
       const [staleRows] = await pool.query(
         `SELECT user_id, last_seen FROM user_online_status
           WHERE is_online = 0
-            AND last_seen < UTC_TIMESTAMP() - INTERVAL ? SECOND
-            AND last_seen > UTC_TIMESTAMP() - INTERVAL ? SECOND`,
-        [STALE_THRESHOLD_S, STALE_THRESHOLD_S + 65], // rows updated in last interval
+            AND last_seen < DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${staleCutoffSeconds} SECOND)
+            AND last_seen > DATE_SUB(UTC_TIMESTAMP(), INTERVAL ${staleWindowSeconds} SECOND)`,
       );
       for (const row of staleRows) {
         io.emit('user_status_change', {
@@ -3264,7 +3465,7 @@ setInterval(async () => {
       }
     }
   } catch (err) {
-    console.error('Stale user cleanup error:', err.message);
+    console.error('Stale user cleanup error:', formatError(err));
   }
 }, 60000);
 

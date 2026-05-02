@@ -7,8 +7,8 @@ error_reporting(E_ERROR | E_PARSE);
 
 // DATABASE CONNECTION --------------------
 $host = "localhost";
-$user = "ms";
-$pass = "ms";
+$user = "root";
+$pass = "";
 $dbname = "ms";
 
 $conn = new mysqli($host, $user, $pass, $dbname);
@@ -45,9 +45,11 @@ $check = $conn->prepare("SELECT id FROM userpersonaldetail WHERE userid = ?");
 $check->bind_param("i", $user_id);
 $check->execute();
 $check->store_result();
+$hasRecord = $check->num_rows > 0;
+$check->close(); // Close before re-using the connection for UPDATE/INSERT
 
 try {
-    if ($check->num_rows > 0) {
+    if ($hasRecord) {
         // ---------------------- UPDATE ----------------------
         $stmt = $conn->prepare("
             UPDATE userpersonaldetail SET

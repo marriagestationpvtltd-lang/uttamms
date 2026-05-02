@@ -7,8 +7,8 @@ date_default_timezone_set('Asia/Kathmandu');
 // DB config
 $host = "localhost";
 $db_name = "ms";
-$username = "ms";
-$password = "ms";
+$username = "root";
+$password = "";
 
 try {
     $pdo = new PDO(

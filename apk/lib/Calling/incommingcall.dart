@@ -5,8 +5,9 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
-    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
+  if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
 import 'package:permission_handler/permission_handler.dart'
     if (dart.library.html) 'package:ms2026/utils/web_permission_stub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,13 +23,13 @@ import '../Package/PackageScreen.dart';
 import '../pushnotification/pushservice.dart';
 import '../service/socket_service.dart';
 import '../service/sound_settings_service.dart';
+import '../service/app_sound_tone_service.dart';
+import '../service/device_sound_policy_service.dart';
 import 'tokengenerator.dart';
 import 'call_history_model.dart';
 import 'call_history_service.dart';
 import 'call_foreground_service.dart';
 import 'incomingvideocall.dart';
-import 'package:ms2026/utils/web_call_ringtone_player_stub.dart'
-    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player.dart';
 
 class IncomingCallScreen extends StatefulWidget {
   final Map<String, dynamic> callData;
@@ -40,6 +41,7 @@ class IncomingCallScreen extends StatefulWidget {
 
 class _IncomingCallScreenState extends State<IncomingCallScreen> {
   late RtcEngine _engine;
+  late final AudioPlayer _ringtonePlayer;
   bool _engineInitialized = false;
 
   int _localUid = 0;
@@ -59,7 +61,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   bool _ending = false;
   bool _connecting = false;
   bool _isSwitchingToVideo = false; // true while transitioning to a video call
-  bool _videoSwitchDialogActive = false; // true while the switch-to-video dialog is on screen
+  bool _videoSwitchDialogActive =
+      false; // true while the switch-to-video dialog is on screen
 
   Timer? _ringTimer;
   Timer? _callTimer;
@@ -77,12 +80,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   String _currentUserId = '';
   String _currentUserName = '';
   String _currentUserImage = '';
-  String _chatRoomId = '';  // chat room for inline call messages
+  String _chatRoomId = ''; // chat room for inline call messages
   bool _pendingEmitRinging = false;
 
   @override
   void initState() {
     super.initState();
+    _ringtonePlayer = AudioPlayer();
+    _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
     WakelockPlus.enable();
     _parseData();
     _localUid = Random().nextInt(999998) + 1;
@@ -127,11 +132,19 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     try {
       _isPlayingRingtone = true;
 
+      final canPlay = await DeviceSoundPolicyService.canPlayInAppSound();
+      if (!canPlay) {
+        _isPlayingRingtone = false;
+        debugPrint('📴 Phone silent/vibrate/DND – skipping incoming ringtone');
+        return;
+      }
+
       // Start repeating vibration while the call is ringing (1.5s interval).
       if (SoundSettingsService.instance.vibrationEnabled && !kIsWeb) {
         HapticFeedback.vibrate();
         _vibrationTimer?.cancel();
-        _vibrationTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+        _vibrationTimer =
+            Timer.periodic(const Duration(milliseconds: 1500), (_) {
           if (_isPlayingRingtone && !_ending && mounted) {
             HapticFeedback.vibrate();
           }
@@ -143,21 +156,33 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
         return;
       }
 
-      // On web use dart:html AudioElement which is more reliable against
-      // browser autoplay restrictions than the Web Audio API used by audioplayers.
-      if (kIsWeb) {
-        await WebRingtonePlayer.instance.play('audio/ring_classic.wav');
-        debugPrint('✅ Incoming call ringtone started (web)');
+      final customUrl = await AppSoundToneService.instance
+          .customUrl(AppSoundToneType.incomingCall);
+
+      if (customUrl.isEmpty && !kIsWeb) {
+        await FlutterRingtonePlayer().play(
+          android: AndroidSounds.ringtone,
+          looping: true,
+        );
+        debugPrint('✅ Incoming system default ringtone started');
         return;
       }
 
-      // On mobile, play the device's default incoming ringtone so it sounds
-      // distinct from the outgoing call tone played by OutgoingCall.dart.
-      await FlutterRingtonePlayer().play(
-        android: AndroidSounds.ringtone,
-        looping: true,
-      );
-      debugPrint('✅ Incoming call ringtone started');
+      final sources = await AppSoundToneService.instance
+          .playbackSources(AppSoundToneType.incomingCall);
+      for (final source in sources) {
+        try {
+          if (source.isRemote) {
+            await _ringtonePlayer.play(UrlSource(source.value));
+          } else {
+            await _ringtonePlayer.play(AssetSource(source.value));
+          }
+          debugPrint('✅ Incoming call ringtone started: ${source.value}');
+          return;
+        } catch (_) {
+          continue;
+        }
+      }
     } catch (e) {
       debugPrint('Error playing incoming call ringtone: $e');
     }
@@ -168,9 +193,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       _isPlayingRingtone = false;
       _vibrationTimer?.cancel();
       _vibrationTimer = null;
-      if (kIsWeb) {
-        await WebRingtonePlayer.instance.stop();
-      } else {
+      await _ringtonePlayer.stop();
+      if (!kIsWeb) {
         await FlutterRingtonePlayer().stop();
       }
       debugPrint('✅ Incoming call ringtone stopped');
@@ -206,11 +230,13 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     });
 
     // Listen for audio→video switch request from the other party.
-    _socketSwitchToVideoSub = SocketService().onSwitchToVideoRequest.listen((data) {
+    _socketSwitchToVideoSub =
+        SocketService().onSwitchToVideoRequest.listen((data) {
       final channelName = data['channelName']?.toString();
       if (channelName != _channel) return;
       if (!_callActive || _ending || !mounted) return;
-      if (_videoSwitchDialogActive || _isSwitchingToVideo) return; // dialog already shown or navigating
+      if (_videoSwitchDialogActive || _isSwitchingToVideo)
+        return; // dialog already shown or navigating
       _showSwitchToVideoDialog(data);
     });
   }
@@ -227,7 +253,9 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
 
         // If emitCallRinging was deferred (user data wasn't ready at initState),
         // send it now.
-        if (_pendingEmitRinging && _callerId.isNotEmpty && _currentUserId.isNotEmpty) {
+        if (_pendingEmitRinging &&
+            _callerId.isNotEmpty &&
+            _currentUserId.isNotEmpty) {
           _pendingEmitRinging = false;
           SocketService().emitCallRinging(
             callerId: _callerId,
@@ -271,7 +299,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       currentUserName: _recipientName,
       onMaximize: () {
         navigatorKey.currentState?.popUntil(
-          (route) => route.settings.name == activeCallRouteName || route.isFirst,
+          (route) =>
+              route.settings.name == activeCallRouteName || route.isFirst,
         );
       },
       onEnd: _endCall,
@@ -374,12 +403,16 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                   color: Colors.white.withOpacity(0.15),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.phone_locked_rounded, color: Colors.white, size: 36),
+                child: const Icon(Icons.phone_locked_rounded,
+                    color: Colors.white, size: 36),
               ),
               const SizedBox(height: 20),
               const Text(
                 'Upgrade Your Package',
-                style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               const Text(
@@ -398,10 +431,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                       },
                       style: OutlinedButton.styleFrom(
                         side: const BorderSide(color: Colors.white),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      child: const Text('Close', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                      child: const Text('Close',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600)),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -411,16 +448,21 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                         Navigator.pop(context); // close dialog
                         _end().then((_) {
                           navigatorKey.currentState?.push(
-                            MaterialPageRoute(builder: (_) => SubscriptionPage()),
+                            MaterialPageRoute(
+                                builder: (_) => SubscriptionPage()),
                           );
                         });
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                       ),
-                      child: const Text('Upgrade', style: TextStyle(color: Color(0xFFff0000), fontWeight: FontWeight.bold)),
+                      child: const Text('Upgrade',
+                          style: TextStyle(
+                              color: Color(0xFFff0000),
+                              fontWeight: FontWeight.bold)),
                     ),
                   ),
                 ],
@@ -485,18 +527,20 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
             // Request audio focus once the call is confirmed connected on our side.
             unawaited(CallForegroundServiceManager.enableAudioFocus());
             // setEnableSpeakerphone must be called after joining the channel (Agora SDK v4.x)
-            unawaited(_engine.setEnableSpeakerphone(_speakerOn)
-                .catchError((e) => debugPrint('setEnableSpeakerphone error: $e')));
+            unawaited(_engine.setEnableSpeakerphone(_speakerOn).catchError(
+                (e) => debugPrint('setEnableSpeakerphone error: $e')));
 
             // Notify caller AFTER successfully joining Agora channel
             // This prevents race condition where caller receives accept before recipient joins
-            if (widget.callData['isConferenceCall'] == true || widget.callData['isConferenceCall'] == 'true') {
+            if (widget.callData['isConferenceCall'] == true ||
+                widget.callData['isConferenceCall'] == 'true') {
               // Conference call: emit participant_call_accept so admin receives
               // participant_accepted_call without disrupting the original call.
               SocketService().emitParticipantCallAccept(
                 adminId: _callerId,
                 channelName: _channel,
                 acceptedById: _currentUserId,
+                callType: 'audio',
                 existingParticipantId:
                     widget.callData['existingParticipantId']?.toString(),
               );
@@ -578,14 +622,16 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Future<void> _rejectCall() async {
     _ringTimer?.cancel();
     await _stopRingtone();
-    if (widget.callData['isConferenceCall'] == true || widget.callData['isConferenceCall'] == 'true') {
+    if (widget.callData['isConferenceCall'] == true ||
+        widget.callData['isConferenceCall'] == 'true') {
       // Conference call: notify admin via participant_call_reject so the
       // admin's original call is NOT accidentally terminated.
       SocketService().emitParticipantCallReject(
         adminId: _callerId,
         channelName: _channel,
         rejectedById: _currentUserId,
-        existingParticipantId: widget.callData['existingParticipantId']?.toString(),
+        existingParticipantId:
+            widget.callData['existingParticipantId']?.toString(),
       );
     } else {
       // Regular call: Notify caller via Socket.IO (fast path) + FCM (fallback)
@@ -611,14 +657,16 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   Future<void> _missedCall() async {
     await _stopRingtone();
 
-    if (widget.callData['isConferenceCall'] == true || widget.callData['isConferenceCall'] == 'true') {
+    if (widget.callData['isConferenceCall'] == true ||
+        widget.callData['isConferenceCall'] == 'true') {
       // Conference call: notify admin the invitation was not answered so admin
       // knows without ending its original active call.
       SocketService().emitParticipantCallReject(
         adminId: _callerId,
         channelName: _channel,
         rejectedById: _currentUserId,
-        existingParticipantId: widget.callData['existingParticipantId']?.toString(),
+        existingParticipantId:
+            widget.callData['existingParticipantId']?.toString(),
       );
       await _end();
       return;
@@ -694,21 +742,32 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     _socketSwitchToVideoSub?.cancel();
 
     if (_callActive) {
-      // Notify caller via Socket.IO (fast path) + FCM (fallback)
-      SocketService().emitCallEnd(
-        callerId: _callerId,
-        recipientId: _currentUserId,
-        channelName: _channel,
-        callType: 'audio',
-        duration: _duration.inSeconds,
-      );
-      await NotificationService.sendCallEndedNotification(
-        recipientUserId: _callerId,
-        callerName: _recipientName,
-        reason: 'ended',
-        duration: _duration.inSeconds,
-        channelName: _channel,
-      );
+      final isConference = widget.callData['isConferenceCall'] == true ||
+          widget.callData['isConferenceCall'] == 'true';
+      if (isConference) {
+        // Group call: only notify the admin/peers that THIS user left,
+        // do NOT end the entire call for everyone else.
+        SocketService().emitLeaveGroupCall(
+          channelName: _channel,
+          userId: _currentUserId,
+        );
+      } else {
+        // Notify caller via Socket.IO (fast path) + FCM (fallback)
+        SocketService().emitCallEnd(
+          callerId: _callerId,
+          recipientId: _currentUserId,
+          channelName: _channel,
+          callType: 'audio',
+          duration: _duration.inSeconds,
+        );
+        await NotificationService.sendCallEndedNotification(
+          recipientUserId: _callerId,
+          callerName: _recipientName,
+          reason: 'ended',
+          duration: _duration.inSeconds,
+          channelName: _channel,
+        );
+      }
     }
 
     // Update call history
@@ -903,7 +962,9 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                         FadeTransition(opacity: animation, child: child),
                     child: _callActive
                         ? _buildActiveCallUI()
-                        : (_connecting ? _buildConnectingUI() : _buildIncomingCallUI()),
+                        : (_connecting
+                            ? _buildConnectingUI()
+                            : _buildIncomingCallUI()),
                   ),
                 ),
               ],
@@ -950,7 +1011,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                     ],
                   ),
                   child: const Center(
-                    child: Icon(Icons.phone_in_talk, color: Colors.white, size: 70),
+                    child: Icon(Icons.phone_in_talk,
+                        color: Colors.white, size: 70),
                   ),
                 ),
               ),
@@ -978,7 +1040,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                   SizedBox(
                     width: 20,
                     height: 20,
-                    child: CircularProgressIndicator(color: Colors.white70, strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                        color: Colors.white70, strokeWidth: 2),
                   ),
                   SizedBox(width: 12),
                   Text(
@@ -1095,7 +1158,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 20, vertical: 10),
                       decoration: BoxDecoration(
                         color: Colors.white.withOpacity(0.2),
                         borderRadius: BorderRadius.circular(25),
@@ -1193,7 +1257,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
               ),
               const SizedBox(height: 20),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(30),
@@ -1220,52 +1285,52 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
   }
 
   Widget _incomingControls() => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-    children: [
-      _modernCallBtn(
-        icon: Icons.call,
-        color: const Color(0xFF4CAF50), // Green
-        onPressed: _acceptCall,
-        loading: _processing,
-        label: 'Accept',
-      ),
-      _modernCallBtn(
-        icon: Icons.call_end,
-        color: const Color(0xFFF44336), // Red
-        onPressed: _rejectCall,
-        label: 'Decline',
-      ),
-    ],
-  );
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _modernCallBtn(
+            icon: Icons.call,
+            color: const Color(0xFF4CAF50), // Green
+            onPressed: _acceptCall,
+            loading: _processing,
+            label: 'Accept',
+          ),
+          _modernCallBtn(
+            icon: Icons.call_end,
+            color: const Color(0xFFF44336), // Red
+            onPressed: _rejectCall,
+            label: 'Decline',
+          ),
+        ],
+      );
 
   Widget _activeControls() => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-    children: [
-      _modernControlBtn(
-        icon: _micMuted ? Icons.mic_off : Icons.mic,
-        color: _micMuted ? const Color(0xFFFF9800) : Colors.white,
-        onPressed: _toggleMute,
-        active: !_micMuted,
-      ),
-      _modernCallBtn(
-        icon: Icons.call_end,
-        color: const Color(0xFFF44336),
-        onPressed: _endCall,
-        size: 72,
-      ),
-      _modernControlBtn(
-        icon: _speakerOn ? Icons.volume_up : Icons.volume_off,
-        color: _speakerOn ? const Color(0xFF2196F3) : Colors.white,
-        onPressed: _engineInitialized
-            ? () {
-                setState(() => _speakerOn = !_speakerOn);
-                _engine.setEnableSpeakerphone(_speakerOn);
-              }
-            : null,
-        active: _speakerOn,
-      ),
-    ],
-  );
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _modernControlBtn(
+            icon: _micMuted ? Icons.mic_off : Icons.mic,
+            color: _micMuted ? const Color(0xFFFF9800) : Colors.white,
+            onPressed: _toggleMute,
+            active: !_micMuted,
+          ),
+          _modernCallBtn(
+            icon: Icons.call_end,
+            color: const Color(0xFFF44336),
+            onPressed: _endCall,
+            size: 72,
+          ),
+          _modernControlBtn(
+            icon: _speakerOn ? Icons.volume_up : Icons.volume_off,
+            color: _speakerOn ? const Color(0xFF2196F3) : Colors.white,
+            onPressed: _engineInitialized
+                ? () {
+                    setState(() => _speakerOn = !_speakerOn);
+                    _engine.setEnableSpeakerphone(_speakerOn);
+                  }
+                : null,
+            active: _speakerOn,
+          ),
+        ],
+      );
 
   Widget _modernCallBtn({
     required IconData icon,
@@ -1353,9 +1418,8 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: active
-              ? color.withOpacity(0.3)
-              : Colors.white.withOpacity(0.2),
+          color:
+              active ? color.withOpacity(0.3) : Colors.white.withOpacity(0.2),
           shape: BoxShape.circle,
           border: Border.all(
             color: color,
@@ -1390,6 +1454,7 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
     _socketCancelSubscription?.cancel();
     _socketEndedSubscription?.cancel();
     _vibrationTimer?.cancel();
+    unawaited(_ringtonePlayer.dispose());
     // Release Agora engine if not already released
     if (_engineInitialized) {
       unawaited(_releaseEngineAsync());

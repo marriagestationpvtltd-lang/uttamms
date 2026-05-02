@@ -50,21 +50,44 @@ class MatchedProfile {
     );
   }
 
+  static int _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static double _asDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
+  }
+
+  static bool _asBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value?.toString().trim().toLowerCase() ?? '';
+    return normalized == '1' || normalized == 'true' || normalized == 'yes';
+  }
+
   factory MatchedProfile.fromJson(Map<String, dynamic> json) {
     return MatchedProfile(
-      id: json['id'] ?? 0,
-      firstName: json['first_name']?.toString() ?? '',
-      lastName: json['last_name']?.toString() ?? '',
-      memberid: json['member_id']?.toString() ?? '',
-      matchingPercentage: (json['matching_percentage'] ?? 0).toDouble(),
-      isPaid: json['is_paid'] ?? false,
-      isOnline: json['is_online'] ?? false,
-      occupation: json['occupation']?.toString() ?? '',
-      education: json['education']?.toString() ?? '',
-      country: json['country']?.toString() ?? '',
-      marit: json['marital_status']?.toString() ?? '',
+      id: _asInt(json['id']),
+      firstName: (json['first_name'] ?? json['firstName'])?.toString() ?? '',
+      lastName: (json['last_name'] ?? json['lastName'])?.toString() ?? '',
+      memberid: (json['member_id'] ?? json['memberid'])?.toString() ?? '',
+      matchingPercentage: _asDouble(json['matching_percentage']),
+      isPaid: _asBool(json['is_paid']),
+      isOnline: _asBool(json['is_online'] ?? json['isOnline']),
+      occupation:
+          (json['occupation'] ?? json['occupation_name'])?.toString() ?? '',
+      education:
+          (json['education'] ?? json['education_name'])?.toString() ?? '',
+      country: (json['country'] ?? json['country_name'])?.toString() ?? '',
+      marit:
+          (json['marital_status'] ?? json['marital_status_name'])?.toString() ??
+          '',
       gender: json['gender']?.toString() ?? '',
-      age: json['age'] ?? 0,
+      age: _asInt(json['age']),
       profilePicture: json['profile_picture']?.toString() ?? '', // Add this
     );
   }

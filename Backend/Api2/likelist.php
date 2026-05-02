@@ -4,8 +4,8 @@ header('Content-Type: application/json');
 // Database connection
 $host = "localhost";
 $db_name = "ms";
-$username = "ms";
-$password = "ms";
+$username = "root";
+$password = "";
 
 $conn = new mysqli($host, $username, $password, $db_name);
 if ($conn->connect_error) {

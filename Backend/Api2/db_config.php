@@ -13,8 +13,8 @@
 
 define('DB_HOST', '127.0.0.1');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 // Base URL of the Socket.IO / Node.js server used for real-time event delivery.
 // Override this in your server environment if the socket server runs on a

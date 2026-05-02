@@ -35,18 +35,13 @@ $userGender = $user['gender'];
 $oppositeGender = ($userGender === 'Male') ? 'Female' : 'Male';
 
 /* ----------------------------------------------------------
-   STEP 2: Get user's partner preferences
+   STEP 2: Get user's partner preferences (optional – may not exist)
 ---------------------------------------------------------- */
 $prefQuery = $conn->prepare("SELECT * FROM userpartnerpreferences WHERE userId = ?");
 $prefQuery->bind_param("i", $user_id);
 $prefQuery->execute();
 $prefResult = $prefQuery->get_result();
-
-if ($prefResult->num_rows === 0) {
-    echo json_encode(["status" => "error", "message" => "Partner preferences not found"]);
-    exit;
-}
-$pref = $prefResult->fetch_assoc();
+$pref = ($prefResult->num_rows > 0) ? $prefResult->fetch_assoc() : null;
 
 /* ----------------------------------------------------------
    STEP 3: Get all opposite gender users
@@ -60,6 +55,8 @@ $matchQuery = $conn->prepare("
     FROM users u
     JOIN userpersonaldetail upd ON u.id = upd.userId
     WHERE u.gender = ? AND u.id != ?
+    ORDER BY u.isOnline DESC, u.id DESC
+    LIMIT 100
 ");
 $matchQuery->bind_param("si", $oppositeGender, $user_id);
 $matchQuery->execute();
@@ -79,14 +76,16 @@ while ($row = $matches->fetch_assoc()) {
     if (!empty($row['birthDate'])) {
         $birth = new DateTime($row['birthDate']);
         $age = (new DateTime())->diff($birth)->y;
-        $totalFactors++;
-        if ($age >= intval($pref['pFromAge']) && $age <= intval($pref['pToAge'])) {
-            $matchedFactors++;
+        if ($pref !== null) {
+            $totalFactors++;
+            if ($age >= intval($pref['pFromAge']) && $age <= intval($pref['pToAge'])) {
+                $matchedFactors++;
+            }
         }
     }
 
     // HEIGHT
-    if (!empty($row['heightId']) && !empty($pref['pFromHeight']) && !empty($pref['pToHeight'])) {
+    if ($pref !== null && !empty($row['heightId']) && !empty($pref['pFromHeight']) && !empty($pref['pToHeight'])) {
         $totalFactors++;
         if ($row['heightId'] >= intval($pref['pFromHeight']) && $row['heightId'] <= intval($pref['pToHeight'])) {
             $matchedFactors++;
@@ -94,31 +93,31 @@ while ($row = $matches->fetch_assoc()) {
     }
 
     // MARITAL STATUS
-    if (!empty($row['maritalStatusId']) && !empty($pref['pMaritalStatusId'])) {
+    if ($pref !== null && !empty($row['maritalStatusId']) && !empty($pref['pMaritalStatusId'])) {
         $totalFactors++;
         if ($row['maritalStatusId'] == $pref['pMaritalStatusId']) $matchedFactors++;
     }
 
     // RELIGION
-    if (!empty($row['religionId']) && !empty($pref['pReligionId'])) {
+    if ($pref !== null && !empty($row['religionId']) && !empty($pref['pReligionId'])) {
         $totalFactors++;
         if ($row['religionId'] == $pref['pReligionId']) $matchedFactors++;
     }
 
     // COMMUNITY
-    if (!empty($row['communityId']) && !empty($pref['pCommunityId'])) {
+    if ($pref !== null && !empty($row['communityId']) && !empty($pref['pCommunityId'])) {
         $totalFactors++;
         if ($row['communityId'] == $pref['pCommunityId']) $matchedFactors++;
     }
 
     // EDUCATION
-    if (!empty($row['educationId']) && !empty($pref['pEducationTypeId'])) {
+    if ($pref !== null && !empty($row['educationId']) && !empty($pref['pEducationTypeId'])) {
         $totalFactors++;
         if ($row['educationId'] == $pref['pEducationTypeId']) $matchedFactors++;
     }
 
     // INCOME
-    if (!empty($row['annualIncomeId']) && !empty($pref['pAnnualIncomeId'])) {
+    if ($pref !== null && !empty($row['annualIncomeId']) && !empty($pref['pAnnualIncomeId'])) {
         $totalFactors++;
         if ($row['annualIncomeId'] == $pref['pAnnualIncomeId']) $matchedFactors++;
     }
@@ -198,6 +197,21 @@ while ($row = $matches->fetch_assoc()) {
         }
     }
 
+    // Profile picture
+    $profilePicBase = "https://digitallami.com/Api2/";
+    $profilePicture = "";
+    $picQuery = $conn->prepare("SELECT profile_picture FROM users WHERE id = ?");
+    $picQuery->bind_param("i", $row['id']);
+    $picQuery->execute();
+    $picRes = $picQuery->get_result();
+    if ($picRes && $picRes->num_rows > 0) {
+        $picRow = $picRes->fetch_assoc();
+        $rawPic = $picRow['profile_picture'] ?? '';
+        if (!empty($rawPic)) {
+            $profilePicture = (strpos($rawPic, 'http') === 0) ? $rawPic : $profilePicBase . $rawPic;
+        }
+    }
+
     $responseData[] = [
         "id" => intval($row['id']),
         "memberid" => $row['memberid'],
@@ -211,7 +225,8 @@ while ($row = $matches->fetch_assoc()) {
         "age" => $age,
         "education" => $educationName,
         "marital_status" => $maritalStatusName,
-        "country" => $countryName
+        "country" => $countryName,
+        "profile_picture" => $profilePicture
     ];
 }
 

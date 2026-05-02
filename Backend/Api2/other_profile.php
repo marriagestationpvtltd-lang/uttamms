@@ -1,18 +1,22 @@
 <?php
 header('Content-Type: application/json');
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
-header("Content-Type: application/json");
 
-// Base URL for profile pictures
-$base_url = "https://digitallami.com/Api2/";
+// Build Api2 base URL dynamically from current host/path.
+$isHttps = (
+    (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+    || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443)
+);
+$scheme = $isHttps ? 'https' : 'http';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+$scriptDir = rtrim($scriptDir, '/');
+$base_url = $scheme . '://' . $host . $scriptDir . '/';
 
 // Database configuration
 $host = "localhost"; 
 $db_name = "ms";
-$username = "ms";
-$password = "ms";
+$username = "root";
+$password = "";
 
 // Create connection
 $conn = new mysqli($host, $username, $password, $db_name);
@@ -68,6 +72,7 @@ $sql = "
 SELECT 
     u.firstName, u.lastName, u.profile_picture, u.usertype, u.isVerified,
     u.privacy,  -- added privacy
+    u.email, u.contactNo,
 
     -- Permanent address
     pa.city, pa.country,
@@ -80,7 +85,7 @@ SELECT
     ec.workingwith AS ec_workingwith, ec.annualincome AS ec_annualincome, ec.businessname,
 
     -- Personal details
-    up.memberid, up.height_name, up.maritalStatusId, ms.name AS maritalStatusName,
+    up.memberid, up.height_name, up.maritalStatusId, up.religionId, up.communityId, up.subCommunityId, ms.name AS maritalStatusName,
     up.motherTongue, up.aboutMe, up.birthDate, up.Disability, up.bloodGroup,
     r.name AS religionName,
     c.name AS communityName,
@@ -131,11 +136,12 @@ if ($result->num_rows > 0) {
     $row = $result->fetch_assoc();
 
     // Prefix profile picture with base URL if not empty
-    $profile_picture = !empty($row['profile_picture']) ? $base_url . $row['profile_picture'] : "";
-
-    // Restructure JSON into sections
-   // Prefix profile picture with base URL if not empty
-$profile_picture = !empty($row['profile_picture']) ? $base_url . $row['profile_picture'] : "";
+    $rawProfilePicture = (string)($row['profile_picture'] ?? '');
+    if ($rawProfilePicture !== '' && preg_match('#^https?://#i', $rawProfilePicture)) {
+        $profile_picture = $rawProfilePicture;
+    } else {
+        $profile_picture = $rawProfilePicture !== '' ? $base_url . ltrim($rawProfilePicture, '/') : '';
+    }
 
 // Define a default value
 $default = "Not available"; // You can change this to any default value you like
@@ -145,7 +151,7 @@ $data = [
     "personalDetail" => [
         "photo_request" => $photo_request, // ✅ INCLUDED
 
-        "firstName" => $row['id'] ?? $default,
+        "firstName" => $row['firstName'] ?? $default,
         "lastName" => $row['lastName'] ?? $default,
         "profile_picture" => $profile_picture,
         "usertype" => $row['usertype'] ?? $default,
@@ -167,6 +173,9 @@ $data = [
         "memberid" => $row['memberid'] ?? $default,
         "height_name" => $row['height_name'] ?? $default,
         "maritalStatusId" => $row['maritalStatusId'] ?? $default,
+        "religionId" => $row['religionId'] ?? $default,
+        "communityId" => $row['communityId'] ?? $default,
+        "subCommunityId" => $row['subCommunityId'] ?? $default,
         "maritalStatusName" => $row['maritalStatusName'] ?? $default,
         "motherTongue" => $row['motherTongue'] ?? $default,
         "aboutMe" => $row['aboutMe'] ?? $default,
@@ -230,6 +239,12 @@ $data = [
         "complexion" => $row['partnerComplexion'] ?? $default,
         "bodytype" => $row['partnerBodyType'] ?? $default,
         "otherexpectation" => $row['partnerOtherExpectation'] ?? $default
+    ],
+    "contactDetail" => [
+        "email" => $row['email'] ?? "",
+        "phone" => $row['contactNo'] ?? "",
+        "whatsapp" => $row['contactNo'] ?? "",
+        "country_code" => ""
     ]
 ];
 

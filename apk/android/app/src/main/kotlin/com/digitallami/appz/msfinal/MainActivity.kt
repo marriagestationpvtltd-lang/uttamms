@@ -1,6 +1,9 @@
 package com.Marriage.Station
 
+import android.app.NotificationManager
 import android.content.Context
+import android.media.AudioManager
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -56,6 +59,31 @@ class MainActivity : FlutterActivity() {
                 "enableAudioFocus" -> {
                     CallForegroundService.enableAudioFocus(applicationContext)
                     result.success(true)
+                }
+                "getDeviceSoundPolicy" -> {
+                    val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    val notificationManager =
+                        getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+                    val ringerMode = audioManager.ringerMode
+                    val isSilentOrVibrate =
+                        ringerMode == AudioManager.RINGER_MODE_SILENT ||
+                        ringerMode == AudioManager.RINGER_MODE_VIBRATE
+
+                    val isDnd = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val interruptionFilter = notificationManager.currentInterruptionFilter
+                        interruptionFilter != NotificationManager.INTERRUPTION_FILTER_ALL
+                    } else {
+                        false
+                    }
+
+                    result.success(
+                        mapOf(
+                            "isSilentOrVibrate" to isSilentOrVibrate,
+                            "isDnd" to isDnd,
+                            "shouldPlayInAppSound" to (!isSilentOrVibrate && !isDnd),
+                        )
+                    )
                 }
                 else -> result.notImplemented()
             }

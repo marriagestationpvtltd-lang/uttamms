@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
 
 class PaymentService {
-  static const String _baseUrl = kAdminApi9BaseUrl;
+  static final String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -29,7 +29,9 @@ class PaymentService {
         final data = json.decode(response.body);
         return PaymentHistoryResponse.fromJson(data);
       } else {
-        throw Exception('Failed to load payment history: ${response.statusCode}');
+        throw Exception(
+          'Failed to load payment history: ${response.statusCode}',
+        );
       }
     } catch (e) {
       rethrow;
@@ -59,20 +61,19 @@ class PaymentService {
         params['status'] = status;
       }
 
-      final uri = Uri.parse('$_baseUrl/get_payments.php').replace(
-        queryParameters: params.isNotEmpty ? params : null,
-      );
+      final uri = Uri.parse(
+        '$_baseUrl/get_payments.php',
+      ).replace(queryParameters: params.isNotEmpty ? params : null);
 
-      final response = await http.get(
-        uri,
-        headers: await _authHeaders(),
-      );
+      final response = await http.get(uri, headers: await _authHeaders());
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return PaymentHistoryResponse.fromJson(data);
       } else {
-        throw Exception('Failed to load filtered payments: ${response.statusCode}');
+        throw Exception(
+          'Failed to load filtered payments: ${response.statusCode}',
+        );
       }
     } catch (e) {
       rethrow;

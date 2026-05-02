@@ -45,8 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 // ── DB connection (same credentials as api9 / socket server) ─────────────────
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 try {
     $pdo = new PDO(

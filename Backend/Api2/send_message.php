@@ -36,6 +36,18 @@ try {
         exit;
     }
 
+    // Hard block gate: no message is allowed in either direction after block.
+    $blockStmt = $pdo->prepare("\n        SELECT 1 FROM blocks\n        WHERE (blocker_id = ? AND blocked_id = ?)\n           OR (blocker_id = ? AND blocked_id = ?)\n        LIMIT 1\n    ");
+    $blockStmt->execute([$sender_id, $receiver_id, $receiver_id, $sender_id]);
+    if ($blockStmt->fetchColumn()) {
+        echo json_encode([
+            'success'    => false,
+            'message'    => 'Messaging is blocked between these users',
+            'error_code' => 'USER_BLOCKED',
+        ]);
+        exit;
+    }
+
     if ($message_type === 'text' && $message === '') {
         echo json_encode(['success' => false, 'message' => 'Message text is required']);
         exit;

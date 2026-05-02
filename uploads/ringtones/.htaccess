@@ -10,3 +10,13 @@ AddType text/plain .php .phtml .php3 .php4 .php5 .php7 .phps .phar
 
 # Disable directory listings
 Options -Indexes
+
+# Allow cross-origin requests for static audio assets.
+<IfModule mod_headers.c>
+    <FilesMatch "\.(mp3|ogg|wav|aac|m4a|webm|mp4)$">
+        Header always set Access-Control-Allow-Origin "*"
+        Header always set Access-Control-Allow-Methods "GET, OPTIONS"
+        Header always set Access-Control-Allow-Headers "Origin, Accept, Content-Type, Range"
+        Header always set Access-Control-Expose-Headers "Content-Length, Content-Range, Accept-Ranges"
+    </FilesMatch>
+</IfModule>

@@ -7,7 +7,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class RequestService {
-  static const String _baseUrl = kAdminApi9BaseUrl;
+  static final String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -32,8 +32,9 @@ class RequestService {
       if (search.isNotEmpty) 'search': search,
     };
 
-    final uri = Uri.parse('$_baseUrl/get_requests.php')
-        .replace(queryParameters: params);
+    final uri = Uri.parse(
+      '$_baseUrl/get_requests.php',
+    ).replace(queryParameters: params);
 
     final response = await http.get(uri, headers: await _authHeaders());
 
@@ -75,7 +76,6 @@ class RequestService {
       return data['success'] == true;
     }
 
-    throw Exception(
-        'Failed to update request status: ${response.statusCode}');
+    throw Exception('Failed to update request status: ${response.statusCode}');
   }
 }

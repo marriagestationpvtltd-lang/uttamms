@@ -6,8 +6,8 @@
  * Settings are persisted in the `app_settings` table (key/value store).
  *
  * POST body (JSON):
- *   call_tone_id          (string) – optional – ID of the selected built-in tone
- *   clear_custom_call_tone (bool)  – optional – when true, removes the custom tone
+ *   call_tone_id          (string) â€“ optional â€“ ID of the selected built-in tone
+ *   clear_custom_call_tone (bool)  â€“ optional â€“ when true, removes the custom tone
  *
  * Response:
  *   {
@@ -40,22 +40,22 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// ── DB credentials ────────────────────────────────────────────────────────────
+// â”€â”€ DB credentials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
-// ── Valid built-in tone IDs ───────────────────────────────────────────────────
+// â”€â”€ Valid built-in tone IDs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $validToneIds = ['classic', 'soft', 'modern', 'default', 'custom'];
 
-// ── Input ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
 $newToneId         = isset($input['call_tone_id'])           ? trim((string) $input['call_tone_id']) : null;
 $clearCustomTone   = isset($input['clear_custom_call_tone']) ? filter_var($input['clear_custom_call_tone'], FILTER_VALIDATE_BOOLEAN) : false;
 
-// ── Connect ───────────────────────────────────────────────────────────────────
+// â”€â”€ Connect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try {
     $pdo = new PDO(
         'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
@@ -73,7 +73,7 @@ try {
     exit;
 }
 
-// ── Ensure app_settings table exists ─────────────────────────────────────────
+// â”€â”€ Ensure app_settings table exists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try {
     $pdo->exec("
         CREATE TABLE IF NOT EXISTS app_settings (
@@ -89,7 +89,7 @@ try {
     exit;
 }
 
-// ── Helper: upsert a setting ──────────────────────────────────────────────────
+// â”€â”€ Helper: upsert a setting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function upsertSetting(PDO $pdo, string $key, ?string $value): void {
     $pdo->prepare(
         "INSERT INTO app_settings (setting_key, setting_value) VALUES (?, ?)
@@ -97,7 +97,7 @@ function upsertSetting(PDO $pdo, string $key, ?string $value): void {
     )->execute([$key, $value]);
 }
 
-// ── Helper: read a setting ────────────────────────────────────────────────────
+// â”€â”€ Helper: read a setting â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function readSetting(PDO $pdo, string $key, ?string $default = null): ?string {
     $stmt = $pdo->prepare('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1');
     $stmt->execute([$key]);
@@ -106,7 +106,7 @@ function readSetting(PDO $pdo, string $key, ?string $default = null): ?string {
 }
 
 try {
-    // ── Apply requested changes ───────────────────────────────────────────────
+    // â”€â”€ Apply requested changes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if ($clearCustomTone) {
         upsertSetting($pdo, 'custom_call_tone_url', '');
         upsertSetting($pdo, 'custom_call_tone_name', '');
@@ -124,7 +124,7 @@ try {
         }
     }
 
-    // ── Return current state ──────────────────────────────────────────────────
+    // â”€â”€ Return current state â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     $toneId          = readSetting($pdo, 'call_tone_id', 'default');
     $customToneUrl   = readSetting($pdo, 'custom_call_tone_url', '');
     $customToneName  = readSetting($pdo, 'custom_call_tone_name', '');

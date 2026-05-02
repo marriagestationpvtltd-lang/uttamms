@@ -1,8 +1,4 @@
-<IfModule mod_headers.c>
-  Header always unset Access-Control-Allow-Origin
-  Header always unset Access-Control-Allow-Methods
-  Header always unset Access-Control-Allow-Headers
-  Header always set Access-Control-Allow-Origin "*"
-  Header always set Access-Control-Allow-Methods "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-  Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
-</IfModule>
+RewriteEngine On
+
+# Permanent CORS middleware for all PHP endpoints in this folder
+php_value auto_prepend_file "C:/xampp/htdocs/uttamms/Backend/cors_headers.php"

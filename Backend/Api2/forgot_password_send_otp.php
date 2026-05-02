@@ -3,8 +3,8 @@ header('Content-Type: application/json; charset=utf-8');
 
 // DB CONFIG
 $dbHost = 'localhost';
-$dbUser = 'ms';
-$dbPass = 'ms';
+$dbUser = 'root';
+$dbPass = '';
 $dbName = 'ms';
 
 // BREVO API KEY

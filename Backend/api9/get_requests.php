@@ -1,26 +1,18 @@
 <?php
-// ================= CORS =================
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Authorization");
+require_once __DIR__ . '/../cors_headers.php';
 header("Content-Type: application/json");
 
 ini_set('display_errors', 0);
 ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
-}
-
 // ================= DB CONFIG =================
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
-// ✅ BASE URL FOR PROFILE PICTURES
+// âœ… BASE URL FOR PROFILE PICTURES
 define('PROFILE_BASE_URL', 'https://digitallami.com/Api2/');
 
 try {
@@ -107,7 +99,7 @@ try {
     $dataStmt->execute();
     $requests = $dataStmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // 🔥 ADD BASE URL TO PROFILE PICTURES
+    // ðŸ”¥ ADD BASE URL TO PROFILE PICTURES
     foreach ($requests as &$row) {
         if (!empty($row['sender_photo'])) {
             $row['sender_photo'] = PROFILE_BASE_URL . ltrim($row['sender_photo'], '/');

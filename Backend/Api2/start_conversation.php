@@ -35,6 +35,18 @@ try {
         exit;
     }
 
+    // Hard block gate: neither side can start/re-open chat after block.
+    $blockStmt = $pdo->prepare("\n        SELECT 1 FROM blocks\n        WHERE (blocker_id = ? AND blocked_id = ?)\n           OR (blocker_id = ? AND blocked_id = ?)\n        LIMIT 1\n    ");
+    $blockStmt->execute([$myid, $otherid, $otherid, $myid]);
+    if ($blockStmt->fetchColumn()) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Conversation unavailable: one user has blocked the other',
+            'error_code' => 'USER_BLOCKED',
+        ]);
+        exit;
+    }
+
     // Check sender has an active (non-expired) package
     $pkgStmt = $pdo->prepare("
         SELECT id FROM user_package

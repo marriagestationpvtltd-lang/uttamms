@@ -8,19 +8,19 @@ import 'package:adminmrz/dashboard/dashservice.dart' show UnauthorizedException;
 // ─── Model ────────────────────────────────────────────────────────────────────
 
 class AdminCallRecord {
-  final String  callId;
-  final String  callerId;
-  final String  callerName;
-  final String  callerImage;
-  final String  recipientId;
-  final String  recipientName;
-  final String  recipientImage;
-  final String  callType;       // 'audio' | 'video'
+  final String callId;
+  final String callerId;
+  final String callerName;
+  final String callerImage;
+  final String recipientId;
+  final String recipientName;
+  final String recipientImage;
+  final String callType; // 'audio' | 'video'
   final DateTime? startTime;
   final DateTime? endTime;
-  final int     duration;       // seconds
-  final String  status;         // 'completed'|'missed'|'declined'|'cancelled'
-  final String  initiatedBy;
+  final int duration; // seconds
+  final String status; // 'completed'|'missed'|'declined'|'cancelled'
+  final String initiatedBy;
   final String? recordingUrl;
 
   AdminCallRecord({
@@ -42,37 +42,37 @@ class AdminCallRecord {
 
   factory AdminCallRecord.fromJson(Map<String, dynamic> j) {
     return AdminCallRecord(
-      callId:         j['callId']?.toString()        ?? '',
-      callerId:       j['callerId']?.toString()       ?? '',
-      callerName:     j['callerName']?.toString()     ?? '',
-      callerImage:    j['callerImage']?.toString()    ?? '',
-      recipientId:    j['recipientId']?.toString()    ?? '',
-      recipientName:  j['recipientName']?.toString()  ?? '',
+      callId: j['callId']?.toString() ?? '',
+      callerId: j['callerId']?.toString() ?? '',
+      callerName: j['callerName']?.toString() ?? '',
+      callerImage: j['callerImage']?.toString() ?? '',
+      recipientId: j['recipientId']?.toString() ?? '',
+      recipientName: j['recipientName']?.toString() ?? '',
       recipientImage: j['recipientImage']?.toString() ?? '',
-      callType:       j['callType']?.toString()       ?? 'audio',
-      startTime:      j['startTime'] != null
+      callType: j['callType']?.toString() ?? 'audio',
+      startTime: j['startTime'] != null
           ? DateTime.tryParse(j['startTime'].toString())
           : null,
       endTime: j['endTime'] != null
           ? DateTime.tryParse(j['endTime'].toString())
           : null,
-      duration:       j['duration'] is int
+      duration: j['duration'] is int
           ? j['duration'] as int
           : int.tryParse(j['duration']?.toString() ?? '0') ?? 0,
-      status:       j['status']?.toString()      ?? 'missed',
-      initiatedBy:  j['initiatedBy']?.toString() ?? '',
+      status: j['status']?.toString() ?? 'missed',
+      initiatedBy: j['initiatedBy']?.toString() ?? '',
       recordingUrl: j['recordingUrl']?.toString(),
     );
   }
 }
 
 class AdminCallHistoryResponse {
-  final bool                  success;
+  final bool success;
   final List<AdminCallRecord> calls;
-  final int                   total;
-  final int                   page;
-  final int                   limit;
-  final int                   totalPages;
+  final int total;
+  final int page;
+  final int limit;
+  final int totalPages;
 
   AdminCallHistoryResponse({
     required this.success,
@@ -88,12 +88,20 @@ class AdminCallHistoryResponse {
         .map((e) => AdminCallRecord.fromJson(e as Map<String, dynamic>))
         .toList();
     return AdminCallHistoryResponse(
-      success:    j['success'] == true,
-      calls:      list,
-      total:      j['total'] is int ? j['total'] as int : int.tryParse(j['total']?.toString() ?? '0') ?? 0,
-      page:       j['page']  is int ? j['page']  as int : int.tryParse(j['page']?.toString()  ?? '1') ?? 1,
-      limit:      j['limit'] is int ? j['limit'] as int : int.tryParse(j['limit']?.toString() ?? '50') ?? 50,
-      totalPages: j['total_pages'] is int ? j['total_pages'] as int : int.tryParse(j['total_pages']?.toString() ?? '1') ?? 1,
+      success: j['success'] == true,
+      calls: list,
+      total: j['total'] is int
+          ? j['total'] as int
+          : int.tryParse(j['total']?.toString() ?? '0') ?? 0,
+      page: j['page'] is int
+          ? j['page'] as int
+          : int.tryParse(j['page']?.toString() ?? '1') ?? 1,
+      limit: j['limit'] is int
+          ? j['limit'] as int
+          : int.tryParse(j['limit']?.toString() ?? '50') ?? 50,
+      totalPages: j['total_pages'] is int
+          ? j['total_pages'] as int
+          : int.tryParse(j['total_pages']?.toString() ?? '1') ?? 1,
     );
   }
 }
@@ -101,7 +109,7 @@ class AdminCallHistoryResponse {
 // ─── Service ──────────────────────────────────────────────────────────────────
 
 class AdminCallHistoryService {
-  static const String _baseUrl = kAdminApi9BaseUrl;
+  static final String _baseUrl = kAdminApi9BaseUrl;
 
   Future<Map<String, String>> _authHeaders() async {
     final prefs = await SharedPreferences.getInstance();
@@ -122,17 +130,18 @@ class AdminCallHistoryService {
     String? dateTo,
   }) async {
     final q = <String, String>{
-      'page':  page.toString(),
+      'page': page.toString(),
       'limit': limit.toString(),
     };
-    if (search   != null && search.isNotEmpty)   q['search']    = search;
-    if (callType != null && callType.isNotEmpty)  q['call_type'] = callType;
-    if (status   != null && status.isNotEmpty)    q['status']    = status;
-    if (dateFrom != null && dateFrom.isNotEmpty)  q['date_from'] = dateFrom;
-    if (dateTo   != null && dateTo.isNotEmpty)    q['date_to']   = dateTo;
+    if (search != null && search.isNotEmpty) q['search'] = search;
+    if (callType != null && callType.isNotEmpty) q['call_type'] = callType;
+    if (status != null && status.isNotEmpty) q['status'] = status;
+    if (dateFrom != null && dateFrom.isNotEmpty) q['date_from'] = dateFrom;
+    if (dateTo != null && dateTo.isNotEmpty) q['date_to'] = dateTo;
 
-    final uri = Uri.parse('$_baseUrl/get_admin_call_history.php')
-        .replace(queryParameters: q);
+    final uri = Uri.parse(
+      '$_baseUrl/get_admin_call_history.php',
+    ).replace(queryParameters: q);
     final response = await http.get(uri, headers: await _authHeaders());
 
     developer.log(

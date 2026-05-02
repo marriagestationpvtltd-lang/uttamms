@@ -5,10 +5,10 @@
  * Updates a single field of a user's profile from the admin panel.
  *
  * POST body (JSON):
- *   userid  (int)    – required – target user's ID
- *   section (string) – required – one of: personal, family, lifestyle, partner
- *   field   (string) – required – snake_case column name (matched against whitelist)
- *   value   (string) – required – new value
+ *   userid  (int)    â€“ required â€“ target user's ID
+ *   section (string) â€“ required â€“ one of: personal, family, lifestyle, partner
+ *   field   (string) â€“ required â€“ snake_case column name (matched against whitelist)
+ *   value   (string) â€“ required â€“ new value
  *
  * Response:
  *   { "success": true,  "message": "Profile updated successfully" }
@@ -35,13 +35,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-// ── DB credentials ────────────────────────────────────────────────────────────
+// â”€â”€ DB credentials â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
-// ── Input ─────────────────────────────────────────────────────────────────────
+// â”€â”€ Input â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $input   = json_decode(file_get_contents('php://input'), true) ?? [];
 $userId  = isset($input['userid'])  ? (int)   $input['userid']  : 0;
 $section = isset($input['section']) ? trim((string) $input['section']) : '';
@@ -54,8 +54,8 @@ if ($userId <= 0 || $section === '' || $field === '') {
     exit;
 }
 
-// ── Whitelisted field maps ────────────────────────────────────────────────────
-// Maps section → [ field => table ]
+// â”€â”€ Whitelisted field maps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Maps section â†’ [ field => table ]
 $fieldMap = [
     'personal' => [
         // users table
@@ -142,7 +142,7 @@ $fieldMap = [
     ],
 ];
 
-// ── Validate section & field ───────────────────────────────────────────────────
+// â”€â”€ Validate section & field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if (!isset($fieldMap[$section])) {
     http_response_code(422);
     echo json_encode(['success' => false, 'message' => "Unknown section: $section"]);
@@ -157,7 +157,7 @@ if (!array_key_exists($field, $fieldMap[$section])) {
 
 $table = $fieldMap[$section][$field];
 
-// ── Connect ───────────────────────────────────────────────────────────────────
+// â”€â”€ Connect â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try {
     $pdo = new PDO(
         'mysql:host=' . DB_HOST . ';dbname=' . DB_NAME . ';charset=utf8mb4',
@@ -175,7 +175,7 @@ try {
     exit;
 }
 
-// ── Verify user exists ────────────────────────────────────────────────────────
+// â”€â”€ Verify user exists â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 $check = $pdo->prepare('SELECT id FROM users WHERE id = ? LIMIT 1');
 $check->execute([$userId]);
 if (!$check->fetch()) {
@@ -184,7 +184,7 @@ if (!$check->fetch()) {
     exit;
 }
 
-// ── Build explicit SQL from whitelisted table+field ───────────────────────────
+// â”€â”€ Build explicit SQL from whitelisted table+field â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // The $table and $field values are exclusively sourced from $fieldMap (not from
 // user input), but we construct the SQL here to make that provenance explicit.
 $allowedTableColumns = [
@@ -204,16 +204,16 @@ if (!isset($allowedTableColumns[$table]) || !in_array($field, $allowedTableColum
     exit;
 }
 
-// ── Perform update ────────────────────────────────────────────────────────────
+// â”€â”€ Perform update â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 try {
     if ($table === 'users') {
-        // Simple UPDATE – row always exists for users table.
+        // Simple UPDATE â€“ row always exists for users table.
         // Column name comes from the whitelist above, not from user input.
         $sql  = 'UPDATE users SET `' . $field . '` = ? WHERE id = ?';
         $stmt = $pdo->prepare($sql);
         $stmt->execute([$value, $userId]);
     } else {
-        // Tables keyed by userid – use UPSERT so missing rows are created.
+        // Tables keyed by userid â€“ use UPSERT so missing rows are created.
         // Both table and column names are sourced exclusively from the whitelist.
         $sql  = 'INSERT INTO `' . $table . '` (userid, `' . $field . '`) VALUES (?, ?) '
               . 'ON DUPLICATE KEY UPDATE `' . $field . '` = VALUES(`' . $field . '`)';

@@ -1,8 +1,7 @@
 RewriteEngine On
 
-# Handle CORS preflight requests
-RewriteCond %{REQUEST_METHOD} OPTIONS
-RewriteRule ^(.*)$ $1 [R=200,L]
+# Permanent CORS middleware for all PHP endpoints in this folder
+php_value auto_prepend_file "C:/xampp/htdocs/uttamms/Backend/cors_headers.php"
 
 # If the requested resource exists as a file or directory, serve it
 RewriteCond %{REQUEST_FILENAME} !-f

@@ -2,9 +2,9 @@
 /**
  * app_settings.php
  *
- * Public GET endpoint that returns the global application call-tone settings.
- * Used by the Flutter admin app on startup to sync the currently active call
- * tone from the server.
+ * Public GET endpoint that returns global sound settings used by the app.
+ * This includes outgoing call tone plus incoming/message/typing tone files
+ * that can be controlled by admin.
  *
  * GET (no parameters required)
  *
@@ -12,9 +12,18 @@
  *   {
  *     "success": true,
  *     "data": {
- *       "call_tone_id":         "classic",
- *       "custom_call_tone_url":  "",
- *       "custom_call_tone_name": ""
+ *       "call_tone_id":            "classic",
+ *       "custom_call_tone_url":    "",
+ *       "custom_call_tone_name":   "",
+ *       "incoming_tone_id":        "default",
+ *       "custom_incoming_tone_url": "",
+ *       "custom_incoming_tone_name": "",
+ *       "message_tone_id":         "default",
+ *       "custom_message_tone_url": "",
+ *       "custom_message_tone_name": "",
+ *       "typing_tone_id":          "default",
+ *       "custom_typing_tone_url":  "",
+ *       "custom_typing_tone_name": ""
  *     }
  *   }
  */
@@ -24,20 +33,27 @@ ini_set('log_errors', 1);
 error_reporting(E_ALL);
 
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: GET, OPTIONS');
-header('Access-Control-Allow-Headers: Content-Type, Authorization');
 
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit;
-}
+$defaultSettings = [
+    'call_tone_id' => 'default',
+    'custom_call_tone_url' => '',
+    'custom_call_tone_name' => '',
+    'incoming_tone_id' => 'default',
+    'custom_incoming_tone_url' => '',
+    'custom_incoming_tone_name' => '',
+    'message_tone_id' => 'default',
+    'custom_message_tone_url' => '',
+    'custom_message_tone_name' => '',
+    'typing_tone_id' => 'default',
+    'custom_typing_tone_url' => '',
+    'custom_typing_tone_name' => '',
+];
 
 // ── DB credentials ────────────────────────────────────────────────────────────
 define('DB_HOST', 'localhost');
 define('DB_NAME', 'ms');
-define('DB_USER', 'ms');
-define('DB_PASS', 'ms');
+define('DB_USER', 'root');
+define('DB_PASS', '');
 
 // ── Connect ───────────────────────────────────────────────────────────────────
 try {
@@ -55,11 +71,7 @@ try {
     // Return sensible defaults if DB is unreachable so the app still starts
     echo json_encode([
         'success' => true,
-        'data'    => [
-            'call_tone_id'          => 'default',
-            'custom_call_tone_url'  => '',
-            'custom_call_tone_name' => '',
-        ],
+        'data'    => $defaultSettings,
     ]);
     exit;
 }
@@ -75,11 +87,13 @@ try {
     ");
 
     // Fetch all relevant keys in one query
+    $settingKeys = array_keys($defaultSettings);
+    $placeholders = implode(',', array_fill(0, count($settingKeys), '?'));
     $stmt = $pdo->prepare(
         "SELECT setting_key, setting_value FROM app_settings
-         WHERE setting_key IN ('call_tone_id', 'custom_call_tone_url', 'custom_call_tone_name')"
+         WHERE setting_key IN ($placeholders)"
     );
-    $stmt->execute();
+    $stmt->execute($settingKeys);
     $rows = $stmt->fetchAll();
 
     $settings = [];
@@ -87,13 +101,16 @@ try {
         $settings[$row['setting_key']] = $row['setting_value'];
     }
 
+    $responseData = $defaultSettings;
+    foreach ($settings as $key => $value) {
+        if (array_key_exists($key, $responseData)) {
+            $responseData[$key] = $value;
+        }
+    }
+
     echo json_encode([
         'success' => true,
-        'data'    => [
-            'call_tone_id'          => $settings['call_tone_id']          ?? 'default',
-            'custom_call_tone_url'  => $settings['custom_call_tone_url']  ?? '',
-            'custom_call_tone_name' => $settings['custom_call_tone_name'] ?? '',
-        ],
+        'data'    => $responseData,
     ]);
 
 } catch (PDOException $e) {
@@ -101,10 +118,6 @@ try {
     // Return defaults on error so the app can still start
     echo json_encode([
         'success' => true,
-        'data'    => [
-            'call_tone_id'          => 'default',
-            'custom_call_tone_url'  => '',
-            'custom_call_tone_name' => '',
-        ],
+        'data'    => $defaultSettings,
     ]);
 }

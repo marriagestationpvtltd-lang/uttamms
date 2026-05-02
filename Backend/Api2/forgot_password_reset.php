@@ -2,8 +2,8 @@
 header('Content-Type: application/json; charset=utf-8');
 
 $dbHost = 'localhost';
-$dbUser = 'ms';
-$dbPass = 'ms';
+$dbUser = 'root';
+$dbPass = '';
 $dbName = 'ms';
 
 function respond($code, $msg) {

@@ -9,8 +9,8 @@ header('Content-Type: application/json; charset=utf-8');
 // Database configuration
 $host = 'localhost';
 $dbName = 'ms';
-$dbUser = 'ms';
-$dbPass = 'ms';
+$dbUser = 'root';
+$dbPass = '';
 
 try {
     // Create PDO connection

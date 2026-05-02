@@ -1,7 +1,7 @@
 <?php
 header("Content-Type: application/json");
 
-$conn = new mysqli("localhost", "ms", "ms", "ms");
+$conn = new mysqli("localhost", "root", "", "ms");
 if ($conn->connect_error) {
     error_log('get_partner_preferences.php: ' . $conn->connect_error);
     die(json_encode(["status" => "error", "message" => "Database connection failed"]));

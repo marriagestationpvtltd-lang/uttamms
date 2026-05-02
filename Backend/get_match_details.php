@@ -63,20 +63,23 @@ if (!empty($user['profile_picture'])) {
 }
 
 /* ----------------------------------------------------------
-   STEP 2: Get mutual matches (users who match with this user)
+   STEP 2: Get matched users (from matches table) OR fallback to opposite gender
+   matches table columns: userId1, userId2 (not user_id/matched_id)
 ---------------------------------------------------------- */
+
+// First try to get users from matches table (accepted matches)
 $matchQuery = $conn->prepare("
     SELECT 
-        u.id, u.firstName, u.lastName, u.profile_picture,
+        u.id, u.firstName, u.lastName, u.profile_picture, u.isOnline,
         upd.memberid, upd.birthDate, upd.occupationId
     FROM users u
     JOIN userpersonaldetail upd ON u.id = upd.userId
     WHERE u.id IN (
-        SELECT matched_id FROM matches WHERE user_id = ?
+        SELECT userId2 FROM matches WHERE userId1 = ? AND status = 'accepted'
         UNION
-        SELECT user_id FROM matches WHERE matched_id = ?
+        SELECT userId1 FROM matches WHERE userId2 = ? AND status = 'accepted'
     )
-    LIMIT 10
+    LIMIT 50
 ");
 $matchQuery->bind_param("ii", $user_id, $user_id);
 $matchQuery->execute();
@@ -84,43 +87,100 @@ $matchResult = $matchQuery->get_result();
 
 $mutualMatches = [];
 while ($match = $matchResult->fetch_assoc()) {
-    // Calculate match age
     $matchAge = null;
     if (!empty($match['birthDate'])) {
         $birth = new DateTime($match['birthDate']);
         $matchAge = (new DateTime())->diff($birth)->y;
     }
-    
-    // Get profile picture
     $matchPicture = "";
     if (!empty($match['profile_picture'])) {
-        if (strpos($match['profile_picture'], 'http') === 0) {
-            $matchPicture = $match['profile_picture'];
-        } else {
-            $matchPicture = $base_url . $match['profile_picture'];
-        }
+        $matchPicture = (strpos($match['profile_picture'], 'http') === 0)
+            ? $match['profile_picture']
+            : $base_url . $match['profile_picture'];
     }
-    
-    // Get occupation
     $occupation = "";
     if (!empty($match['occupationId'])) {
         $occQuery = $conn->prepare("SELECT name FROM occupation WHERE id=?");
         $occQuery->bind_param("i", $match['occupationId']);
         $occQuery->execute();
         $occResult = $occQuery->get_result();
-        if ($occResult->num_rows) {
-            $occupation = $occResult->fetch_assoc()['name'];
-        }
+        if ($occResult->num_rows) $occupation = $occResult->fetch_assoc()['name'];
     }
-    
+    $isOnline = intval($match['isOnline'] ?? 0);
     $mutualMatches[] = [
-        'id' => $match['id'],
-        'name' => trim($match['firstName'] . ' ' . $match['lastName']),
-        'member_id' => $match['memberid'],
+        'id'              => intval($match['id']),
+        'name'            => trim($match['firstName'] . ' ' . $match['lastName']),
+        'member_id'       => $match['memberid'],
         'profile_picture' => $matchPicture,
-        'age' => $matchAge,
-        'occupation' => $occupation
+        'age'             => $matchAge,
+        'occupation'      => $occupation,
+        'is_online'       => $isOnline,
+        'percentage'      => 75
     ];
+}
+
+// Fallback: if no accepted matches, show all opposite-gender users
+if (empty($mutualMatches)) {
+    $oppositeGender = ($user['gender'] === 'Male') ? 'Female' : 'Male';
+    $fallbackQuery = $conn->prepare("
+        SELECT 
+            u.id, u.firstName, u.lastName, u.profile_picture, u.isOnline,
+            upd.memberid, upd.birthDate, upd.occupationId
+        FROM users u
+        JOIN userpersonaldetail upd ON u.id = upd.userId
+        WHERE u.gender = ? AND u.id != ?
+        ORDER BY u.isOnline DESC, u.id DESC
+        LIMIT 50
+    ");
+    $fallbackQuery->bind_param("si", $oppositeGender, $user_id);
+    $fallbackQuery->execute();
+    $fallbackResult = $fallbackQuery->get_result();
+
+    while ($match = $fallbackResult->fetch_assoc()) {
+        $matchAge = null;
+        if (!empty($match['birthDate'])) {
+            $birth = new DateTime($match['birthDate']);
+            $matchAge = (new DateTime())->diff($birth)->y;
+        }
+        $matchPicture = "";
+        if (!empty($match['profile_picture'])) {
+            $matchPicture = (strpos($match['profile_picture'], 'http') === 0)
+                ? $match['profile_picture']
+                : $base_url . $match['profile_picture'];
+        }
+        $occupation = "";
+        if (!empty($match['occupationId'])) {
+            $occQuery = $conn->prepare("SELECT name FROM occupation WHERE id=?");
+            $occQuery->bind_param("i", $match['occupationId']);
+            $occQuery->execute();
+            $occResult = $occQuery->get_result();
+            if ($occResult->num_rows) $occupation = $occResult->fetch_assoc()['name'];
+        }
+
+        // Check is_paid
+        $isPaid = 0;
+        $paidQ = $conn->prepare("SELECT netAmount FROM userpackage WHERE userId = ? LIMIT 1");
+        $paidQ->bind_param("i", $match['id']);
+        $paidQ->execute();
+        $paidRes = $paidQ->get_result();
+        if ($paidRes && $paidRes->num_rows > 0) {
+            $paidRow = $paidRes->fetch_assoc();
+            $isPaid = (floatval($paidRow['netAmount']) > 0) ? 1 : 0;
+        }
+
+        $isOnline = intval($match['isOnline'] ?? 0);
+        $mutualMatches[] = [
+            'id'              => intval($match['id']),
+            'name'            => trim($match['firstName'] . ' ' . $match['lastName']),
+            'member_id'       => $match['memberid'],
+            'profile_picture' => $matchPicture,
+            'age'             => $matchAge,
+            'occupation'      => $occupation,
+            'is_online'       => $isOnline,
+            'is_paid'         => $isPaid,
+            'percentage'      => 0
+        ];
+    }
 }
 
 /* ----------------------------------------------------------

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:ms2026/ReUsable/loading_widgets.dart';
 import 'package:ms2026/purposal/purposalservice.dart';
 import 'package:ms2026/purposal/requestcard.dart';
+import 'package:ms2026/service/socket_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'Purposalmodel.dart';
 
@@ -42,15 +44,36 @@ class _ProposalsPageState extends State<ProposalsPage> {
   bool _refreshingSent = false;
   bool _refreshingAccepted = false;
 
+  // Real-time socket subscriptions
+  StreamSubscription? _newProposalSub;
+  StreamSubscription? _proposalAcceptedSub;
+
   @override
   void initState() {
     super.initState();
     _pageController = PageController(initialPage: selectedTab);
     _loadInitialData();
+    _subscribeToSocketEvents();
+  }
+
+  void _subscribeToSocketEvents() {
+    // When this user receives a new proposal: refresh Received tab
+    _newProposalSub = SocketService().onNewProposal.listen((data) {
+      if (!mounted) return;
+      _loadDataForTab(0); // Received
+    });
+    // When a request this user sent gets accepted: refresh Sent / Accepted tabs
+    _proposalAcceptedSub = SocketService().onProposalAccepted.listen((data) {
+      if (!mounted) return;
+      _loadDataForTab(1); // Sent
+      if (_loadedTabs.contains(2)) _loadDataForTab(2); // Accepted (if opened)
+    });
   }
 
   @override
   void dispose() {
+    _newProposalSub?.cancel();
+    _proposalAcceptedSub?.cancel();
     _pageController.dispose();
     super.dispose();
   }
@@ -87,7 +110,8 @@ class _ProposalsPageState extends State<ProposalsPage> {
 
     try {
       String type = _getTypeFromTab(tabIndex);
-      final result = await ProposalService.fetchProposals(userId.toString(), type);
+      final result =
+          await ProposalService.fetchProposals(userId.toString(), type);
 
       if (mounted) {
         setState(() {
@@ -325,12 +349,20 @@ class _ProposalsPageState extends State<ProposalsPage> {
         ),
         child: Row(
           children: [
-            _buildTabItem('Received', 0,
-                loadingReceived ? null : receivedList.length),
-            _buildTabItem('Sent', 1,
-                (loadingSent || !_loadedTabs.contains(1)) ? null : sentList.length),
-            _buildTabItem('Accepted', 2,
-                (loadingAccepted || !_loadedTabs.contains(2)) ? null : acceptedList.length),
+            _buildTabItem(
+                'Received', 0, loadingReceived ? null : receivedList.length),
+            _buildTabItem(
+                'Sent',
+                1,
+                (loadingSent || !_loadedTabs.contains(1))
+                    ? null
+                    : sentList.length),
+            _buildTabItem(
+                'Accepted',
+                2,
+                (loadingAccepted || !_loadedTabs.contains(2))
+                    ? null
+                    : acceptedList.length),
           ],
         ),
       ),
@@ -374,16 +406,22 @@ class _ProposalsPageState extends State<ProposalsPage> {
       color: const Color(0xFFD32F2F),
       onRefresh: () async {
         setState(() {
-          if (tabIndex == 0) _refreshingReceived = true;
-          else if (tabIndex == 1) _refreshingSent = true;
-          else _refreshingAccepted = true;
+          if (tabIndex == 0)
+            _refreshingReceived = true;
+          else if (tabIndex == 1)
+            _refreshingSent = true;
+          else
+            _refreshingAccepted = true;
         });
         await _loadDataForTab(tabIndex);
         if (mounted) {
           setState(() {
-            if (tabIndex == 0) _refreshingReceived = false;
-            else if (tabIndex == 1) _refreshingSent = false;
-            else _refreshingAccepted = false;
+            if (tabIndex == 0)
+              _refreshingReceived = false;
+            else if (tabIndex == 1)
+              _refreshingSent = false;
+            else
+              _refreshingAccepted = false;
           });
         }
       },
@@ -495,8 +533,7 @@ class _ProposalsPageState extends State<ProposalsPage> {
                 style: TextStyle(
                   color: active ? Colors.white : Colors.grey.shade600,
                   fontSize: 13,
-                  fontWeight:
-                      active ? FontWeight.w700 : FontWeight.w500,
+                  fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                 ),
               ),
               if (count != null && count > 0) ...[
@@ -541,4 +578,3 @@ class _EmptyStateConfig {
     required this.color,
   });
 }
-

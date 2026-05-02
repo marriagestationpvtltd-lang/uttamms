@@ -94,8 +94,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     }
 
     try {
-      final url = Uri.parse(
-          '${kApiBaseUrl}/Api2/likelist.php?user_id=$userId');
+      final url = Uri.parse('${kApiBaseUrl}/Api2/likelist.php?user_id=$userId');
 
       final response = await http.get(url);
 
@@ -115,7 +114,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
         }
       } else {
         setState(() {
-          errorMessage = 'Failed to load data. Status code: ${response.statusCode}';
+          errorMessage =
+              'Failed to load data. Status code: ${response.statusCode}';
           isLoading = false;
         });
       }
@@ -129,7 +129,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
 
   Future<void> _removeFavorite(dynamic receiverId) async {
     if (userId == null) {
-     // _showPopupMessage('User ID not found', isError: true);
+      // _showPopupMessage('User ID not found', isError: true);
       return;
     }
 
@@ -145,7 +145,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
         if (data['status'] == 'success') {
           // FIXED: Use 'userid' instead of 'id'
           setState(() {
-            favoritePeople.removeWhere((person) => person['userid'] == receiverId);
+            favoritePeople
+                .removeWhere((person) => person['userid'] == receiverId);
           });
           // Log unlike activity (fire-and-forget)
           ActivityService.instance.log(
@@ -155,33 +156,37 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
           );
           // Notify admin panel in real-time via socket
           SocketService().emitNewActivity(
-            userId:       userId.toString(),
+            userId: userId.toString(),
             activityType: ActivityType.likeRemoved,
-            userName:     '${userName ?? ''} ${userLastName ?? ''}'.trim(),
-            description:  'Removed like from a profile',
-            targetId:     receiverId.toString(),
+            userName: '${userName ?? ''} ${userLastName ?? ''}'.trim(),
+            description: 'Removed like from a profile',
+            targetId: receiverId.toString(),
           );
-       //   _showPopupMessage('Removed from favorites');
+          //   _showPopupMessage('Removed from favorites');
         } else {
-       //   _showPopupMessage(data['message'] ?? 'Failed to remove', isError: true);
+          //   _showPopupMessage(data['message'] ?? 'Failed to remove', isError: true);
         }
       } else {
-      //  _showPopupMessage('Failed to remove. Please try again.', isError: true);
+        //  _showPopupMessage('Failed to remove. Please try again.', isError: true);
       }
     } catch (e) {
-     // _showPopupMessage('Error: $e', isError: true);
+      // _showPopupMessage('Error: $e', isError: true);
     }
   }
+
   // EXACT SAME METHOD AS MatchedProfilesPagee
-  Future<void> _sendRequest(int receiverId, String receiverName, String requestType) async {
+  Future<void> _sendRequest(
+      int receiverId, String receiverName, String requestType) async {
     try {
       // Ensure requestType has proper capitalization
       String formattedRequestType = requestType;
-      if (requestType.toLowerCase() == 'profile') formattedRequestType = 'Profile';
+      if (requestType.toLowerCase() == 'profile')
+        formattedRequestType = 'Profile';
       if (requestType.toLowerCase() == 'photo') formattedRequestType = 'Photo';
       if (requestType.toLowerCase() == 'chat') formattedRequestType = 'Chat';
 
-      print('Sending request: sender_id=$userId, receiver_id=$receiverId, request_type=$formattedRequestType');
+      print(
+          'Sending request: sender_id=$userId, receiver_id=$receiverId, request_type=$formattedRequestType');
 
       // Try with JSON encoding
       final Map<String, dynamic> requestData = {
@@ -215,12 +220,12 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
           );
           // Notify admin panel in real-time via socket
           SocketService().emitNewActivity(
-            userId:       userId.toString(),
+            userId: userId.toString(),
             activityType: ActivityType.requestSent,
-            userName:     '${userName ?? ''} ${userLastName ?? ''}'.trim(),
-            description:  '$formattedRequestType request sent to $receiverName',
-            targetId:     receiverId.toString(),
-            targetName:   receiverName,
+            userName: '${userName ?? ''} ${userLastName ?? ''}'.trim(),
+            description: '$formattedRequestType request sent to $receiverName',
+            targetId: receiverId.toString(),
+            targetName: receiverName,
           );
           // Send notification
           final success = await NotificationService.sendRequestNotification(
@@ -242,7 +247,17 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
             recipientName: receiverName,
           );
 
-          _showRequestSentPopup('$formattedRequestType request sent to $receiverName');
+          // Emit real-time proposal event so receiver sees request instantly.
+          SocketService().emitNewProposal(
+            receiverId: receiverId.toString(),
+            senderId: userId.toString(),
+            senderName: '${userName ?? ''} ${userLastName ?? ''}'.trim(),
+            requestType: formattedRequestType,
+            proposalId: data['proposal_id']?.toString() ?? '',
+          );
+
+          _showRequestSentPopup(
+              '$formattedRequestType request sent to $receiverName');
         } else {
           _showRequestSentPopup('Failed: ${data['message']}');
         }
@@ -252,7 +267,9 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     } catch (e) {
       _showRequestSentPopup('Error: $e');
     }
-  }  void _showRequestSentPopup(String message) {
+  }
+
+  void _showRequestSentPopup(String message) {
     setState(() {
       _popupMessage = message;
       _showPopup = true;
@@ -267,7 +284,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     });
   }
 
-  Future<void> _handleSendRequest(BuildContext context, int receiverId, String receiverName) async {
+  Future<void> _handleSendRequest(
+      BuildContext context, int receiverId, String receiverName) async {
     if (await VerificationService.requireVerification(context)) {
       if (!context.mounted) return;
       _showSendRequestDialog(context, receiverId, receiverName);
@@ -280,7 +298,10 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (context) => ProfileLoader(userId: receiverId.toString(), myId: userId.toString(),),
+          builder: (context) => ProfileLoader(
+            userId: receiverId.toString(),
+            myId: userId.toString(),
+          ),
         ),
       );
     }
@@ -288,11 +309,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
 
   // EXACT SAME DIALOG AS MatchedProfilesPagee
   void _showSendRequestDialog(
-      BuildContext context,
-      int receiverId,
-      String receiverName,
+      BuildContext context, int receiverId, String receiverName,
       {String defaultRequestType = 'Profile'}) {
-
     String dialogSelectedRequestType = defaultRequestType;
 
     showDialog(
@@ -336,7 +354,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     'Profile',
                     Icons.person_outline,
                     'View',
-                        (newValue) {
+                    (newValue) {
                       setState(() {
                         dialogSelectedRequestType = newValue;
                       });
@@ -349,7 +367,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     'Photo',
                     Icons.photo_library_outlined,
                     'Request More Photos',
-                        (newValue) {
+                    (newValue) {
                       setState(() {
                         dialogSelectedRequestType = newValue;
                       });
@@ -362,7 +380,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     'Chat',
                     Icons.chat_outlined,
                     'Start a Conversation',
-                        (newValue) {
+                    (newValue) {
                       setState(() {
                         dialogSelectedRequestType = newValue;
                       });
@@ -382,7 +400,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                 ElevatedButton(
                   onPressed: () async {
                     Navigator.pop(context);
-                    await _sendRequest(receiverId, receiverName, dialogSelectedRequestType);
+                    await _sendRequest(
+                        receiverId, receiverName, dialogSelectedRequestType);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Color(0xFFEA4935),
@@ -403,14 +422,14 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
 
   // EXACT SAME WIDGET AS MatchedProfilesPagee
   Widget _buildRequestTypeOption(
-      BuildContext context,
-      StateSetter setState,
-      String currentSelection,
-      String value,
-      IconData icon,
-      String description,
-      Function(String) onSelected,
-      ) {
+    BuildContext context,
+    StateSetter setState,
+    String currentSelection,
+    String value,
+    IconData icon,
+    String description,
+    Function(String) onSelected,
+  ) {
     final isSelected = currentSelection == value;
 
     return GestureDetector(
@@ -421,7 +440,9 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? Color(0xFFEA4935).withOpacity(0.1) : Colors.grey.withOpacity(0.05),
+          color: isSelected
+              ? Color(0xFFEA4935).withOpacity(0.1)
+              : Colors.grey.withOpacity(0.05),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: isSelected ? Color(0xFFEA4935) : Colors.transparent,
@@ -485,7 +506,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: _popupMessage.contains('Failed') || _popupMessage.contains('Error')
+          color: _popupMessage.contains('Failed') ||
+                  _popupMessage.contains('Error')
               ? Colors.red
               : Colors.green,
           borderRadius: BorderRadius.circular(12),
@@ -500,7 +522,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
         child: Row(
           children: [
             Icon(
-              _popupMessage.contains('Failed') || _popupMessage.contains('Error')
+              _popupMessage.contains('Failed') ||
+                      _popupMessage.contains('Error')
                   ? Icons.error_outline
                   : Icons.check_circle,
               color: Colors.white,
@@ -538,12 +561,14 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       return person['can_view_photo'] == true;
     }
     // Only accept when photo request is accepted - ignore privacy
-    final photoRequest = person['photo_request']?.toString().toLowerCase() ?? '';
+    final photoRequest =
+        person['photo_request']?.toString().toLowerCase() ?? '';
     return photoRequest == 'accepted';
   }
 
   String _getPhotoRequestStatus(Map<String, dynamic> person) {
-    final photoRequest = person['photo_request']?.toString().toLowerCase() ?? '';
+    final photoRequest =
+        person['photo_request']?.toString().toLowerCase() ?? '';
     if (photoRequest.isEmpty || photoRequest == 'null') return 'not_sent';
     return photoRequest;
   }
@@ -575,7 +600,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   }
 
   TextStyle _badgeTextStyle(bool darkText) {
-    final baseStyle = darkText ? AppTextStyles.bodySmall : AppTextStyles.whiteBody;
+    final baseStyle =
+        darkText ? AppTextStyles.bodySmall : AppTextStyles.whiteBody;
     return baseStyle.copyWith(
       color: darkText ? AppColors.textPrimary : Colors.white,
       fontWeight: FontWeight.w600,
@@ -712,7 +738,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     color: documentStatus.color.withOpacity(0.22),
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(documentStatus.icon, color: Colors.white, size: 16),
+                  child:
+                      Icon(documentStatus.icon, color: Colors.white, size: 16),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -833,7 +860,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                 ],
               ),
               child: IconButton(
-                icon: const Icon(Icons.refresh_rounded, color: AppColors.primary),
+                icon:
+                    const Icon(Icons.refresh_rounded, color: AppColors.primary),
                 onPressed: _fetchFavoritePeople,
               ),
             ),
@@ -882,7 +910,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                 if (isLoading)
                   const SliverFillRemaining(
                     hasScrollBody: false,
-                    child: LoadingWidget(message: 'Loading your favorite people...'),
+                    child: LoadingWidget(
+                        message: 'Loading your favorite people...'),
                   )
                 else if (errorMessage.isNotEmpty)
                   SliverFillRemaining(
@@ -900,7 +929,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     child: EmptyStateWidget(
                       icon: Icons.favorite_border_rounded,
                       title: 'No favorite people yet',
-                      subtitle: 'The profiles you like most will show up here in a much better style.',
+                      subtitle:
+                          'The profiles you like most will show up here in a much better style.',
                     ),
                   )
                 else
@@ -932,10 +962,11 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     );
   }
 
-  Widget _favoriteCard(BuildContext context, Map<String, dynamic> person, int index) {
-    final firstName = person['firstName']?.toString() ?? '';
+  Widget _favoriteCard(
+      BuildContext context, Map<String, dynamic> person, int index) {
     final lastName = person['lastName']?.toString() ?? '';
-    final fullName = '$firstName $lastName';
+    // Privacy: only last name is shown publicly
+    final fullName = lastName;
     final isVerified = person['isVerified'] == 1 || person['isVerified'] == '1';
     final city = person['city']?.toString() ?? _defaultLocationLabel;
     final designation =
@@ -1019,10 +1050,12 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                         Positioned.fill(
                           child: GestureDetector(
                             onTap: () {
-                              _showPhotoRequestOverlay(context, person, fullName);
+                              _showPhotoRequestOverlay(
+                                  context, person, fullName);
                             },
                             child: BackdropFilter(
-                              filter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                              filter:
+                                  ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                               child: Container(
                                 color: Colors.black.withOpacity(0.20),
                                 alignment: Alignment.center,
@@ -1049,7 +1082,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                                       const SizedBox(height: 8),
                                       Text(
                                         'Photo Protected',
-                                        style: AppTextStyles.whiteLabel.copyWith(
+                                        style:
+                                            AppTextStyles.whiteLabel.copyWith(
                                           fontSize: 14,
                                         ),
                                       ),
@@ -1076,8 +1110,9 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                               ? Icons.verified_rounded
                               : Icons.favorite_rounded,
                           label: isVerified ? 'Verified' : 'Saved Match',
-                          badgeColor:
-                              isVerified ? AppColors.verified : AppColors.primary,
+                          badgeColor: isVerified
+                              ? AppColors.verified
+                              : AppColors.primary,
                         ),
                       ),
                       Positioned(
@@ -1256,7 +1291,9 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: darkText ? badgeColor.withOpacity(0.92) : badgeColor.withOpacity(0.20),
+        color: darkText
+            ? badgeColor.withOpacity(0.92)
+            : badgeColor.withOpacity(0.20),
         borderRadius: BorderRadius.circular(AppDimensions.radiusRound),
         border: Border.all(
           color: darkText
@@ -1321,7 +1358,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     );
   }
 
-  Future<void> _showPhotoRequestOverlay(BuildContext context, Map<String, dynamic> person, String receiverName) async {
+  Future<void> _showPhotoRequestOverlay(BuildContext context,
+      Map<String, dynamic> person, String receiverName) async {
     final photoRequestStatus = _getPhotoRequestStatus(person);
     final receiverId = int.tryParse(person['userid']?.toString() ?? '0') ?? 0;
 
@@ -1331,11 +1369,12 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     if (!context.mounted) return;
 
     if (photoRequestStatus == 'not_sent') {
-      _showSendRequestDialog(context, receiverId, receiverName, defaultRequestType: 'Photo');
+      _showSendRequestDialog(context, receiverId, receiverName,
+          defaultRequestType: 'Photo');
     } else if (photoRequestStatus == 'pending') {
       // _showPopupMessage('Your photo request is pending approval');
     } else if (photoRequestStatus == 'rejected') {
-     //  _showPopupMessage('Your photo request was rejected');
+      //  _showPopupMessage('Your photo request was rejected');
     }
   }
 
@@ -1345,7 +1384,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Remove from Favorites'),
-          content: Text('Are you sure you want to remove $receiverName from your favorites?'),
+          content: Text(
+              'Are you sure you want to remove $receiverName from your favorites?'),
           actions: [
             TextButton(
               onPressed: () {

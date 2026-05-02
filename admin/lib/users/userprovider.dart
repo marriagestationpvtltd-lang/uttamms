@@ -188,6 +188,7 @@ class UserProvider with ChangeNotifier {
     return _selectedUserIds.contains(userId);
   }
 
+
   /// Approve or reject a user's profile photo from the member list card.
   Future<bool> approvePhoto(int userId, String action, {String? reason}) async {
     _photoActioning.add(userId);
@@ -216,7 +217,52 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  // Action methods
+  // -- Single-user suspend / delete
+
+  /// Suspend or unsuspend a single user by ID.
+  Future<bool> suspendUser(
+    int userId,
+    BuildContext context, {
+    required String action, // 'suspend' | 'unsuspend'
+  }) async {
+    try {
+      final result = await _userService.suspendUsers(
+        userIds: [userId],
+        action: action,
+      );
+      if (result['success'] == true) {
+        for (final u in _allUsers) {
+          if (u.id == userId) {
+            u.isActive = action == 'suspend' ? 0 : 1;
+            break;
+          }
+        }
+        _applyFilters();
+      }
+      return result['success'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Hard-delete a single user by ID.
+  Future<bool> deleteUser(int userId, BuildContext context) async {
+    try {
+      final result = await _userService.deleteUsers(userIds: [userId]);
+      if (result['success'] == true) {
+        _allUsers.removeWhere((u) => u.id == userId);
+        _applyFilters();
+        clearSelection();
+      }
+      return result['success'] == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+
+  // -- Bulk action methods
+
   Future<void> suspendSelectedUsers(BuildContext context) async {
     if (_selectedUserIds.isEmpty) return;
 
@@ -371,7 +417,6 @@ class UserProvider with ChangeNotifier {
   void _applyFilters() {
     List<User> filtered = List<User>.from(_allUsers);
 
-    // Apply search filter
     if (_searchQuery.isNotEmpty) {
       filtered = filtered.where((user) {
         final name = user.fullName.toLowerCase();
@@ -385,12 +430,10 @@ class UserProvider with ChangeNotifier {
       }).toList();
     }
 
-    // Apply status filter
     if (_statusFilter != 'all') {
       filtered = filtered.where((user) => user.status == _statusFilter).toList();
     }
 
-    // Apply user type filter
     if (_userTypeFilter != 'all') {
       filtered = filtered.where((user) => user.usertype == _userTypeFilter).toList();
     }
@@ -405,8 +448,6 @@ class UserProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  /// Resets to page 1. Does NOT call [notifyListeners] — always called from
-  /// [_applyFilters] which already triggers a notification.
   void resetPaging() {
     _displayPage = 1;
   }
@@ -419,32 +460,17 @@ class UserProvider with ChangeNotifier {
   }
 
   Map<String, int> getStatusStats() {
-    Map<String, int> stats = {
+    final Map<String, int> stats = {
       'approved': 0,
       'pending': 0,
       'rejected': 0,
       'not_uploaded': 0,
     };
-
-    for (var user in _allUsers) {
+    for (final user in _allUsers) {
       if (stats.containsKey(user.status)) {
         stats[user.status] = stats[user.status]! + 1;
       }
     }
-
-    return stats;
-  }
-
-  Map<String, int> getUserTypeStats() {
-    Map<String, int> stats = {
-      'paid': 0,
-      'free': 0,
-    };
-
-    for (var user in _allUsers) {
-      stats[user.usertype] = stats[user.usertype]! + 1;
-    }
-
     return stats;
   }
 }

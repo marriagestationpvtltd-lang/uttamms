@@ -2,7 +2,7 @@
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
-$conn = new mysqli("localhost", "ms", "ms", "ms");
+$conn = new mysqli("localhost", "root", "", "ms");
 if ($conn->connect_error) {
     echo json_encode(["status" => "error", "message" => "DB Connection failed"]);
     exit;

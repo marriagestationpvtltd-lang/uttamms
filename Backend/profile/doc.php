@@ -5,8 +5,8 @@ header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 $servername = "localhost";
-$username = "ms"; // change
-$password = "ms"; // change
+$username = "root"; // change
+$password = ""; // change
 $dbname = "ms"; // change
 
 $conn = new mysqli($servername, $username, $password, $dbname);

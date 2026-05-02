@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../pushnotification/pushservice.dart';
 import '../Calling/callmanager.dart';
@@ -9,9 +12,121 @@ import '../Calling/incomingvideocall.dart';
 import '../navigation/app_navigation.dart';
 import '../Startup/MainControllere.dart';
 import '../service/socket_service.dart';
+import '../service/sound_settings_service.dart';
+import '../service/app_sound_tone_service.dart';
+import '../service/device_sound_policy_service.dart';
 
 const String activeCallRouteName = '/active-call';
 const String minimizedCallHostRouteName = '/minimized-call-host';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IncomingCallOverlayManager
+// Singleton that controls the WhatsApp-style incoming-call banner.
+// ─────────────────────────────────────────────────────────────────────────────
+class IncomingCallOverlayManager extends ChangeNotifier {
+  static final IncomingCallOverlayManager _instance =
+      IncomingCallOverlayManager._internal();
+  factory IncomingCallOverlayManager() => _instance;
+  IncomingCallOverlayManager._internal();
+
+  Map<String, dynamic>? _callData;
+  bool _visible = false;
+  bool _isVideo = false;
+  AudioPlayer? _ringtonePlayer;
+  Timer? _ringTimer;
+  Timer? _vibrationTimer;
+
+  bool get isVisible => _visible;
+  Map<String, dynamic>? get callData => _callData;
+  bool get isVideo => _isVideo;
+
+  String get callerName =>
+      _callData?['callerName']?.toString() ?? 'Unknown Caller';
+
+  void show(Map<String, dynamic> data, {required bool isVideo}) {
+    _callData = data;
+    _isVideo = isVideo;
+    _visible = true;
+    notifyListeners();
+    _playRingtone();
+    // Auto-dismiss after 60 seconds (missed call)
+    _ringTimer?.cancel();
+    _ringTimer = Timer(const Duration(seconds: 60), dismiss);
+  }
+
+  void dismiss() {
+    if (!_visible) return;
+    _visible = false;
+    _callData = null;
+    _ringTimer?.cancel();
+    _ringTimer = null;
+    _stopRingtone();
+    notifyListeners();
+  }
+
+  Future<void> _playRingtone() async {
+    try {
+      await _stopRingtone();
+      if (!SoundSettingsService.instance.callSoundEnabled) return;
+
+      final canPlay = await DeviceSoundPolicyService.canPlayInAppSound();
+      if (!canPlay) {
+        debugPrint(
+            'IncomingCallOverlayManager: phone silent/vibrate/DND, skipping ringtone');
+        return;
+      }
+
+      _ringtonePlayer = AudioPlayer();
+      await _ringtonePlayer!.setReleaseMode(ReleaseMode.loop);
+
+      if (SoundSettingsService.instance.vibrationEnabled && !kIsWeb) {
+        HapticFeedback.vibrate();
+        _vibrationTimer?.cancel();
+        _vibrationTimer =
+            Timer.periodic(const Duration(milliseconds: 1500), (_) {
+          if (_visible) HapticFeedback.vibrate();
+        });
+      }
+
+      final sources = await AppSoundToneService.instance
+          .playbackSources(AppSoundToneType.incomingCall);
+      for (final src in sources) {
+        try {
+          if (src.isRemote) {
+            await _ringtonePlayer!.play(UrlSource(src.value));
+          } else {
+            await _ringtonePlayer!.play(AssetSource(src.value));
+          }
+          return;
+        } catch (_) {}
+      }
+      // Fallback default asset
+      await _ringtonePlayer!.play(
+        AssetSource(AppSoundToneService.instance
+            .defaultAsset(AppSoundToneType.incomingCall)),
+      );
+    } catch (e) {
+      debugPrint('IncomingCallOverlayManager: ringtone error: $e');
+    }
+  }
+
+  Future<void> _stopRingtone() async {
+    _vibrationTimer?.cancel();
+    _vibrationTimer = null;
+    try {
+      await _ringtonePlayer?.stop();
+      await _ringtonePlayer?.dispose();
+    } catch (_) {}
+    _ringtonePlayer = null;
+  }
+
+  @override
+  void dispose() {
+    _ringTimer?.cancel();
+    _stopRingtone();
+    super.dispose();
+  }
+}
 
 /// Singleton class to manage call overlay state across the app
 class CallOverlayManager extends ChangeNotifier {
@@ -43,7 +158,8 @@ class CallOverlayManager extends ChangeNotifier {
   String? get otherUserId => _otherUserId;
   String get statusText => _statusText;
   Duration get duration => _duration;
-  bool get isConnected => _duration > Duration.zero || _statusText == 'Connected';
+  bool get isConnected =>
+      _duration > Duration.zero || _statusText == 'Connected';
   bool get isMicMuted => _isMicMuted;
   bool get isCameraEnabled => _isCameraEnabled;
   bool get isVideoCall => _callType == 'video';
@@ -201,7 +317,8 @@ class CallMinimizeButton extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.picture_in_picture_alt_rounded, color: Colors.white, size: 18),
+                Icon(Icons.picture_in_picture_alt_rounded,
+                    color: Colors.white, size: 18),
                 SizedBox(width: 8),
                 Text(
                   'Minimize',
@@ -214,6 +331,228 @@ class CallMinimizeButton extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// IncomingCallOverlay  — WhatsApp-style incoming-call banner
+// ─────────────────────────────────────────────────────────────────────────────
+class IncomingCallOverlay extends StatelessWidget {
+  const IncomingCallOverlay({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final mgr = IncomingCallOverlayManager();
+
+    return AnimatedBuilder(
+      animation: mgr,
+      builder: (context, _) {
+        // Hide if dismissed or if the fullscreen call screen is already open
+        if (!mgr.isVisible || CallManager().isCallScreenShowing) {
+          return const SizedBox.shrink();
+        }
+
+        final callerName = mgr.callerName;
+        final isVideo = mgr.isVideo;
+        final data = mgr.callData!;
+
+        return Positioned(
+          top: MediaQuery.of(context).padding.top + 8,
+          left: 12,
+          right: 12,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0D1B2A), Color(0xFF1B3A4B)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white.withOpacity(0.10)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.40),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: [
+                  // Icon + pulse
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: isVideo
+                          ? const Color(0xFF7C4DFF).withOpacity(0.20)
+                          : const Color(0xFF00C853).withOpacity(0.20),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      isVideo ? Icons.videocam_rounded : Icons.call_rounded,
+                      color: isVideo
+                          ? const Color(0xFF7C4DFF)
+                          : const Color(0xFF00C853),
+                      size: 26,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  // Caller info
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () => _openFullScreen(context, data, isVideo),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            callerName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.circle,
+                                size: 8,
+                                color: const Color(0xFF69F0AE),
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                isVideo
+                                    ? 'Incoming video call'
+                                    : 'Incoming voice call',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.72),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // Reject button
+                  _RoundButton(
+                    icon: Icons.call_end_rounded,
+                    color: const Color(0xFFFF4F4F),
+                    onPressed: () => _reject(data, isVideo),
+                  ),
+                  const SizedBox(width: 10),
+                  // Accept button
+                  _RoundButton(
+                    icon: isVideo ? Icons.videocam_rounded : Icons.call_rounded,
+                    color: const Color(0xFF00C853),
+                    onPressed: () => _accept(context, data, isVideo),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _reject(Map<String, dynamic> data, bool isVideo) {
+    IncomingCallOverlayManager().dismiss();
+    CallManager().clearCallData();
+
+    final callerId = data['callerId']?.toString() ?? '';
+    final channelName = data['channelName']?.toString() ?? '';
+    // Read current user from socket service
+    final currentUserId = SocketService().currentUserId ?? '';
+
+    if (callerId.isNotEmpty && currentUserId.isNotEmpty) {
+      SocketService().emitCallReject(
+        callerId: callerId,
+        recipientId: currentUserId,
+        recipientName: '',
+        channelName: channelName,
+        callType: isVideo ? 'video' : 'audio',
+      );
+    }
+    NotificationService.sendCallResponseNotification(
+      callerId: callerId,
+      recipientName: '',
+      accepted: false,
+      recipientUid: '0',
+      channelName: channelName,
+    ).catchError((_) => false);
+  }
+
+  void _accept(BuildContext context, Map<String, dynamic> data, bool isVideo) {
+    IncomingCallOverlayManager().dismiss();
+    _openFullScreen(context, data, isVideo);
+  }
+
+  void _openFullScreen(
+      BuildContext context, Map<String, dynamic> data, bool isVideo) {
+    // Dismiss the compact banner first so it doesn't coexist with the full-screen.
+    IncomingCallOverlayManager().dismiss();
+    if (CallManager().isCallScreenShowing) return;
+    CallManager().isCallScreenShowing = true;
+
+    // Wait one frame so the overlay widget rebuilds to hidden before pushing
+    // the fullscreen route — otherwise the banner renders on top of the call UI.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final currentState = navigatorKey.currentState;
+      if (currentState == null) {
+        CallManager().isCallScreenShowing = false;
+        return;
+      }
+      final route = MaterialPageRoute(
+        settings: const RouteSettings(name: activeCallRouteName),
+        fullscreenDialog: true,
+        builder: (_) => isVideo
+            ? IncomingVideoCallScreen(callData: data)
+            : IncomingCallScreen(callData: data),
+      );
+      currentState.push(route).whenComplete(() {
+        CallManager().isCallScreenShowing = false;
+      });
+    });
+  }
+}
+
+class _RoundButton extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onPressed;
+
+  const _RoundButton({
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: color.withOpacity(0.18),
+      shape: const CircleBorder(),
+      child: InkWell(
+        onTap: onPressed,
+        customBorder: const CircleBorder(),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Icon(icon, color: color, size: 24),
         ),
       ),
     );
@@ -288,7 +627,9 @@ class MinimizedCallOverlay extends StatelessWidget {
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(
-                                  manager.isVideoCall ? Icons.videocam_rounded : Icons.call_rounded,
+                                  manager.isVideoCall
+                                      ? Icons.videocam_rounded
+                                      : Icons.call_rounded,
                                   color: Colors.white,
                                   size: 22,
                                 ),
@@ -311,17 +652,20 @@ class MinimizedCallOverlay extends StatelessWidget {
                                     ),
                                     const SizedBox(height: 6),
                                     Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 10, vertical: 5),
                                       decoration: BoxDecoration(
                                         color: Colors.white.withOpacity(0.10),
-                                        borderRadius: BorderRadius.circular(999),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
                                       ),
                                       child: Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Icon(
                                             manager.isConnected
-                                                ? Icons.fiber_manual_record_rounded
+                                                ? Icons
+                                                    .fiber_manual_record_rounded
                                                 : Icons.wifi_calling_3_rounded,
                                             size: 12,
                                             color: manager.isConnected
@@ -363,7 +707,9 @@ class MinimizedCallOverlay extends StatelessWidget {
                     children: [
                       Expanded(
                         child: _OverlayActionButton(
-                          icon: manager.isMicMuted ? Icons.mic_off_rounded : Icons.mic_rounded,
+                          icon: manager.isMicMuted
+                              ? Icons.mic_off_rounded
+                              : Icons.mic_rounded,
                           label: manager.isMicMuted ? 'Unmute' : 'Mute',
                           color: manager.isMicMuted
                               ? const Color(0xFFFFB703)
@@ -378,7 +724,9 @@ class MinimizedCallOverlay extends StatelessWidget {
                             icon: manager.isCameraEnabled
                                 ? Icons.videocam_rounded
                                 : Icons.videocam_off_rounded,
-                            label: manager.isCameraEnabled ? 'Camera on' : 'Camera off',
+                            label: manager.isCameraEnabled
+                                ? 'Camera on'
+                                : 'Camera off',
                             color: manager.isCameraEnabled
                                 ? const Color(0xFF8E7CFF)
                                 : const Color(0xFF6C757D),
@@ -494,6 +842,7 @@ class CallOverlayWrapper extends StatefulWidget {
 class _CallOverlayWrapperState extends State<CallOverlayWrapper>
     with WidgetsBindingObserver {
   StreamSubscription<Map<String, dynamic>>? _incomingCallSubscription;
+  StreamSubscription<Map<String, dynamic>>? _callCancelledSubscription;
   // Prevent multiple simultaneous call-screen pushes
   bool _isNavigatingToCall = false;
 
@@ -502,6 +851,7 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _setupIncomingCallListener();
+    _setupCallCancelledListener();
   }
 
   @override
@@ -539,10 +889,34 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
 
       final isVideoCall =
           data['type'] == 'video_call' || data['isVideoCall'] == 'true';
-      _pushCallScreen(data, isVideoCall);
+      // Guard: if banner or full-screen already open (e.g. notification action fired first)
+      if (IncomingCallOverlayManager().isVisible ||
+          CallManager().isCallScreenShowing) {
+        return;
+      }
+      // Show the compact overlay banner on background-resume
+      _showIncomingOverlay(data, isVideoCall);
     } catch (e) {
       debugPrint('❌ Error checking pending incoming call: $e');
     }
+  }
+
+  void _setupCallCancelledListener() {
+    _callCancelledSubscription?.cancel();
+    _callCancelledSubscription = SocketService().onCallCancelled.listen((data) {
+      // If the overlay is showing and belongs to this cancelled call, dismiss it
+      if (IncomingCallOverlayManager().isVisible) {
+        final overlayChannel =
+            IncomingCallOverlayManager().callData?['channelName']?.toString();
+        final cancelledChannel = data['channelName']?.toString();
+        if (overlayChannel == null ||
+            cancelledChannel == null ||
+            overlayChannel == cancelledChannel) {
+          IncomingCallOverlayManager().dismiss();
+          CallManager().clearCallData();
+        }
+      }
+    });
   }
 
   void _setupIncomingCallListener() {
@@ -553,48 +927,35 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
         print('📱 CallOverlayWrapper: Incoming call received: $data');
         final isVideoCall =
             data['type'] == 'video_call' || data['isVideoCall'] == 'true';
-        // Dismiss keyboard so the call screen is not hidden behind it.
+        // Dismiss keyboard so the call overlay is not hidden behind it.
         FocusManager.instance.primaryFocus?.unfocus();
-        // When the app is idle (e.g. keyboard open in chat with no frames
-        // being scheduled), Flutter stops rendering and addPostFrameCallback
-        // never fires until the user interacts with the screen.  Schedule a
-        // frame first so the callback below executes immediately.
         WidgetsBinding.instance.scheduleFrame();
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          _pushCallScreen(data, isVideoCall);
+          _showIncomingOverlay(data, isVideoCall);
         });
       },
       onError: (error, stackTrace) {
         print('❌ Error in incoming call stream: $error');
         print('Stack trace: $stackTrace');
-        // Re-subscribe after error (cancel old sub first)
         Future.delayed(const Duration(seconds: 1), () {
-          if (mounted) {
-            _setupIncomingCallListener();
-          }
+          if (mounted) _setupIncomingCallListener();
         });
       },
       cancelOnError: false,
     );
   }
 
-  /// Pushes the incoming call screen on top of whatever is currently visible.
-  /// Retries up to [maxRetries] times if the navigator is not yet ready.
-  void _pushCallScreen(
+  /// Shows the compact WhatsApp-style incoming-call banner overlay.
+  /// Falls back to full-screen when the app is being resumed from background
+  /// (called from _checkPendingIncomingCall).
+  void _showIncomingOverlay(
     Map<String, dynamic> data,
     bool isVideoCall, {
+    bool forceFullScreen = false,
     int retryCount = 0,
     int maxRetries = 3,
   }) {
-    // _isNavigatingToCall stays true from push() until the call screen is popped.
-    // This prevents duplicate screens from appearing (e.g. duplicate FCM delivery).
-    if (_isNavigatingToCall) return;
-    // isCallScreenShowing is a shared flag so that local screen listeners
-    // (e.g. AdminChatScreen) can detect that we're already showing the UI.
-    if (CallManager().isCallScreenShowing) return;
-
-    // If user is already in an active call, auto-reject this new incoming call
-    // with a busy signal and do not show the call screen.
+    // Guard: don't show if already in an active call → auto-reject as busy
     if (CallOverlayManager().isCallActive) {
       final callerId = data['callerId']?.toString() ?? '';
       final currentUserId = CallOverlayManager()._currentUserId ?? '';
@@ -611,6 +972,41 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
       CallManager().clearCallData();
       return;
     }
+
+    // Guard: don't show if call screen already visible
+    if (CallManager().isCallScreenShowing) return;
+
+    // Guard: don't show if overlay already visible for this channel
+    if (IncomingCallOverlayManager().isVisible) {
+      final existingChannel =
+          IncomingCallOverlayManager().callData?['channelName']?.toString();
+      final newChannel = data['channelName']?.toString();
+      if (existingChannel == newChannel) return;
+      // Different call — dismiss old and show new
+      IncomingCallOverlayManager().dismiss();
+    }
+
+    if (forceFullScreen) {
+      // Background-resume path: go directly to full-screen incoming call screen
+      _pushCallScreen(data, isVideoCall,
+          retryCount: retryCount, maxRetries: maxRetries);
+      return;
+    }
+
+    // Show the compact overlay banner (foreground / active app)
+    IncomingCallOverlayManager().show(data, isVideo: isVideoCall);
+  }
+
+  /// Pushes the incoming call full-screen.  Used by _showIncomingOverlay
+  /// (force path) and also called from IncomingCallOverlay when user taps Accept.
+  void _pushCallScreen(
+    Map<String, dynamic> data,
+    bool isVideoCall, {
+    int retryCount = 0,
+    int maxRetries = 3,
+  }) {
+    if (_isNavigatingToCall) return;
+    if (CallManager().isCallScreenShowing) return;
 
     final currentState = navigatorKey.currentState;
     if (currentState == null) {
@@ -642,7 +1038,6 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
         CallManager().isCallScreenShowing = false;
       });
     } catch (_) {
-      // Reset flags if push fails so future calls are not blocked.
       _isNavigatingToCall = false;
       CallManager().isCallScreenShowing = false;
     }
@@ -652,6 +1047,7 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _incomingCallSubscription?.cancel();
+    _callCancelledSubscription?.cancel();
     super.dispose();
   }
 
@@ -661,6 +1057,7 @@ class _CallOverlayWrapperState extends State<CallOverlayWrapper>
       children: [
         widget.child,
         const MinimizedCallOverlay(),
+        const IncomingCallOverlay(),
       ],
     );
   }

@@ -6,24 +6,30 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
+  if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
 import 'package:permission_handler/permission_handler.dart'
     if (dart.library.html) 'package:ms2026/utils/web_permission_stub.dart';
-import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
-    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../Chat/call_overlay_manager.dart';
 import '../navigation/app_navigation.dart';
 import '../pushnotification/pushservice.dart';
 import '../service/socket_service.dart';
+import '../service/device_sound_policy_service.dart';
 import '../service/sound_settings_service.dart';
+import 'call_tone_settings.dart';
 import 'tokengenerator.dart';
 import 'call_history_model.dart';
 import 'call_history_service.dart';
 import 'call_foreground_service.dart';
 import 'videocall.dart';
 import 'widgets/connection_status_overlay.dart';
-import 'package:ms2026/utils/web_call_ringtone_player_stub.dart'
-    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player.dart';
+
+enum _OutgoingTonePhase {
+  dialing,
+  ringing,
+}
 
 class CallScreen extends StatefulWidget {
   final String currentUserId;
@@ -56,10 +62,9 @@ class CallScreen extends StatefulWidget {
 }
 
 class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
-  static const String _kWebRingtoneAsset = 'audio/outcall.mp3';
-
   late RtcEngine _engine;
   bool _engineInitialized = false;
+  late final AudioPlayer _ringtonePlayer;
 
   int _localUid = 0;
   int? _remoteUid;
@@ -94,11 +99,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   String? _connectionStatus;
   bool _remoteAccepted = false;
-  bool _recipientOffline = false; // true when server confirmed recipient is offline
-  bool _recipientBusy = false;    // true when server confirmed recipient is on another call
-  bool _callBlocked = false;      // true when server rejected the call due to block
-  bool _isSwitchingToVideo = false; // true while awaiting switch-to-video response
-  bool _navigatingToVideo = false; // true once _navigateToVideoCall has been triggered
+  bool _recipientOffline =
+      false; // true when server confirmed recipient is offline
+  bool _recipientBusy =
+      false; // true when server confirmed recipient is on another call
+  bool _callBlocked = false; // true when server rejected the call due to block
+  bool _isSwitchingToVideo =
+      false; // true while awaiting switch-to-video response
+  bool _navigatingToVideo =
+      false; // true once _navigateToVideoCall has been triggered
+    _OutgoingTonePhase _outgoingTonePhase = _OutgoingTonePhase.dialing;
 
   static const Duration _kConnectivityLossTimeout = Duration(seconds: 30);
   static const Duration _kOutgoingCallTimeout = Duration(seconds: 45);
@@ -112,6 +122,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _ringtonePlayer = AudioPlayer();
+    _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
     _listenForCallResponse();
     _startCall();
     _listenConnectivity();
@@ -129,17 +141,28 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     // Listen via Socket.IO (low-latency path for online recipients)
     _socketAcceptedSub = SocketService().onCallAccepted.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
-      _handleCallResponseData({...data, 'type': 'call_response', 'accepted': 'true'});
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
+      _handleCallResponseData(
+          {...data, 'type': 'call_response', 'accepted': 'true'});
     });
     _socketRejectedSub = SocketService().onCallRejected.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
-      _handleCallResponseData({...data, 'type': 'call_response', 'accepted': 'false'});
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
+      _handleCallResponseData(
+          {...data, 'type': 'call_response', 'accepted': 'false'});
     });
     _socketEndedSub = SocketService().onCallEnded.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
       if (!_ending) _endCall();
     });
     // Recipient device started ringing → advance from "Calling..." to "Ringing..."
@@ -147,11 +170,16 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     // (recipient is online via socket but the app may be backgrounded).
     _socketRingingSub = SocketService().onCallRinging.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
       if (!_isRecipientRinging && mounted) {
         setState(() => _isRecipientRinging = true);
         _syncOverlayState();
       }
+      // Distinct feedback for caller: switch from dialing tone to ringing tone.
+      unawaited(_switchToRingingTone());
       // FCM fallback so the call wakes the app if it is truly backgrounded/killed.
       if (widget.isOutgoingCall) {
         unawaited(NotificationService.sendCallNotification(
@@ -170,7 +198,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     // Send FCM push now — this is the primary delivery path for offline users.
     _socketUserOfflineSub = SocketService().onCallUserOffline.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
       if (!_callActive && !_ending && mounted) {
         setState(() => _recipientOffline = true);
         _syncOverlayState();
@@ -191,7 +222,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     // Server confirmed the recipient is busy on another call.
     _socketBusySub = SocketService().onCallBusy.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
       if (!_ending && mounted) {
         setState(() => _recipientBusy = true);
         _syncOverlayState();
@@ -206,7 +240,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
             chatRoomId: widget.chatRoomId,
             isAdminChat: widget.isAdminChat,
             adminChatSenderId: widget.isAdminChat ? widget.currentUserId : null,
-            adminChatReceiverId: widget.isAdminChat ? widget.adminChatReceiverId : null,
+            adminChatReceiverId:
+                widget.isAdminChat ? widget.adminChatReceiverId : null,
             messageDocId: _channel.isNotEmpty ? 'call_busy_$_channel' : null,
           ));
         }
@@ -219,7 +254,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     // Server rejected the call because either party has blocked the other.
     _socketBlockedSub = SocketService().onCallBlocked.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
       _callBlocked = true;
       if (!_ending && mounted) {
         unawaited(_stopRingtone());
@@ -227,9 +265,13 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       }
     });
     // Response to switch-to-video request
-    _socketSwitchToVideoResponseSub = SocketService().onSwitchToVideoResponse.listen((data) {
+    _socketSwitchToVideoResponseSub =
+        SocketService().onSwitchToVideoResponse.listen((data) {
       final channelName = data['channelName']?.toString();
-      if (_channel.isNotEmpty && channelName != null && channelName.isNotEmpty && channelName != _channel) return;
+      if (_channel.isNotEmpty &&
+          channelName != null &&
+          channelName.isNotEmpty &&
+          channelName != _channel) return;
       final accepted = data['accepted'] == true || data['accepted'] == 'true';
       if (!mounted) return;
       if (accepted && _callActive && !_ending) {
@@ -239,7 +281,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         setState(() => _isSwitchingToVideo = false);
         ScaffoldMessenger.of(context).clearSnackBars();
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Video switch declined'), duration: Duration(seconds: 2)),
+          const SnackBar(
+              content: Text('Video switch declined'),
+              duration: Duration(seconds: 2)),
         );
       }
     });
@@ -314,7 +358,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       final eventChannel = event['channelName']?.toString() ?? '';
 
       // If we know our channel, make sure this event belongs to it
-      if (_channel.isNotEmpty && eventChannel.isNotEmpty && eventChannel != _channel) {
+      if (_channel.isNotEmpty &&
+          eventChannel.isNotEmpty &&
+          eventChannel != _channel) {
         return;
       }
 
@@ -324,7 +370,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       // Don't process rejection if call is already connected
       if (_callActive) return;
 
-      if ((eventType == 'call_response' || eventType == 'video_call_response') &&
+      if ((eventType == 'call_response' ||
+              eventType == 'video_call_response') &&
           event['accepted'] == 'false') {
         if (mounted) setState(() => _callDeclined = true);
         unawaited(_stopRingtone());
@@ -349,7 +396,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
       currentUserName: widget.currentUserName,
       onMaximize: () {
         navigatorKey.currentState?.popUntil(
-          (route) => route.settings.name == activeCallRouteName || route.isFirst,
+          (route) =>
+              route.settings.name == activeCallRouteName || route.isFirst,
         );
       },
       onEnd: _endCall,
@@ -390,6 +438,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     }
     _syncOverlayState();
   }
+
   // ================= PLAY RINGTONE =================
   Future<void> _playRingtone() async {
     if (!widget.isOutgoingCall) return;
@@ -397,40 +446,113 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     try {
       await _stopRingtone();
 
+      if (!SoundSettingsService.instance.callSoundEnabled) {
+        debugPrint('📴 Call sound disabled by user – skipping ringtone');
+        return;
+      }
+
+      final canPlay = await DeviceSoundPolicyService.canPlayInAppSound();
+      if (!canPlay) {
+        debugPrint('📴 Phone silent/vibrate/DND – skipping outgoing ringtone');
+        return;
+      }
+
+      if (mounted) setState(() => _isPlayingRingtone = true);
+      _outgoingTonePhase = _OutgoingTonePhase.dialing;
+
       // Start repeating vibration while the call is ringing (1.5s interval).
       if (SoundSettingsService.instance.vibrationEnabled && !kIsWeb) {
         HapticFeedback.vibrate();
         _vibrationTimer?.cancel();
-        _vibrationTimer = Timer.periodic(const Duration(milliseconds: 1500), (_) {
+        _vibrationTimer =
+            Timer.periodic(const Duration(milliseconds: 1500), (_) {
           if (_isPlayingRingtone && !_ending && mounted) {
             HapticFeedback.vibrate();
           }
         });
       }
 
-      if (!SoundSettingsService.instance.callSoundEnabled) {
-        debugPrint('📴 Call sound disabled by user – skipping ringtone');
-        return;
+      // Caller-side pre-ring tone: indicate "placing call" before recipient
+      // confirms ringing.
+      await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
+      try {
+        await _ringtonePlayer.play(AssetSource('audio/outcall.mp3'));
+        debugPrint('🎵 Started outgoing dialing tone');
+      } catch (e) {
+        debugPrint('⚠️ Dialing tone asset failed: $e');
+        // Fallback to system ringtone if asset playback fails.
+        if (!kIsWeb) {
+          await FlutterRingtonePlayer().play(
+            android: AndroidSounds.ringtone,
+            looping: true,
+          );
+          debugPrint('🎵 System ringtone (dialing fallback)');
+        }
       }
-
-      if (mounted) setState(() => _isPlayingRingtone = true);
-
-      // On web use dart:html AudioElement which is more reliable against
-      // browser autoplay restrictions.
-      if (kIsWeb) {
-        await WebRingtonePlayer.instance.play(_kWebRingtoneAsset);
-        debugPrint('🎵 Started playing calling tone (web)');
-        return;
-      }
-
-      // On mobile, use the device's default ringtone (system sound).
-      await FlutterRingtonePlayer().play(
-        android: AndroidSounds.ringtone,
-        looping: true,
-      );
-      debugPrint('🎵 Started playing calling tone');
     } catch (e) {
       debugPrint('❌ Error playing calling tone: $e');
+    }
+  }
+
+  Future<void> _switchToRingingTone() async {
+    if (!widget.isOutgoingCall || _ending || !_isPlayingRingtone) return;
+    if (_outgoingTonePhase == _OutgoingTonePhase.ringing) return;
+
+    try {
+      _outgoingTonePhase = _OutgoingTonePhase.ringing;
+
+      // Vibration is useful for dialing feedback, but should stop once we know
+      // the recipient device is actually ringing.
+      _vibrationTimer?.cancel();
+      _vibrationTimer = null;
+
+      if (!SoundSettingsService.instance.callSoundEnabled) return;
+
+      final settings = CallToneSettingsService.instance.cached ??
+          await CallToneSettingsService.instance.load();
+      if (!_isPlayingRingtone || _ending) return;
+
+      final sources = <CallTonePlaybackSource>[];
+      if (settings.customToneUrl.trim().isNotEmpty) {
+        final custom =
+            CallToneSettings.resolveCustomToneUrl(settings.customToneUrl);
+        if (custom.isNotEmpty) {
+          sources.add(CallTonePlaybackSource.remote(custom));
+        }
+      }
+
+      // Ensure ringback sound differs from the pre-ring dialing tone.
+      final ringbackAsset = settings.toneId == CallToneSettings.defaultToneId
+          ? 'audio/ring_classic.wav'
+          : settings.assetPath;
+      sources.add(CallTonePlaybackSource.asset(ringbackAsset));
+      sources.add(const CallTonePlaybackSource.asset('audio/ring_modern.wav'));
+      sources.add(const CallTonePlaybackSource.asset('audio/ring_soft.wav'));
+
+      for (final source in sources) {
+        try {
+          await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
+          if (source.isRemote) {
+            await _ringtonePlayer.play(UrlSource(source.value));
+          } else {
+            await _ringtonePlayer.play(AssetSource(source.value));
+          }
+          debugPrint('🎵 Switched to caller ringback tone: ${source.value}');
+          return;
+        } catch (e) {
+          debugPrint('⚠️ Ringback source failed ${source.value}: $e');
+        }
+      }
+
+      if (!kIsWeb) {
+        await FlutterRingtonePlayer().play(
+          android: AndroidSounds.ringtone,
+          looping: true,
+        );
+        debugPrint('🎵 System ringtone (ringback fallback)');
+      }
+    } catch (e) {
+      debugPrint('❌ Error switching to ringback tone: $e');
     }
   }
 
@@ -439,22 +561,21 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     try {
       _vibrationTimer?.cancel();
       _vibrationTimer = null;
-      if (kIsWeb) {
-        await WebRingtonePlayer.instance.stop();
-      } else {
+      await _ringtonePlayer.stop();
+      if (!kIsWeb) {
         await FlutterRingtonePlayer().stop();
       }
 
       if (!mounted) return;
 
       setState(() => _isPlayingRingtone = false);
+      _outgoingTonePhase = _OutgoingTonePhase.dialing;
 
       debugPrint('Stopped ringtone');
     } catch (e) {
       debugPrint('Error stopping ringtone: $e');
     }
   }
-
 
   // ================= START CALL =================
   Future<void> _startCall() async {
@@ -474,16 +595,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         return; // ❌ DO NOT call _exit()
       }
 
-      // Start ringing after permissions are confirmed
-      if (widget.isOutgoingCall) {
-        await _playRingtone();
-      }
-
-
-      // Channel + UID
+      // ── Step 1: Generate channel + UID immediately so the call invite can
+      // be sent to the recipient without waiting for ringtone/token fetches.
       _localUid = Random().nextInt(999999);
       _channel =
-      'call_${widget.currentUserId.substring(0, min(4, widget.currentUserId.length))}'
+          'call_${widget.currentUserId.substring(0, min(4, widget.currentUserId.length))}'
           '_${widget.otherUserId.substring(0, min(4, widget.otherUserId.length))}'
           '_${DateTime.now().millisecondsSinceEpoch}';
 
@@ -493,18 +609,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
       _initializeOverlay();
 
-      // Token
-      _token = await AgoraTokenService.getToken(
-        channelName: _channel,
-        uid: _localUid,
-      );
-
-      // Send notification for outgoing calls
+      // ── Step 2: Emit socket invite immediately (instant delivery to admin).
+      // FCM push is sent later once the server confirms the call is allowed
+      // (see _socketRingingSub / _socketUserOfflineSub handlers below).
       if (widget.isOutgoingCall) {
-        // Emit via Socket.IO first (instant delivery for online users).
-        // FCM push is sent later once the server confirms the call is allowed
-        // (see _socketRingingSub / _socketUserOfflineSub handlers below).
-        // This prevents sending a push notification to a blocked user.
         SocketService().emitCallInvite(
           recipientId: widget.otherUserId,
           callerId: widget.currentUserId,
@@ -515,9 +623,17 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           callType: 'audio',
           chatRoomId: widget.chatRoomId,
         );
+      }
 
-        // Log call to history
-        _callHistoryId = await CallHistoryService.logCall(
+      // ── Step 3: Start ringtone concurrently (don't await – network fetch
+      // for tone settings must not block Agora setup or the invite emit).
+      if (widget.isOutgoingCall) {
+        unawaited(_playRingtone());
+      }
+
+      // ── Step 4: Log call history in parallel (fire-and-forget).
+      if (widget.isOutgoingCall) {
+        CallHistoryService.logCall(
           callerId: widget.currentUserId,
           callerName: widget.currentUserName,
           callerImage: widget.currentUserImage,
@@ -526,11 +642,21 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           recipientImage: widget.otherUserImage,
           callType: CallType.audio,
           initiatedBy: widget.currentUserId,
-        );
-        _callStartTime = DateTime.now();
+        ).then((id) {
+          _callHistoryId = id;
+          _callStartTime = DateTime.now();
+        }).catchError((e) {
+          debugPrint('⚠️ logCall error (non-fatal): $e');
+        });
       }
 
-      // Init Agora
+      // ── Step 5: Fetch Agora token.
+      _token = await AgoraTokenService.getToken(
+        channelName: _channel,
+        uid: _localUid,
+      );
+
+      // ── Step 6: Init Agora engine.
       _engine = createAgoraRtcEngine();
       await _engine.initialize(RtcEngineContext(
         appId: AgoraTokenService.appId,
@@ -565,8 +691,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               // Re-assert speaker routing: enableAudio() resets Agora's audio
               // routing to its default (earpiece), so we must re-apply the
               // current speaker state immediately after enabling audio.
-              unawaited(_engine.setEnableSpeakerphone(_speakerOn)
-                  .catchError((e) => debugPrint('setEnableSpeakerphone error: $e')));
+              unawaited(_engine.setEnableSpeakerphone(_speakerOn).catchError(
+                  (e) => debugPrint('setEnableSpeakerphone error: $e')));
               // Now enable microphone publishing
               await _engine.updateChannelMediaOptions(const ChannelMediaOptions(
                 publishMicrophoneTrack: true,
@@ -670,7 +796,11 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     // If the call was never answered, notify the receiver to dismiss their incoming call screen.
     // Skip cancel when recipient was busy — no screen to dismiss.
     // Skip entirely when the call was blocked — the recipient never received the call.
-    if (!_callActive && !_recipientBusy && !_callBlocked && widget.isOutgoingCall && _channel.isNotEmpty) {
+    if (!_callActive &&
+        !_recipientBusy &&
+        !_callBlocked &&
+        widget.isOutgoingCall &&
+        _channel.isNotEmpty) {
       // Socket.IO (instant for online users)
       SocketService().emitCallCancel(
         recipientId: widget.otherUserId,
@@ -699,7 +829,10 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
 
     // Update call history record and write inline call message to chat (outgoing only).
     // Skip when recipient was busy — the busy listener already logged the message.
-    if (widget.isOutgoingCall && _callHistoryId != null && _callHistoryId!.isNotEmpty && !_recipientBusy) {
+    if (widget.isOutgoingCall &&
+        _callHistoryId != null &&
+        _callHistoryId!.isNotEmpty &&
+        !_recipientBusy) {
       final callStatus = _callActive
           ? CallStatus.completed
           : wasDeclined
@@ -718,7 +851,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         chatRoomId: widget.chatRoomId,
         isAdminChat: widget.isAdminChat,
         adminChatSenderId: widget.isAdminChat ? widget.currentUserId : null,
-        adminChatReceiverId: widget.isAdminChat ? widget.adminChatReceiverId : null,
+        adminChatReceiverId:
+            widget.isAdminChat ? widget.adminChatReceiverId : null,
         messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
       ));
     }
@@ -739,7 +873,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         if (scaffoldCtx != null) {
           ScaffoldMessenger.of(scaffoldCtx).showSnackBar(
             SnackBar(
-              content: Text(_buildCallEndMessage(wasDeclined: wasDeclined, wasNoAnswer: wasNoAnswer)),
+              content: Text(_buildCallEndMessage(
+                  wasDeclined: wasDeclined, wasNoAnswer: wasNoAnswer)),
               duration: const Duration(seconds: 3),
             ),
           );
@@ -754,7 +889,6 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     unawaited(_stopForegroundService());
   }
 
-
   Future<void> _exit() async {
     CallOverlayManager().reset();
     if (mounted && Navigator.of(context).canPop()) {
@@ -763,7 +897,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     unawaited(_stopForegroundService());
   }
 
-  String _buildCallEndMessage({required bool wasDeclined, required bool wasNoAnswer}) {
+  String _buildCallEndMessage(
+      {required bool wasDeclined, required bool wasNoAnswer}) {
     if (_recipientBusy) return 'User is busy, please try again later';
     if (wasDeclined) return 'Call declined';
     if (wasNoAnswer) return 'No answer';
@@ -938,7 +1073,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                     const SizedBox(height: 40),
                     // Main content
                     Expanded(
-                      child: _callActive ? _buildActiveCallUI() : _buildOutgoingCallUI(),
+                      child: _callActive
+                          ? _buildActiveCallUI()
+                          : _buildOutgoingCallUI(),
                     ),
                   ],
                 ),
@@ -1039,7 +1176,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                   );
                 },
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(25),
@@ -1083,7 +1221,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 child: Text(
                   _getOutgoingStatusText(),
                   style: TextStyle(
-                    color: _recipientOffline ? Colors.orangeAccent : Colors.white70,
+                    color: _recipientOffline
+                        ? Colors.orangeAccent
+                        : Colors.white70,
                     fontSize: 18,
                     fontWeight: FontWeight.w400,
                   ),
@@ -1139,7 +1279,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
               ),
               const SizedBox(height: 20),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(30),
@@ -1241,7 +1382,9 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  _isSwitchingToVideo ? 'Waiting for response...' : 'Switch to Video',
+                  _isSwitchingToVideo
+                      ? 'Waiting for response...'
+                      : 'Switch to Video',
                   style: const TextStyle(color: Colors.white70, fontSize: 13),
                 ),
               ],
@@ -1309,7 +1452,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
         width: size,
         height: size,
         decoration: BoxDecoration(
-          color: active ? color.withOpacity(0.3) : Colors.white.withOpacity(0.2),
+          color:
+              active ? color.withOpacity(0.3) : Colors.white.withOpacity(0.2),
           shape: BoxShape.circle,
           border: Border.all(
             color: onPressed == null ? Colors.white30 : color,
@@ -1317,7 +1461,8 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
           ),
           boxShadow: [
             BoxShadow(
-              color: (onPressed == null ? Colors.white30 : color).withOpacity(0.3),
+              color:
+                  (onPressed == null ? Colors.white30 : color).withOpacity(0.3),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -1386,6 +1531,7 @@ class _CallScreenState extends State<CallScreen> with WidgetsBindingObserver {
     _socketBlockedSub?.cancel();
     _socketSwitchToVideoResponseSub?.cancel();
     _vibrationTimer?.cancel();
+    unawaited(_ringtonePlayer.dispose());
     // Release Agora engine if not already released by _endCall
     if (_engineInitialized) {
       unawaited(_releaseEngineAsync());
