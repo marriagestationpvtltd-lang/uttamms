@@ -182,6 +182,13 @@ class _ProfileSidebarState extends State<ProfileSidebar> {
     _loadSharedProfilesForUser(userId.toString());
     matchProvider.fetchMatchedProfiles(userId);
     matchProvider.startPresenceListener();
+
+    // Reset scroll position for new user's list
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    });
   }
 
   @override
@@ -1152,7 +1159,7 @@ class _ProfileSidebarState extends State<ProfileSidebar> {
           profiles.length +
           (provider.hasMore || provider.isLoadingMore ? 1 : 0),
       cacheExtent: 300,
-      physics: const BouncingScrollPhysics(),
+      physics: const ClampingScrollPhysics(),
       itemBuilder: (context, i) {
         if (i == profiles.length) {
           return _buildPaginationFooter(provider);

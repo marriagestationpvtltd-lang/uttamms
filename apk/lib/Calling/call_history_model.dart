@@ -16,6 +16,7 @@ class CallHistory {
   final int duration; // in seconds
   final CallStatus status;
   final String initiatedBy;
+  final bool isGroup;
 
   CallHistory({
     required this.callId,
@@ -31,6 +32,7 @@ class CallHistory {
     required this.duration,
     required this.status,
     required this.initiatedBy,
+    this.isGroup = false,
   });
 
   // Convert to map (JSON-serialisable, no Firestore types)
@@ -49,6 +51,7 @@ class CallHistory {
       'duration': duration,
       'status': status.toString().split('.').last,
       'initiatedBy': initiatedBy,
+      'isGroup': isGroup ? 1 : 0,
     };
   }
 
@@ -74,7 +77,9 @@ class CallHistory {
         orElse: () => CallType.audio,
       ),
       startTime: _parseDate(map['startTime']),
-      endTime: map['endTime'] != null ? DateTime.tryParse(map['endTime'].toString())?.toLocal() : null,
+      endTime: map['endTime'] != null
+          ? DateTime.tryParse(map['endTime'].toString())?.toLocal()
+          : null,
       duration: (map['duration'] ?? 0) is int
           ? (map['duration'] ?? 0)
           : int.tryParse(map['duration'].toString()) ?? 0,
@@ -83,6 +88,9 @@ class CallHistory {
         orElse: () => CallStatus.missed,
       ),
       initiatedBy: map['initiatedBy'] ?? '',
+      isGroup: map['isGroup'] == true ||
+          map['isGroup'] == 1 ||
+          map['isGroup'] == '1',
     );
   }
 

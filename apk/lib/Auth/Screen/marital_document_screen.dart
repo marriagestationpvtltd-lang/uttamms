@@ -887,11 +887,17 @@ class _MaritalDocumentUploadScreenState
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, color: color, size: 16),
-            const SizedBox(width: 6),
-            Text(label,
+            Icon(icon, color: color, size: 15),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
                 style: TextStyle(
-                    fontSize: 13, fontWeight: FontWeight.w600, color: color)),
+                    fontSize: 12, fontWeight: FontWeight.w600, color: color),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
+              ),
+            ),
           ],
         ),
       ),
@@ -956,10 +962,6 @@ class _MaritalDocumentUploadScreenState
                   ),
                   const SizedBox(height: 14),
                   _buildDocumentNumberField(),
-                  const SizedBox(height: 28),
-                  _buildGuidelinesCard(),
-                  const SizedBox(height: 20),
-                  _buildConsentCard(),
                   const SizedBox(height: 28),
                   _buildSubmitButton(),
                   const SizedBox(height: 40),
@@ -1047,13 +1049,15 @@ class _MaritalDocumentUploadScreenState
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF212121),
-            letterSpacing: -0.2,
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF212121),
+              letterSpacing: -0.2,
+            ),
           ),
         ),
       ],
@@ -1458,9 +1462,8 @@ class _MaritalDocumentUploadScreenState
   }
 
   Widget _buildSubmitButton() {
-    final canSubmit = (_selectedImage != null || _scannedImagePath != null) &&
-        _hasConsented &&
-        !_isUploading;
+    final canSubmit =
+        (_selectedImage != null || _scannedImagePath != null) && !_isUploading;
 
     return Container(
       width: double.infinity,
@@ -1898,10 +1901,6 @@ class _MaritalDocumentUploadScreenState
   void _validateAndSubmit() {
     if (_selectedImage == null && _scannedImagePath == null) {
       _showError('Please upload a photo of your document');
-      return;
-    }
-    if (!_hasConsented) {
-      _showError('Please accept the consent checkbox to continue');
       return;
     }
     _uploadDocument();

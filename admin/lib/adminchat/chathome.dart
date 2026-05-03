@@ -4396,7 +4396,7 @@ class _ChatWindowState extends State<ChatWindow> with WidgetsBindingObserver {
             )
           else
             Container(
-              width: MediaQuery.of(context).size.width * 0.22,
+              width: math.min(320.0, MediaQuery.of(context).size.width * 0.72),
               margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 6),
               child: AdminSharedProfileCard(
                 profileData: profileData,

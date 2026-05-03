@@ -1359,6 +1359,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    ScreenStateManager().updateAppLifecycleState(state);
+
     if (state == AppLifecycleState.resumed) {
       OnlineStatusService().start();
       // Refresh UserState so that a document approved by the admin while the

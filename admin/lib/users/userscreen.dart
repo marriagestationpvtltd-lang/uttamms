@@ -2,6 +2,8 @@ import 'package:adminmrz/users/userdetails/detailscreen.dart';
 import 'package:adminmrz/users/userdetails/userdetailprovider.dart';
 import 'package:adminmrz/users/userprovider.dart';
 import 'package:adminmrz/auth/service.dart';
+import 'package:adminmrz/users/activity/user_activity_sheet.dart';
+import 'package:adminmrz/users/activity/activity_detail_model.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -36,10 +38,14 @@ class UsersPage extends StatefulWidget {
 
 class _UsersPageState extends State<UsersPage> {
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _listController = ScrollController();
+  bool _isAutoPaging = false;
+  bool _compactMode = false;
 
   @override
   void initState() {
     super.initState();
+    _listController.addListener(_maybeAutoLoadMore);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<UserProvider>().fetchUsers();
     });
@@ -47,8 +53,26 @@ class _UsersPageState extends State<UsersPage> {
 
   @override
   void dispose() {
+    _listController.removeListener(_maybeAutoLoadMore);
+    _listController.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _maybeAutoLoadMore() {
+    if (!_listController.hasClients || _isAutoPaging || !mounted) return;
+    final position = _listController.position;
+    final provider = context.read<UserProvider>();
+    if (!provider.hasMoreToShow) return;
+
+    // Pull the next page before user hits absolute bottom for smoother scroll.
+    if (position.pixels >= position.maxScrollExtent - 320) {
+      _isAutoPaging = true;
+      provider.loadMoreUsers();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _isAutoPaging = false;
+      });
+    }
   }
 
   void _navigateToUser(User user) {
@@ -105,10 +129,16 @@ class _UsersPageState extends State<UsersPage> {
   static final _kImgBase = kAdminApiBaseUrl;
 
   String? _normaliseImageUrl(String? raw) {
-    if (raw == null || raw.isEmpty || raw == 'null') return null;
-    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    final value = raw?.trim();
+    if (value == null || value.isEmpty || value == 'null') return null;
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    if (value.contains('://')) {
+      return value;
+    }
     // Relative path: prepend domain
-    final path = raw.startsWith('/') ? raw : '/$raw';
+    final path = value.startsWith('/') ? value : '/$value';
     return '$_kImgBase$path';
   }
 
@@ -250,8 +280,11 @@ class _UsersPageState extends State<UsersPage> {
 
   // ΓöÇΓöÇΓöÇ User Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
-  Widget _buildUserCard(User user, UserProvider provider) {
-    provider.preloadActivity(user.id);
+  Widget _buildUserCard(
+    User user,
+    UserProvider provider, {
+    required bool compactMode,
+  }) {
     final activity = provider.activityFor(user.id);
     final isActivityLoading = provider.isActivityLoading(user.id);
     final bool isSelected = provider.isUserSelected(user.id);
@@ -268,494 +301,507 @@ class _UsersPageState extends State<UsersPage> {
     final bool hasPhoto = user.hasProfilePicture;
     final bool isActioning = provider.isPhotoActioning(user.id);
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            cardBg,
-            isDark ? const Color(0xFF0B1222) : Colors.grey.shade50,
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: isSelected
-              ? _kPrimary.withOpacity(0.7)
-              : (isDark
-                    ? Colors.white.withOpacity(0.06)
-                    : Colors.grey.shade200),
-          width: isSelected ? 1.4 : 1,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isSelected ? 0.10 : 0.06),
-            blurRadius: isSelected ? 14 : 10,
-            offset: const Offset(0, 6),
+    return RepaintBoundary(
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              cardBg,
+              isDark ? const Color(0xFF0B1222) : Colors.grey.shade50,
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(16),
-        child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => _navigateToUser(user),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ΓöÇΓöÇ THREE-COLUMN LAYOUT ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ΓöÇΓöÇ LEFT: Checkbox + Photo + Status ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        // Checkbox
-                        GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => provider.toggleUserSelection(user.id),
-                          child: Container(
-                            height: 24,
-                            width: 24,
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? _kPrimary.withOpacity(0.12)
-                                  : (isDark
-                                        ? Colors.white.withOpacity(0.04)
-                                        : Colors.grey.shade100),
-                              borderRadius: BorderRadius.circular(7),
-                              border: Border.all(
-                                color: isSelected
-                                    ? _kPrimary
-                                    : Colors.grey.shade400.withOpacity(0.6),
-                              ),
-                            ),
-                            child: Checkbox(
-                              value: isSelected,
-                              onChanged: (_) =>
-                                  provider.toggleUserSelection(user.id),
-                              activeColor: _kPrimary,
-                              checkColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // Profile photo with popup menu for approve/reject
-                        PopupMenuButton<String>(
-                          offset: const Offset(44, 44),
-                          tooltip: 'Photo actions',
-                          enabled: !isActioning,
-                          onSelected: (action) =>
-                              _handleCardPhotoAction(action, user, provider),
-                          itemBuilder: (_) => [
-                            if (hasPhoto && user.status != 'approved')
-                              PopupMenuItem(
-                                value: 'approve',
-                                height: 40,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.check_circle_outline,
-                                      color: _kEmerald,
-                                      size: 17,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'Approve Photo',
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            if (hasPhoto && user.status != 'rejected')
-                              PopupMenuItem(
-                                value: 'reject',
-                                height: 40,
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.cancel_outlined,
-                                      color: _kRose,
-                                      size: 17,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'Reject Photo',
-                                      style: TextStyle(fontSize: 13),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            if (hasPhoto) const PopupMenuDivider(height: 1),
-                            PopupMenuItem(
-                              value: 'view',
-                              height: 40,
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.person_outline,
-                                    color: _kPrimary,
-                                    size: 17,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  const Text(
-                                    'View Profile',
-                                    style: TextStyle(fontSize: 13),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          child: Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              Container(
-                                width: 62,
-                                height: 62,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  gradient: LinearGradient(
-                                    colors: isFemale
-                                        ? [
-                                            const Color(0xFFFCE7F3),
-                                            const Color(0xFFFFF1F2),
-                                          ]
-                                        : [
-                                            const Color(0xFFE0F2FE),
-                                            const Color(0xFFEEF2FF),
-                                          ],
-                                    begin: Alignment.topLeft,
-                                    end: Alignment.bottomRight,
-                                  ),
-                                  border: Border.all(
-                                    color: genderAccentColor.withOpacity(0.45),
-                                    width: 2,
-                                  ),
-                                ),
-                                child: ClipOval(
-                                  child: profileImageUrl != null
-                                      ? Image.network(
-                                          profileImageUrl,
-                                          fit: BoxFit.cover,
-                                          errorBuilder: (_, __, ___) =>
-                                              _avatarIcon(isFemale),
-                                        )
-                                      : _avatarIcon(isFemale),
-                                ),
-                              ),
-                              if (isActioning)
-                                Positioned.fill(
-                                  child: Container(
-                                    decoration: BoxDecoration(
-                                      color: Colors.black.withOpacity(0.4),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Center(
-                                      child: SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                )
-                              else
-                                Positioned(
-                                  bottom: -2,
-                                  right: -2,
-                                  child: Container(
-                                    padding: const EdgeInsets.all(3),
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? const Color(0xFF0F172A)
-                                          : Colors.white,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.08),
-                                          blurRadius: 4,
-                                        ),
-                                      ],
-                                    ),
-                                    child: Container(
-                                      width: 10,
-                                      height: 10,
-                                      decoration: BoxDecoration(
-                                        color: user.isOnline == 1
-                                            ? _kEmerald
-                                            : Colors.grey.shade400,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: Colors.white,
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        // Photo status label
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: statusColor.withOpacity(0.10),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: statusColor.withOpacity(0.30),
-                            ),
-                          ),
-                          child: Text(
-                            user.status.replaceAll('_', ' ').toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: statusColor,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 12),
-                    // ΓöÇΓöÇ MIDDLE: Identity + Contact + Info chips ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-                    Expanded(
-                      flex: 5,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+          border: Border.all(
+            color: isSelected
+                ? _kPrimary.withOpacity(0.7)
+                : (isDark
+                      ? Colors.white.withOpacity(0.06)
+                      : Colors.grey.shade200),
+            width: isSelected ? 1.4 : 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isSelected ? 0.10 : 0.06),
+              blurRadius: isSelected ? 14 : 10,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => _navigateToUser(user),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ΓöÇΓöÇ THREE-COLUMN LAYOUT ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ΓöÇΓöÇ LEFT: Checkbox + Photo + Status ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Name + status badge
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  user.fullName,
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w800,
-                                    color: isDark
-                                        ? Colors.white
-                                        : const Color(0xFF0B1222),
-                                    letterSpacing: 0.2,
+                          // Checkbox
+                          GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onTap: () => provider.toggleUserSelection(user.id),
+                            child: Container(
+                              height: 24,
+                              width: 24,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? _kPrimary.withOpacity(0.12)
+                                    : (isDark
+                                          ? Colors.white.withOpacity(0.04)
+                                          : Colors.grey.shade100),
+                                borderRadius: BorderRadius.circular(7),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? _kPrimary
+                                      : Colors.grey.shade400.withOpacity(0.6),
+                                ),
+                              ),
+                              child: Checkbox(
+                                value: isSelected,
+                                onChanged: (_) =>
+                                    provider.toggleUserSelection(user.id),
+                                activeColor: _kPrimary,
+                                checkColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(5),
+                                ),
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          // Profile photo with popup menu for approve/reject
+                          PopupMenuButton<String>(
+                            offset: const Offset(44, 44),
+                            tooltip: 'Photo actions',
+                            enabled: !isActioning,
+                            onSelected: (action) =>
+                                _handleCardPhotoAction(action, user, provider),
+                            itemBuilder: (_) => [
+                              if (hasPhoto && user.status != 'approved')
+                                PopupMenuItem(
+                                  value: 'approve',
+                                  height: 40,
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.check_circle_outline,
+                                        color: _kEmerald,
+                                        size: 17,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Approve Photo',
+                                        style: TextStyle(fontSize: 13),
+                                      ),
+                                    ],
                                   ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              if (hasPhoto && user.status != 'rejected')
+                                PopupMenuItem(
+                                  value: 'reject',
+                                  height: 40,
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.cancel_outlined,
+                                        color: _kRose,
+                                        size: 17,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Reject Photo',
+                                        style: TextStyle(fontSize: 13),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              if (hasPhoto) const PopupMenuDivider(height: 1),
+                              PopupMenuItem(
+                                value: 'view',
+                                height: 40,
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      Icons.person_outline,
+                                      color: _kPrimary,
+                                      size: 17,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'View Profile',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              const SizedBox(width: 6),
-                              _badge(user.formattedStatus, statusColor),
                             ],
-                          ),
-                          const SizedBox(height: 4),
-                          // ID + gender + last active
-                          Wrap(
-                            spacing: 5,
-                            runSpacing: 4,
-                            children: [
-                              _softChip(
-                                '#${user.id}',
-                                icon: Icons.badge_outlined,
-                                color: _kPrimary,
-                              ),
-                              _softChip(
-                                user.gender,
-                                icon: isFemale ? Icons.female : Icons.male,
-                                color: genderAccentColor,
-                              ),
-                              _softChip(
-                                'Active: ${_formatDate(user.lastLogin)}',
-                                icon: Icons.access_time,
-                                color: _kSky,
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          // Email contact row
-                          _contactRow(
-                            icon: Icons.email_outlined,
-                            value: user.email.isNotEmpty
-                                ? user.email
-                                : 'No email',
-                            color: _kPrimary,
-                            verified: isEmailVerified,
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 3),
-                          // Phone contact row
-                          _contactRow(
-                            icon: Icons.phone_outlined,
-                            value: hasPhone ? cleanedPhone : 'No phone',
-                            color: _kEmerald,
-                            verified: isPhoneVerified,
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 6),
-                          // Info chips
-                          Wrap(
-                            spacing: 5,
-                            runSpacing: 4,
-                            children: [
-                              _infoChip(
-                                Icons.calendar_today_outlined,
-                                'Reg: ${_formatDate(user.registrationDate)}',
-                                _kEmerald,
-                              ),
-                              _infoChip(
-                                user.isOnline == 1
-                                    ? Icons.wifi_tethering
-                                    : Icons.wifi_off,
-                                user.isOnline == 1 ? 'Online' : 'Offline',
-                                user.isOnline == 1 ? _kEmerald : Colors.grey,
-                              ),
-                              _infoChip(
-                                Icons.verified_outlined,
-                                user.isVerified == 1
-                                    ? 'Verified'
-                                    : 'Needs Review',
-                                user.isVerified == 1 ? _kEmerald : _kRose,
-                              ),
-                              _infoChip(
-                                user.usertype == 'paid'
-                                    ? Icons.workspace_premium
-                                    : Icons.person_outline,
-                                user.usertype.toUpperCase(),
-                                user.usertype == 'paid'
-                                    ? _kAmber
-                                    : Colors.grey.shade500,
-                              ),
-                              _accessLevelChip(user),
-                              if (user.expiryDate != null &&
-                                  user.expiryDate!.isNotEmpty &&
-                                  user.expiryDate != 'null')
-                                _infoChip(
-                                  Icons.event_outlined,
-                                  'Exp: ${_formatDate(user.expiryDate)}',
-                                  _kViolet,
+                            child: Stack(
+                              clipBehavior: Clip.none,
+                              children: [
+                                Container(
+                                  width: 62,
+                                  height: 62,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    gradient: LinearGradient(
+                                      colors: isFemale
+                                          ? [
+                                              const Color(0xFFFCE7F3),
+                                              const Color(0xFFFFF1F2),
+                                            ]
+                                          : [
+                                              const Color(0xFFE0F2FE),
+                                              const Color(0xFFEEF2FF),
+                                            ],
+                                      begin: Alignment.topLeft,
+                                      end: Alignment.bottomRight,
+                                    ),
+                                    border: Border.all(
+                                      color: genderAccentColor.withOpacity(
+                                        0.45,
+                                      ),
+                                      width: 2,
+                                    ),
+                                  ),
+                                  child: ClipOval(
+                                    child: profileImageUrl != null
+                                        ? Image.network(
+                                            profileImageUrl,
+                                            fit: BoxFit.cover,
+                                            filterQuality: FilterQuality.low,
+                                            gaplessPlayback: true,
+                                            cacheWidth: 124,
+                                            cacheHeight: 124,
+                                            errorBuilder: (_, __, ___) =>
+                                                _avatarIcon(isFemale),
+                                          )
+                                        : _avatarIcon(isFemale),
+                                  ),
                                 ),
-                            ],
+                                if (isActioning)
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.4),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Center(
+                                        child: SizedBox(
+                                          width: 20,
+                                          height: 20,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                else
+                                  Positioned(
+                                    bottom: -2,
+                                    right: -2,
+                                    child: Container(
+                                      padding: const EdgeInsets.all(3),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? const Color(0xFF0F172A)
+                                            : Colors.white,
+                                        shape: BoxShape.circle,
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(
+                                              0.08,
+                                            ),
+                                            blurRadius: 4,
+                                          ),
+                                        ],
+                                      ),
+                                      child: Container(
+                                        width: 10,
+                                        height: 10,
+                                        decoration: BoxDecoration(
+                                          color: user.isOnline == 1
+                                              ? _kEmerald
+                                              : Colors.grey.shade400,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                            color: Colors.white,
+                                            width: 1.5,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          // Photo status label
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: statusColor.withOpacity(0.10),
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: statusColor.withOpacity(0.30),
+                              ),
+                            ),
+                            child: Text(
+                              user.status.replaceAll('_', ' ').toUpperCase(),
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: statusColor,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    // ΓöÇΓöÇ RIGHT: Compact activity stats ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-                    Expanded(
-                      flex: 3,
-                      child: _buildCompactActivityGrid(
-                        activity,
-                        isActivityLoading,
-                        isDark,
+                      const SizedBox(width: 12),
+                      // ΓöÇΓöÇ MIDDLE: Identity + Contact + Info chips ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Name + status badge
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    user.fullName,
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w800,
+                                      color: isDark
+                                          ? Colors.white
+                                          : const Color(0xFF0B1222),
+                                      letterSpacing: 0.2,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                _badge(user.formattedStatus, statusColor),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            // ID + gender + last active
+                            Wrap(
+                              spacing: 5,
+                              runSpacing: 4,
+                              children: [
+                                _softChip(
+                                  '#${user.id}',
+                                  icon: Icons.badge_outlined,
+                                  color: _kPrimary,
+                                ),
+                                _softChip(
+                                  user.gender,
+                                  icon: isFemale ? Icons.female : Icons.male,
+                                  color: genderAccentColor,
+                                ),
+                                _softChip(
+                                  'Active: ${_formatDate(user.lastLogin)}',
+                                  icon: Icons.access_time,
+                                  color: _kSky,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            // Email contact row
+                            _contactRow(
+                              icon: Icons.email_outlined,
+                              value: user.email.isNotEmpty
+                                  ? user.email
+                                  : 'No email',
+                              color: _kPrimary,
+                              verified: isEmailVerified,
+                              isDark: isDark,
+                            ),
+                            const SizedBox(height: 3),
+                            // Phone contact row
+                            _contactRow(
+                              icon: Icons.phone_outlined,
+                              value: hasPhone ? cleanedPhone : 'No phone',
+                              color: _kEmerald,
+                              verified: isPhoneVerified,
+                              isDark: isDark,
+                            ),
+                            const SizedBox(height: 6),
+                            // Info chips
+                            Wrap(
+                              spacing: 5,
+                              runSpacing: 4,
+                              children: [
+                                _infoChip(
+                                  Icons.calendar_today_outlined,
+                                  'Reg: ${_formatDate(user.registrationDate)}',
+                                  _kEmerald,
+                                ),
+                                _infoChip(
+                                  user.isOnline == 1
+                                      ? Icons.wifi_tethering
+                                      : Icons.wifi_off,
+                                  user.isOnline == 1 ? 'Online' : 'Offline',
+                                  user.isOnline == 1 ? _kEmerald : Colors.grey,
+                                ),
+                                _infoChip(
+                                  Icons.verified_outlined,
+                                  user.isVerified == 1
+                                      ? 'Verified'
+                                      : 'Needs Review',
+                                  user.isVerified == 1 ? _kEmerald : _kRose,
+                                ),
+                                _infoChip(
+                                  user.usertype == 'paid'
+                                      ? Icons.workspace_premium
+                                      : Icons.person_outline,
+                                  user.usertype.toUpperCase(),
+                                  user.usertype == 'paid'
+                                      ? _kAmber
+                                      : Colors.grey.shade500,
+                                ),
+                                if (!compactMode) _accessLevelChip(user),
+                                if (!compactMode &&
+                                    user.expiryDate != null &&
+                                    user.expiryDate!.isNotEmpty &&
+                                    user.expiryDate != 'null')
+                                  _infoChip(
+                                    Icons.event_outlined,
+                                    'Exp: ${_formatDate(user.expiryDate)}',
+                                    _kViolet,
+                                  ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                      if (!compactMode) const SizedBox(width: 10),
+                      // ΓöÇΓöÇ RIGHT: Compact activity stats ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+                      if (!compactMode)
+                        Expanded(
+                          flex: 3,
+                          child: _buildCompactActivityGrid(
+                            user,
+                            activity,
+                            isActivityLoading,
+                            isDark,
+                          ),
+                        ),
+                    ],
+                  ),
 
-                // ΓöÇΓöÇ DIVIDER + ACTION BUTTONS ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-                const SizedBox(height: 10),
-                _divider(isDark),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: _kActionButtonSpacing,
-                  runSpacing: _kActionButtonVerticalSpacing,
-                  children: [
-                    if (hasPhone) ...[
+                  // ΓöÇΓöÇ DIVIDER + ACTION BUTTONS ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+                  const SizedBox(height: 10),
+                  _divider(isDark),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: _kActionButtonSpacing,
+                    runSpacing: _kActionButtonVerticalSpacing,
+                    children: [
+                      if (!compactMode && hasPhone) ...[
+                        _actionIconBtn(
+                          Icons.chat_rounded,
+                          'WhatsApp',
+                          const Color(0xFF25D366),
+                          () => _launchWhatsApp(cleanedPhone),
+                        ),
+                        _actionIconBtn(
+                          Icons.videocam_rounded,
+                          'Viber',
+                          const Color(0xFF7360F2),
+                          () => _launchViber(cleanedPhone),
+                        ),
+                      ],
+                      if (!compactMode && user.email.isNotEmpty)
+                        _actionIconBtn(
+                          Icons.email_outlined,
+                          'Send Email',
+                          _kAmber,
+                          () => _launchEmail(user.email),
+                        ),
                       _actionIconBtn(
-                        Icons.chat_rounded,
-                        'WhatsApp',
-                        const Color(0xFF25D366),
-                        () => _launchWhatsApp(cleanedPhone),
-                      ),
-                      _actionIconBtn(
-                        Icons.videocam_rounded,
-                        'Viber',
-                        const Color(0xFF7360F2),
-                        () => _launchViber(cleanedPhone),
-                      ),
-                    ],
-                    if (user.email.isNotEmpty)
-                      _actionIconBtn(
-                        Icons.email_outlined,
-                        'Send Email',
-                        _kAmber,
-                        () => _launchEmail(user.email),
-                      ),
-                    _actionIconBtn(
-                      Icons.chat_bubble_outline,
-                      'Direct Chat',
-                      _kEmerald,
-                      () {
-                        if (widget.onOpenChat != null) {
-                          widget.onOpenChat!(user.id);
-                        }
-                      },
-                    ),
-                    _actionIconBtn(
-                      Icons.visibility_outlined,
-                      'View Profile',
-                      _kPrimary,
-                      () => _navigateToUser(user),
-                    ),
-                    if (hasPhoto && user.status == 'pending') ...[
-                      _actionIconBtn(
-                        Icons.check_circle_outline,
-                        'Approve',
+                        Icons.chat_bubble_outline,
+                        'Direct Chat',
                         _kEmerald,
-                        isActioning
-                            ? null
-                            : () => _handleCardPhotoAction(
-                                'approve',
-                                user,
-                                provider,
-                              ),
+                        () {
+                          if (widget.onOpenChat != null) {
+                            widget.onOpenChat!(user.id);
+                          }
+                        },
                       ),
                       _actionIconBtn(
-                        Icons.cancel_outlined,
-                        'Reject',
+                        Icons.visibility_outlined,
+                        'View Profile',
+                        _kPrimary,
+                        () => _navigateToUser(user),
+                      ),
+                      if (hasPhoto && user.status == 'pending') ...[
+                        _actionIconBtn(
+                          Icons.check_circle_outline,
+                          'Approve',
+                          _kEmerald,
+                          isActioning
+                              ? null
+                              : () => _handleCardPhotoAction(
+                                  'approve',
+                                  user,
+                                  provider,
+                                ),
+                        ),
+                        _actionIconBtn(
+                          Icons.cancel_outlined,
+                          'Reject',
+                          _kRose,
+                          isActioning
+                              ? null
+                              : () => _handleCardPhotoAction(
+                                  'reject',
+                                  user,
+                                  provider,
+                                ),
+                        ),
+                      ],
+                      _actionIconBtn(
+                        user.isActive == 1
+                            ? Icons.pause_circle_outline
+                            : Icons.play_circle_outline,
+                        user.isActive == 1 ? 'Suspend' : 'Unsuspend',
+                        user.isActive == 1 ? _kAmber : _kEmerald,
+                        () => _handleSuspendTap(user, provider),
+                      ),
+                      _actionIconBtn(
+                        Icons.delete_outline_rounded,
+                        'Delete',
                         _kRose,
-                        isActioning
-                            ? null
-                            : () => _handleCardPhotoAction(
-                                'reject',
-                                user,
-                                provider,
-                              ),
+                        () => _handleDeleteTap(user, provider),
                       ),
                     ],
-                    _actionIconBtn(
-                      user.isActive == 1
-                          ? Icons.pause_circle_outline
-                          : Icons.play_circle_outline,
-                      user.isActive == 1 ? 'Suspend' : 'Unsuspend',
-                      user.isActive == 1 ? _kAmber : _kEmerald,
-                      () => _handleSuspendTap(user, provider),
-                    ),
-                    _actionIconBtn(
-                      Icons.delete_outline_rounded,
-                      'Delete',
-                      _kRose,
-                      () => _handleDeleteTap(user, provider),
-                    ),
-                  ],
-                ),
-              ],
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -804,6 +850,7 @@ class _UsersPageState extends State<UsersPage> {
   }
 
   Widget _buildCompactActivityGrid(
+    User user,
     ActivityStats? stats,
     bool loading,
     bool isDark,
@@ -831,6 +878,8 @@ class _UsersPageState extends State<UsersPage> {
                   color: _kPrimary,
                 ),
               ),
+              const SizedBox(width: 4),
+              const Icon(Icons.open_in_new, color: _kPrimary, size: 11),
               if (loading) ...[
                 const Spacer(),
                 const SizedBox(
@@ -852,6 +901,18 @@ class _UsersPageState extends State<UsersPage> {
             'Rcvd',
             s.requestsReceived,
             _kViolet,
+            onTap1: () => showUserActivitySheet(
+              context,
+              userId: user.id,
+              userName: user.fullName,
+              initialSection: ActivitySection.requestsSent,
+            ),
+            onTap2: () => showUserActivitySheet(
+              context,
+              userId: user.id,
+              userName: user.fullName,
+              initialSection: ActivitySection.requestsReceived,
+            ),
           ),
           const SizedBox(height: 4),
           _miniStatRow(
@@ -861,6 +922,18 @@ class _UsersPageState extends State<UsersPage> {
             'Acc\'d',
             s.chatRequestsAccepted,
             _kEmerald,
+            onTap1: () => showUserActivitySheet(
+              context,
+              userId: user.id,
+              userName: user.fullName,
+              initialSection: ActivitySection.chats,
+            ),
+            onTap2: () => showUserActivitySheet(
+              context,
+              userId: user.id,
+              userName: user.fullName,
+              initialSection: ActivitySection.chats,
+            ),
           ),
           const SizedBox(height: 4),
           _miniStatRow(
@@ -870,6 +943,18 @@ class _UsersPageState extends State<UsersPage> {
             'Match',
             s.matchesCount,
             _kRose,
+            onTap1: () => showUserActivitySheet(
+              context,
+              userId: user.id,
+              userName: user.fullName,
+              initialSection: ActivitySection.profileViews,
+            ),
+            onTap2: () => showUserActivitySheet(
+              context,
+              userId: user.id,
+              userName: user.fullName,
+              initialSection: ActivitySection.requestsReceived,
+            ),
           ),
         ],
       ),
@@ -882,49 +967,59 @@ class _UsersPageState extends State<UsersPage> {
     Color c1,
     String l2,
     int v2,
-    Color c2,
-  ) {
+    Color c2, {
+    VoidCallback? onTap1,
+    VoidCallback? onTap2,
+  }) {
     return Row(
       children: [
-        Expanded(child: _miniStat(l1, v1, c1)),
+        Expanded(child: _miniStat(l1, v1, c1, onTap: onTap1)),
         const SizedBox(width: 4),
-        Expanded(child: _miniStat(l2, v2, c2)),
+        Expanded(child: _miniStat(l2, v2, c2, onTap: onTap2)),
       ],
     );
   }
 
-  Widget _miniStat(String label, int value, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.06),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: color.withOpacity(0.15)),
-      ),
-      child: Row(
-        children: [
-          Text(
-            '$value',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 3),
-          Expanded(
-            child: Text(
-              label,
+  Widget _miniStat(
+    String label,
+    int value,
+    Color color, {
+    VoidCallback? onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withOpacity(0.15)),
+        ),
+        child: Row(
+          children: [
+            Text(
+              '$value',
               style: TextStyle(
-                fontSize: 10,
-                color: color.withOpacity(0.75),
-                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: color,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-          ),
-        ],
+            const SizedBox(width: 3),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  color: color.withOpacity(0.75),
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1101,7 +1196,7 @@ class _UsersPageState extends State<UsersPage> {
             ),
             const SizedBox(width: 10),
             const Text(
-              'Delete User',
+              'Send To Delete Requests',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ],
@@ -1111,12 +1206,12 @@ class _UsersPageState extends State<UsersPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Delete ${user.fullName} (MS${user.id})?',
+              'Send ${user.fullName} (MS${user.id}) to Delete Requests?',
               style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
             ),
             const SizedBox(height: 6),
             Text(
-              'This cannot be undone. All data will be permanently removed.',
+              'The account will not be deleted immediately. Final deletion will be completed from the Delete Requests section.',
               style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
             ),
           ],
@@ -1129,7 +1224,7 @@ class _UsersPageState extends State<UsersPage> {
           ElevatedButton.icon(
             onPressed: () => Navigator.pop(context, true),
             icon: const Icon(Icons.delete_forever_rounded, size: 16),
-            label: const Text('Delete'),
+            label: const Text('Send Request'),
             style: ElevatedButton.styleFrom(
               backgroundColor: _kRose,
               foregroundColor: Colors.white,
@@ -1154,10 +1249,14 @@ class _UsersPageState extends State<UsersPage> {
               size: 18,
             ),
             const SizedBox(width: 8),
-            Text(ok ? '${user.fullName} deleted' : 'Failed to delete'),
+            Text(
+              ok
+                  ? '${user.fullName} sent to Delete Requests'
+                  : 'Failed to send delete request',
+            ),
           ],
         ),
-        backgroundColor: ok ? _kRose : Colors.grey.shade700,
+        backgroundColor: ok ? Colors.orange.shade700 : Colors.grey.shade700,
         behavior: SnackBarBehavior.floating,
         margin: const EdgeInsets.all(16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -1591,12 +1690,47 @@ class _UsersPageState extends State<UsersPage> {
               ),
             ];
           }),
+          _filterDivider(isDark),
+          ...[
+            ('all', 'Quick: All'),
+            ('pending_photo', 'Pending Photos'),
+            ('incomplete_profile', 'Incomplete'),
+            ('recent_photo', 'Recent Photos'),
+          ].expand((e) {
+            final (key, label) = e;
+            return [
+              _filterChip(
+                label,
+                provider.quickFilter == key,
+                _kPrimary,
+                () => provider.setQuickFilter(key),
+              ),
+            ];
+          }),
           if (provider.statusFilter != 'all' ||
-              provider.userTypeFilter != 'all')
+              provider.userTypeFilter != 'all' ||
+              provider.quickFilter != 'all')
             _filterChip('Γ£ò Clear', true, _kRose, provider.clearFilters),
         ],
       ),
     );
+  }
+
+  static String _sortLabel(String sortBy) {
+    switch (sortBy) {
+      case 'oldest':
+        return 'Oldest';
+      case 'name_az':
+        return 'A → Z';
+      case 'name_za':
+        return 'Z → A';
+      case 'last_login':
+        return 'Last Login';
+      case 'expiry':
+        return 'Expiry';
+      default:
+        return 'Newest';
+    }
   }
 
   Color _statusColor(String status) {
@@ -1955,6 +2089,138 @@ class _UsersPageState extends State<UsersPage> {
                 _statPill('Selected', provider.selectedCount, _kAmber),
               ],
               const SizedBox(width: 8),
+              // ── Sort button ─────────────────────────────────
+              PopupMenuButton<String>(
+                tooltip: 'Sort members',
+                offset: const Offset(0, 36),
+                initialValue: provider.sortBy,
+                onSelected: provider.setSortBy,
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'newest',
+                    child: _SortItem(Icons.arrow_downward, 'Newest Joined'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'oldest',
+                    child: _SortItem(Icons.arrow_upward, 'Oldest Joined'),
+                  ),
+                  const PopupMenuDivider(height: 1),
+                  const PopupMenuItem(
+                    value: 'name_az',
+                    child: _SortItem(Icons.sort_by_alpha, 'Name A → Z'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'name_za',
+                    child: _SortItem(Icons.sort_by_alpha, 'Name Z → A'),
+                  ),
+                  const PopupMenuDivider(height: 1),
+                  const PopupMenuItem(
+                    value: 'last_login',
+                    child: _SortItem(Icons.access_time_rounded, 'Last Login'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'expiry',
+                    child: _SortItem(Icons.event_rounded, 'Expiry (Soonest)'),
+                  ),
+                ],
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: provider.sortBy != 'newest'
+                        ? _kAmber.withOpacity(0.12)
+                        : (isDark
+                              ? Colors.white.withOpacity(0.06)
+                              : _kPrimary.withOpacity(0.08)),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: provider.sortBy != 'newest'
+                          ? _kAmber.withOpacity(0.5)
+                          : (isDark
+                                ? Colors.white.withOpacity(0.14)
+                                : _kPrimary.withOpacity(0.25)),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.sort_rounded,
+                        size: 15,
+                        color: provider.sortBy != 'newest'
+                            ? _kAmber
+                            : (isDark ? Colors.white : _kPrimaryDark),
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        _sortLabel(provider.sortBy),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: provider.sortBy != 'newest'
+                              ? _kAmber
+                              : (isDark ? Colors.white : _kPrimaryDark),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Tooltip(
+                message: _compactMode
+                    ? 'Switch to Comfortable View'
+                    : 'Switch to Compact View',
+                child: InkWell(
+                  onTap: () => setState(() => _compactMode = !_compactMode),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _compactMode
+                          ? _kViolet.withOpacity(0.12)
+                          : (isDark
+                                ? Colors.white.withOpacity(0.06)
+                                : _kPrimary.withOpacity(0.08)),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: _compactMode
+                            ? _kViolet.withOpacity(0.45)
+                            : (isDark
+                                  ? Colors.white.withOpacity(0.14)
+                                  : _kPrimary.withOpacity(0.25)),
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _compactMode
+                              ? Icons.view_comfy_alt_outlined
+                              : Icons.view_compact_alt_outlined,
+                          size: 15,
+                          color: isDark ? Colors.white : _kPrimaryDark,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          _compactMode ? 'Compact' : 'Comfort',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isDark ? Colors.white : _kPrimaryDark,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Tooltip(
                 message: 'Refresh',
                 child: InkWell(
@@ -2102,6 +2368,8 @@ class _UsersPageState extends State<UsersPage> {
               : RefreshIndicator(
                   onRefresh: () => provider.fetchUsers(),
                   child: CustomScrollView(
+                    controller: _listController,
+                    cacheExtent: 700,
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
                       SliverToBoxAdapter(child: _buildBulkActionBar(provider)),
@@ -2112,11 +2380,26 @@ class _UsersPageState extends State<UsersPage> {
                           padding: EdgeInsets.zero,
                           sliver: SliverList(
                             delegate: SliverChildBuilderDelegate(
-                              (context, index) => _buildUserCard(
-                                provider.pagedUsers[index],
-                                provider,
-                              ),
+                              (context, index) {
+                                final u = provider.pagedUsers[index];
+                                // Trigger lazy activity load for visible cards.
+                                // Uses post-frame callback so it never fires
+                                // synchronously during the build phase.
+                                WidgetsBinding.instance.addPostFrameCallback((
+                                  _,
+                                ) {
+                                  if (mounted) provider.preloadActivity(u.id);
+                                });
+                                return _buildUserCard(
+                                  u,
+                                  provider,
+                                  compactMode: _compactMode,
+                                );
+                              },
                               childCount: provider.pagedUsers.length,
+                              addAutomaticKeepAlives: false,
+                              addRepaintBoundaries: true,
+                              addSemanticIndexes: false,
                             ),
                           ),
                         ),
@@ -2154,6 +2437,25 @@ class _UsersPageState extends State<UsersPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ─── Lightweight sort popup item ────────────────────────────────────────────
+class _SortItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _SortItem(this.icon, this.label);
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: _kPrimary),
+        const SizedBox(width: 8),
+        Text(label, style: const TextStyle(fontSize: 13)),
+      ],
     );
   }
 }

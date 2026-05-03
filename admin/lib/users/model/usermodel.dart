@@ -39,6 +39,7 @@ class User {
   String? expiryDate;
   String? paymentStatus;
   String? phone;
+  String? photoUpdatedAt;
   int phoneVerified;
   int emailVerified;
 
@@ -71,6 +72,7 @@ class User {
     this.expiryDate,
     this.paymentStatus,
     this.phone,
+    this.photoUpdatedAt,
     required this.phoneVerified,
     required this.emailVerified,
   });
@@ -110,6 +112,9 @@ class User {
           json['phone']?.toString() ??
           json['mobile']?.toString() ??
           json['phone_number']?.toString(),
+      photoUpdatedAt:
+          json['photo_updated_at']?.toString() ??
+          json['modifiedDate']?.toString(),
       phoneVerified: json['phone_verified'] is int
           ? json['phone_verified']
           : (json['phoneVerified'] is int ? json['phoneVerified'] : 0),
@@ -132,6 +137,15 @@ class User {
       return false;
     }
     return true;
+  }
+
+  bool get hasRecentPhotoUpdate {
+    if (!hasProfilePicture) return false;
+    final raw = photoUpdatedAt?.trim();
+    if (raw == null || raw.isEmpty || raw == 'null') return false;
+    final dt = DateTime.tryParse(raw);
+    if (dt == null) return false;
+    return DateTime.now().difference(dt).inDays <= 7;
   }
 
   String get formattedStatus {

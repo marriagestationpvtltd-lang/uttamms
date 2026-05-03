@@ -1,15 +1,61 @@
 class UserDetailsResponse {
   final String status;
   final UserDetailsData data;
+  final List<UserGalleryPhoto> gallery;
+  final PartnerMatch partnerMatch;
 
-  UserDetailsResponse({required this.status, required this.data});
+  UserDetailsResponse({
+    required this.status,
+    required this.data,
+    required this.gallery,
+    required this.partnerMatch,
+  });
 
   factory UserDetailsResponse.fromJson(Map<String, dynamic> json) {
     return UserDetailsResponse(
       status: json['status']?.toString() ?? '',
       data: UserDetailsData.fromJson(json['data'] ?? {}),
+      gallery: (json['gallery'] as List? ?? const [])
+          .whereType<Map>()
+          .map((e) => UserGalleryPhoto.fromJson(Map<String, dynamic>.from(e)))
+          .toList(),
+      partnerMatch: PartnerMatch.fromJson(
+        json['partner_match'] is Map
+            ? Map<String, dynamic>.from(json['partner_match'] as Map)
+            : const {},
+      ),
     );
   }
+}
+
+class UserGalleryPhoto {
+  final int id;
+  final String imageUrl;
+  final String status;
+  final String? rejectReason;
+  final String? createdAt;
+
+  const UserGalleryPhoto({
+    required this.id,
+    required this.imageUrl,
+    required this.status,
+    this.rejectReason,
+    this.createdAt,
+  });
+
+  factory UserGalleryPhoto.fromJson(Map<String, dynamic> json) {
+    return UserGalleryPhoto(
+      id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
+      imageUrl: json['imageurl']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'pending',
+      rejectReason: json['reject_reason']?.toString(),
+      createdAt: json['created_at']?.toString(),
+    );
+  }
+
+  bool get isPending => status.toLowerCase() == 'pending';
+  bool get isApproved => status.toLowerCase() == 'approved';
+  bool get isRejected => status.toLowerCase() == 'rejected';
 }
 
 class UserDetailsData {
@@ -450,6 +496,33 @@ class PartnerPreference {
 }
 
 // ─────────────────────── Activity Stats ───────────────────────────────────────
+
+// ─────────────────────── Partner Match ───────────────────────────────────────
+
+class PartnerMatch {
+  final int matchedCount;
+  final int totalCount;
+  final Map<String, dynamic> details;
+
+  const PartnerMatch({
+    required this.matchedCount,
+    required this.totalCount,
+    required this.details,
+  });
+
+  factory PartnerMatch.fromJson(Map<String, dynamic> json) {
+    return PartnerMatch(
+      matchedCount: int.tryParse(json['matched_count']?.toString() ?? '') ?? 0,
+      totalCount: int.tryParse(json['total_count']?.toString() ?? '') ?? 0,
+      details: Map<String, dynamic>.from(json['details'] ?? {}),
+    );
+  }
+
+  double get percentage =>
+      totalCount > 0 ? (matchedCount / totalCount).clamp(0.0, 1.0) : 0.0;
+
+  String get summaryText => '$matchedCount / $totalCount potential matches';
+}
 
 class ActivityStats {
   final int requestsSent;

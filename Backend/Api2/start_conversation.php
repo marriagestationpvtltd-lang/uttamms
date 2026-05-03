@@ -10,6 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/deletion_guard.php';
 
 try {
     $input = json_decode(file_get_contents('php://input'), true);
@@ -27,6 +28,11 @@ try {
 
     if ($myid <= 0 || $otherid <= 0) {
         echo json_encode(['success' => false, 'message' => 'myid and other_id are required']);
+        exit;
+    }
+
+    if (isUserPendingDeletionPdo($pdo, $myid) || isUserPendingDeletionPdo($pdo, $otherid)) {
+        echo json_encode(deletionPendingResponse('Conversation is unavailable while account deletion is pending'));
         exit;
     }
 

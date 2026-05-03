@@ -24,6 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/db_config.php';
+require_once __DIR__ . '/deletion_guard.php';
 
 // --------------------------------------------------------------------------
 // Input
@@ -69,6 +70,11 @@ try {
     // Both sender and receiver may reject
     if ((int) $proposal['sender_id'] !== $userId && (int) $proposal['receiver_id'] !== $userId) {
         echo json_encode(['success' => false, 'message' => 'You are not authorized to reject this proposal']);
+        exit;
+    }
+
+    if (isUserPendingDeletionPdo($pdo, (int)$proposal['sender_id']) || isUserPendingDeletionPdo($pdo, (int)$proposal['receiver_id'])) {
+        echo json_encode(deletionPendingResponse('Proposal actions are unavailable while account deletion is pending'));
         exit;
     }
 

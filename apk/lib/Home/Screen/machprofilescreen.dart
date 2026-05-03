@@ -15,6 +15,7 @@ import '../../utils/privacy_utils.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
 import 'package:ms2026/service/socket_service.dart';
+import 'package:ms2026/service/favorite_sync_service.dart';
 
 class MatchedProfilesPagee extends StatefulWidget {
   final int currentUserId;
@@ -108,8 +109,6 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
     }
   }
 
-
-
   void _showRequestSentPopup(String message) {
     setState(() {
       _popupMessage = message;
@@ -124,7 +123,6 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
       }
     });
   }
-
 
   Future<void> _handleLikeProfile(int profileId, bool isCurrentlyLiked) async {
     try {
@@ -141,26 +139,35 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
         final data = json.decode(response.body);
         if (data['success'] == true) {
           setState(() {
-            final index = _matchedProfiles.indexWhere((p) => p['userid'] == profileId);
+            final index =
+                _matchedProfiles.indexWhere((p) => p['userid'] == profileId);
             if (index != -1) {
               _matchedProfiles[index]['like'] = !isCurrentlyLiked;
             }
           });
+          FavoriteSyncService.notifyChanged();
           // Log like/unlike activity (fire-and-forget)
           ActivityService.instance.log(
             userId: widget.currentUserId.toString(),
-            activityType: isCurrentlyLiked ? ActivityType.likeRemoved : ActivityType.likeSent,
+            activityType: isCurrentlyLiked
+                ? ActivityType.likeRemoved
+                : ActivityType.likeSent,
             targetUserId: profileId.toString(),
           );
           // Notify admin panel in real-time via socket
           SocketService().emitNewActivity(
-            userId:       widget.currentUserId.toString(),
-            activityType: isCurrentlyLiked ? ActivityType.likeRemoved : ActivityType.likeSent,
-            userName:     '$_userName $_userLastName'.trim(),
-            description:  isCurrentlyLiked ? 'Removed like from a profile' : 'Liked a profile',
-            targetId:     profileId.toString(),
+            userId: widget.currentUserId.toString(),
+            activityType: isCurrentlyLiked
+                ? ActivityType.likeRemoved
+                : ActivityType.likeSent,
+            userName: '$_userName $_userLastName'.trim(),
+            description: isCurrentlyLiked
+                ? 'Removed like from a profile'
+                : 'Liked a profile',
+            targetId: profileId.toString(),
           );
-          _showRequestSentPopup(isCurrentlyLiked ? 'Removed from likes' : 'Added to likes');
+          _showRequestSentPopup(
+              isCurrentlyLiked ? 'Removed from likes' : 'Added to likes');
         } else {
           _showRequestSentPopup('Failed: ${data['message']}');
         }
@@ -169,9 +176,6 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
       _showRequestSentPopup('Error: $e');
     }
   }
-
-
-
 
   Widget _buildProfileCard(int index) {
     final profile = _matchedProfiles[index];
@@ -194,14 +198,14 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
     final matchPercent = profile['matchPercent'] ?? 0;
     final isVerified = profile['isVerified'] == 1;
     final isLiked = profile['like'] == true;
-    final privacy =
-        profile['privacy']?.toString().toLowerCase() ?? 'free';
+    final privacy = profile['privacy']?.toString().toLowerCase() ?? 'free';
     final photoRequestStatus =
         profile['photo_request']?.toString().toLowerCase() ?? 'not_sent';
 
     final baseImageUrl = '${kApiBaseUrl}/Api2/';
     final profilePicture = profile['profile_picture'] ?? '';
-    final imageUrl = profilePicture.isNotEmpty ? baseImageUrl + profilePicture : '';
+    final imageUrl =
+        profilePicture.isNotEmpty ? baseImageUrl + profilePicture : '';
 
     final shouldShowClearImage = PrivacyUtils.shouldShowClearImage(
       privacy: privacy,
@@ -295,8 +299,8 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                   top: 10,
                   right: 10,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 9, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                     decoration: BoxDecoration(
                       color: _getMatchColor(matchPercent),
                       borderRadius: BorderRadius.circular(20),
@@ -323,8 +327,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                 top: 10,
                 left: 10,
                 child: GestureDetector(
-                  onTap: () =>
-                      _handleLikeProfile(profile['userid'], isLiked),
+                  onTap: () => _handleLikeProfile(profile['userid'], isLiked),
                   child: Container(
                     width: 34,
                     height: 34,
@@ -340,9 +343,12 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                       ],
                     ),
                     child: Icon(
-                      isLiked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
+                      isLiked
+                          ? Icons.favorite_rounded
+                          : Icons.favorite_border_rounded,
                       size: 18,
-                      color: isLiked ? const Color(0xFFEA4935) : Colors.grey[600],
+                      color:
+                          isLiked ? const Color(0xFFEA4935) : Colors.grey[600],
                     ),
                   ),
                 ),
@@ -371,9 +377,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                                 fontWeight: FontWeight.w700,
                                 letterSpacing: 0.1,
                                 shadows: [
-                                  Shadow(
-                                      color: Colors.black54,
-                                      blurRadius: 4),
+                                  Shadow(color: Colors.black54, blurRadius: 4),
                                 ],
                               ),
                               maxLines: 1,
@@ -435,18 +439,14 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                         height: 33,
                         decoration: BoxDecoration(
                           gradient: const LinearGradient(
-                            colors: [
-                              Color(0xFFFF6B35),
-                              Color(0xFFEA1935)
-                            ],
+                            colors: [Color(0xFFFF6B35), Color(0xFFEA1935)],
                             begin: Alignment.centerLeft,
                             end: Alignment.centerRight,
                           ),
                           borderRadius: BorderRadius.circular(10),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFFEA4935)
-                                  .withOpacity(0.45),
+                              color: const Color(0xFFEA4935).withOpacity(0.45),
                               blurRadius: 8,
                               offset: const Offset(0, 3),
                             ),
@@ -456,8 +456,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                           color: Colors.transparent,
                           child: InkWell(
                             borderRadius: BorderRadius.circular(10),
-                            onTap: () =>
-                                _navigateToProfile(profile['userid']),
+                            onTap: () => _navigateToProfile(profile['userid']),
                             child: const Center(
                               child: Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
@@ -510,8 +509,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
             child: const Center(
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                valueColor:
-                    AlwaysStoppedAnimation<Color>(Color(0xFFEA4935)),
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFEA4935)),
               ),
             ),
           );
@@ -555,11 +553,6 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
     if (percent >= 40) return Colors.orange;
     return Colors.red;
   }
-
-
-
-
-
 
   Widget _buildLoadingState() {
     return Center(
@@ -725,7 +718,10 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => ProfileLoader(userId: userId.toString(), myId: userId.toString(),),
+        builder: (context) => ProfileLoader(
+          userId: userId.toString(),
+          myId: userId.toString(),
+        ),
       ),
     );
   }
@@ -777,8 +773,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                           onRefresh: () async {
                             setState(() => _isRefreshing = true);
                             await _fetchMatchedProfiles(isRefresh: true);
-                            if (mounted)
-                              setState(() => _isRefreshing = false);
+                            if (mounted) setState(() => _isRefreshing = false);
                           },
                           color: const Color(0xFFEA4935),
                           child: ShimmerLoading(
@@ -794,8 +789,7 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                                       color: Colors.white,
                                       boxShadow: [
                                         BoxShadow(
-                                          color:
-                                              Colors.black.withOpacity(0.05),
+                                          color: Colors.black.withOpacity(0.05),
                                           blurRadius: 6,
                                           offset: const Offset(0, 2),
                                         ),
@@ -828,8 +822,8 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
 
                                 // ── Profile grid ─────────────────────────
                                 SliverPadding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                      12, 14, 12, 16),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(12, 14, 12, 16),
                                   sliver: SliverGrid(
                                     gridDelegate:
                                         SliverGridDelegateWithFixedCrossAxisCount(
@@ -855,15 +849,14 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
                                       padding: const EdgeInsets.all(16),
                                       decoration: BoxDecoration(
                                         color: Colors.white,
-                                        borderRadius:
-                                            BorderRadius.circular(14),
+                                        borderRadius: BorderRadius.circular(14),
                                         border: Border.all(
-                                            color: Colors.orange
-                                                .withOpacity(0.4)),
+                                            color:
+                                                Colors.orange.withOpacity(0.4)),
                                         boxShadow: [
                                           BoxShadow(
-                                            color: Colors.black
-                                                .withOpacity(0.05),
+                                            color:
+                                                Colors.black.withOpacity(0.05),
                                             blurRadius: 10,
                                           ),
                                         ],
@@ -943,4 +936,5 @@ class _MatchedProfilesPageeState extends State<MatchedProfilesPagee> {
         ],
       ),
     );
-  }}
+  }
+}

@@ -253,17 +253,22 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
           );
         }
 
-        // Log incoming video call
-        _callHistoryId = await CallHistoryService.logCall(
-          callerId: _callerId,
-          callerName: _callerName,
-          callerImage: widget.callData['callerImage'] ?? '',
-          recipientId: _currentUserId,
-          recipientName: _currentUserName,
-          recipientImage: _currentUserImage,
-          callType: CallType.video,
-          initiatedBy: _callerId,
-        );
+        // Log call history only for group/conference calls.
+        // Regular 1-on-1 calls are logged by the caller (VideoCallScreen)
+        // to prevent duplicate entries in call history.
+        if (_isConferenceCall) {
+          _callHistoryId = await CallHistoryService.logCall(
+            callerId: _callerId,
+            callerName: _callerName,
+            callerImage: widget.callData['callerImage'] ?? '',
+            recipientId: _currentUserId,
+            recipientName: _currentUserName,
+            recipientImage: _currentUserImage,
+            callType: CallType.video,
+            initiatedBy: _callerId,
+            isGroup: true,
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error loading user data for call history: $e');
@@ -668,16 +673,15 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
         print('📹 Enabling video...');
         await _engine.enableVideo();
 
-        // Configure video encoder with adaptive bitrate support
+        // Configure video encoder: Full HD 1280×720 @ 30fps
         await _engine
             .setVideoEncoderConfiguration(const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 640, height: 480),
-          frameRate: 15,
-          bitrate: 0, // 0 = let SDK determine based on resolution
-          minBitrate: -1, // -1 = SDK default minimum
+          dimensions: VideoDimensions(width: 1280, height: 720),
+          frameRate: 30,
+          bitrate: 1500, // 1500 kbps for 720p 30fps
+          minBitrate: 600,
           orientationMode: OrientationMode.orientationModeAdaptive,
-          degradationPreference: DegradationPreference
-              .maintainBalanced, // Balance quality and framerate
+          degradationPreference: DegradationPreference.maintainQuality,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         ));
         await _engine.startPreview();
@@ -754,17 +758,7 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
         channelName: _channel,
       );
 
-      // Write inline call message to chat (recipient side backup)
-      if (_chatRoomId.isNotEmpty) {
-        unawaited(CallHistoryService.logCallMessageInChat(
-          callerId: _callerId,
-          callType: 'video',
-          callStatus: 'declined',
-          duration: 0,
-          chatRoomId: _chatRoomId,
-          messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-        ));
-      }
+      // Call history & inline chat message are handled by the caller side.
     }
 
     await _end();
@@ -794,55 +788,14 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
       senderId: _currentUserId,
     );
 
-    // Update call history as missed
-    if (_callHistoryId != null && _callHistoryId!.isNotEmpty) {
-      await CallHistoryService.updateCallEnd(
-        callId: _callHistoryId!,
-        status: CallStatus.missed,
-        duration: 0,
-      );
-    }
-
-    // Write inline call message to chat (recipient side backup)
-    if (_chatRoomId.isNotEmpty) {
-      unawaited(CallHistoryService.logCallMessageInChat(
-        callerId: _callerId,
-        callType: 'video',
-        callStatus: 'missed',
-        duration: 0,
-        chatRoomId: _chatRoomId,
-        messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-      ));
-    }
-
+    // Call history & inline chat message are handled by the caller side.
     await _end();
   }
 
   // ================= DECLINE CALL =================
   Future<void> _declineCall() async {
     _ringTimer?.cancel();
-
-    // Update call history as declined
-    if (_callHistoryId != null && _callHistoryId!.isNotEmpty) {
-      await CallHistoryService.updateCallEnd(
-        callId: _callHistoryId!,
-        status: CallStatus.declined,
-        duration: 0,
-      );
-    }
-
-    // Write inline call message to chat (recipient side backup)
-    if (_chatRoomId.isNotEmpty) {
-      unawaited(CallHistoryService.logCallMessageInChat(
-        callerId: _callerId,
-        callType: 'video',
-        callStatus: 'declined',
-        duration: 0,
-        chatRoomId: _chatRoomId,
-        messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-      ));
-    }
-
+    // Call history & inline chat message are handled by the caller side.
     await _end();
   }
 
@@ -884,25 +837,14 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
       }
     }
 
-    // Update call history
+    // Update call history for group/conference calls only.
+    // Regular 1-on-1 call status is updated by the caller (VideoCallScreen).
     if (_callHistoryId != null && _callHistoryId!.isNotEmpty) {
       await CallHistoryService.updateCallEnd(
         callId: _callHistoryId!,
         status: CallStatus.completed,
         duration: _duration.inSeconds,
       );
-    }
-
-    // Write inline call message to chat (recipient side backup)
-    if (_chatRoomId.isNotEmpty) {
-      unawaited(CallHistoryService.logCallMessageInChat(
-        callerId: _callerId,
-        callType: 'video',
-        callStatus: _callActive ? 'completed' : 'missed',
-        duration: _duration.inSeconds,
-        chatRoomId: _chatRoomId,
-        messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-      ));
     }
 
     // Navigate away FIRST so the user never sees the black AgoraRTC screen
@@ -1668,45 +1610,42 @@ class _IncomingVideoCallScreenState extends State<IncomingVideoCallScreen> {
       VideoEncoderConfiguration config;
 
       if (quality <= 2) {
-        // Excellent or Good - HD quality
+        // Excellent or Good – Full HD 1280×720 @ 30fps
         config = const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 640, height: 480),
-          frameRate: 15,
-          bitrate: 0, // SDK determines optimal
-          minBitrate: -1,
+          dimensions: VideoDimensions(width: 1280, height: 720),
+          frameRate: 30,
+          bitrate: 1500,
+          minBitrate: 600,
           orientationMode: OrientationMode.orientationModeAdaptive,
-          degradationPreference: DegradationPreference.maintainBalanced,
+          degradationPreference: DegradationPreference.maintainQuality,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         );
         debugPrint(
-            '📶 Network quality $quality: Maintaining HD video (640x480@15fps)');
+            '📶 Network quality $quality: Full HD video (1280×720@30fps)');
       } else if (quality == 3) {
-        // Poor - Reduce to standard quality
+        // Poor – Drop to SD 854×480 @ 24fps
         config = const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 480, height: 360),
-          frameRate: 12,
-          bitrate: 0,
-          minBitrate: -1,
+          dimensions: VideoDimensions(width: 854, height: 480),
+          frameRate: 24,
+          bitrate: 800,
+          minBitrate: 400,
           orientationMode: OrientationMode.orientationModeAdaptive,
           degradationPreference: DegradationPreference.maintainBalanced,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         );
-        debugPrint(
-            '📶 Network quality $quality: Reducing to standard video (480x360@12fps)');
+        debugPrint('📶 Network quality $quality: SD video (854×480@24fps)');
       } else if (quality >= 4) {
-        // Bad or Very Bad - Reduce to low quality
+        // Bad or Very Bad – Low quality 640×360 @ 15fps
         config = const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 320, height: 240),
-          frameRate: 10,
-          bitrate: 0,
-          minBitrate: -1,
+          dimensions: VideoDimensions(width: 640, height: 360),
+          frameRate: 15,
+          bitrate: 400,
+          minBitrate: 200,
           orientationMode: OrientationMode.orientationModeAdaptive,
-          degradationPreference: DegradationPreference
-              .maintainFramerate, // Prioritize smooth video
+          degradationPreference: DegradationPreference.maintainFramerate,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         );
-        debugPrint(
-            '📶 Network quality $quality: Reducing to low video (320x240@10fps)');
+        debugPrint('📶 Network quality $quality: Low video (640×360@15fps)');
       } else {
         return; // Unknown quality
       }

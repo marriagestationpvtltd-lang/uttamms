@@ -11,6 +11,7 @@ import '../../constant/app_colors.dart';
 import '../../core/user_state.dart';
 import '../../main.dart';
 import '../../pushnotification/pushservice.dart';
+import '../../service/favorite_sync_service.dart';
 import '../../utils/privacy_utils.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 
@@ -80,9 +81,8 @@ class MatchedUser {
 
   factory MatchedUser.fromJson(Map<String, dynamic> json) {
     final galleryJson = json['gallery'] as List<dynamic>? ?? [];
-    final galleryImages = galleryJson
-        .map((item) => GalleryImagee.fromJson(item))
-        .toList();
+    final galleryImages =
+        galleryJson.map((item) => GalleryImagee.fromJson(item)).toList();
 
     return MatchedUser(
       userId: json['userid'],
@@ -338,6 +338,7 @@ class ProfileSwipeUI extends StatefulWidget {
   final String baseUrl;
   final bool isBlur;
   final String likeApiUrl; // NEW: Added like API URL
+  final void Function(MatchedUser user, bool isLiked)? onLikeChanged;
 
   const ProfileSwipeUI({
     super.key,
@@ -347,6 +348,7 @@ class ProfileSwipeUI extends StatefulWidget {
     this.baseUrl = '',
     this.isBlur = true,
     required this.likeApiUrl, // NEW: Added like API URL
+    this.onLikeChanged,
   });
 
   @override
@@ -372,8 +374,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
   @override
   void initState() {
     super.initState();
-    matchService = MatchService(
-        apiUrl: widget.matchApiUrl, baseUrl: widget.baseUrl);
+    matchService =
+        MatchService(apiUrl: widget.matchApiUrl, baseUrl: widget.baseUrl);
     requestService = RequestService(sendRequestUrl: widget.sendRequestApiUrl);
     likeService = LikeService(likeApiUrl: widget.likeApiUrl);
     _loadProfiles();
@@ -448,6 +450,20 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
       final userData = jsonDecode(userDataString);
       final userId = int.tryParse(userData["id"].toString());
       if (userId == null) return;
+
+      // Pre-populate image instantly from local user_data so the UI is
+      // responsive before the network call completes.
+      final localImage = userData['profile_picture']?.toString() ??
+          userData['profilePicture']?.toString() ??
+          '';
+      if (localImage.isNotEmpty && mounted) {
+        setState(() {
+          userimage = localImage;
+          _isLoading = false;
+          _isCheckingStatus = false;
+        });
+      }
+
       final UserMasterData user = await fetchUserMasterData(userId.toString());
       if (mounted) {
         setState(() {
@@ -458,7 +474,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
         });
         // Keep UserState in sync with the data already fetched above –
         // avoids a separate masterdata.php call just for verification/usertype.
-        context.read<UserState>().updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
+        context.read<UserState>().updateFromMasterData(
+            user.docStatus, user.isVerified, user.usertype);
       }
     } catch (e) {
       debugPrint('Error loading master data for image: $e');
@@ -485,9 +502,17 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
   Future<void> _handleLikeAction(int index, MatchedUser user) async {
     if (_isProcessingLike) return; // Prevent multiple clicks
 
+    final previousUser = profiles[index];
+    final bool newLikedState = !previousUser.isLiked;
+
+    // Optimistic update so favorite status reflects instantly in UI.
     setState(() {
+      profiles[index] = previousUser.copyWith(isLiked: newLikedState);
       _isProcessingLike = true;
     });
+
+    widget.onLikeChanged?.call(profiles[index], newLikedState);
+    FavoriteSyncService.notifyChanged();
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -496,12 +521,19 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
       final senderId = int.tryParse(userData["id"].toString());
 
       if (senderId == null) {
+        if (mounted) {
+          setState(() {
+            profiles[index] = previousUser;
+          });
+        }
+        widget.onLikeChanged?.call(previousUser, previousUser.isLiked);
+        FavoriteSyncService.notifyChanged();
         _showRequestSentPopup('User not authenticated');
         return;
       }
 
       final receiverId = user.userId;
-      final action = user.isLiked ? 'delete' : 'add';
+      final action = newLikedState ? 'add' : 'delete';
 
       final result = await likeService.likeAction(
         senderId: senderId,
@@ -510,21 +542,27 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
       );
 
       if (result['success'] == true) {
-        // Update the profile in the list
-        final updatedUser = user.copyWith(isLiked: !user.isLiked);
-
-        setState(() {
-          profiles[index] = updatedUser;
-        });
-
-        final message = user.isLiked
-            ? 'Like removed successfully'
-            : 'Liked successfully';
+        final message =
+            newLikedState ? 'Liked successfully' : 'Like removed successfully';
         _showRequestSentPopup(message);
       } else {
+        if (mounted) {
+          setState(() {
+            profiles[index] = previousUser;
+          });
+        }
+        widget.onLikeChanged?.call(previousUser, previousUser.isLiked);
+        FavoriteSyncService.notifyChanged();
         _showRequestSentPopup('Failed: ${result['message']}');
       }
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          profiles[index] = previousUser;
+        });
+      }
+      widget.onLikeChanged?.call(previousUser, previousUser.isLiked);
+      FavoriteSyncService.notifyChanged();
       _showRequestSentPopup('Error: $e');
     } finally {
       setState(() {
@@ -705,9 +743,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                     width: isActive ? 18 : 7,
                     height: 7,
                     decoration: BoxDecoration(
-                      color: isActive
-                          ? AppColors.primary
-                          : Colors.grey.shade300,
+                      color:
+                          isActive ? AppColors.primary : Colors.grey.shade300,
                       borderRadius: BorderRadius.circular(4),
                     ),
                   );
@@ -774,7 +811,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
   }
 
   Widget _buildProfileCard(MatchedUser user, int index) {
-    final photos = user.allPhotos.map((url) => matchService.getFullImageUrl(url)).toList();
+    final photos =
+        user.allPhotos.map((url) => matchService.getFullImageUrl(url)).toList();
 
     return Container(
       decoration: BoxDecoration(
@@ -810,7 +848,8 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                       final userData = jsonDecode(userDataString);
                       final senderId = int.tryParse(userData["id"].toString());
                       if (!mounted) return;
-                      if (await VerificationService.requireVerification(context)) {
+                      if (await VerificationService.requireVerification(
+                          context)) {
                         if (!mounted) return;
                         Navigator.push(
                           context,
@@ -851,8 +890,7 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                         child: const Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.verified,
-                                color: Colors.white, size: 14),
+                            Icon(Icons.verified, color: Colors.white, size: 14),
                             SizedBox(width: 4),
                             Text(
                               'Verified',
@@ -906,8 +944,7 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
             flex: 45,
             child: Container(
               width: double.infinity,
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 borderRadius:
@@ -920,51 +957,51 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  // Name row
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    children: [
-                      Expanded(
-                        child: Text(
-                          user.displayName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
+                      // Name row
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              user.displayName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        ],
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
+                      const SizedBox(height: 4),
 
-                  // Age & Height
-                  _InfoRow(
-                    icon: Icons.cake_outlined,
-                    text: '${user.age} yrs  •  ${user.heightDisplay}',
-                  ),
-                  const SizedBox(height: 3),
+                      // Age & Height
+                      _InfoRow(
+                        icon: Icons.cake_outlined,
+                        text: '${user.age} yrs  •  ${user.heightDisplay}',
+                      ),
+                      const SizedBox(height: 3),
 
-                  // Location
-                  _InfoRow(
-                    icon: Icons.location_on_outlined,
-                    text: user.location,
-                  ),
+                      // Location
+                      _InfoRow(
+                        icon: Icons.location_on_outlined,
+                        text: user.location,
+                      ),
 
-                  // Designation
-                  if (user.designation.isNotEmpty) ...[
-                    const SizedBox(height: 3),
-                    _InfoRow(
-                      icon: Icons.work_outline,
-                      text: user.designation,
-                    ),
-                  ],
+                      // Designation
+                      if (user.designation.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        _InfoRow(
+                          icon: Icons.work_outline,
+                          text: user.designation,
+                        ),
+                      ],
 
-                  // Compatibility bar
-                  const SizedBox(height: 6),
-                  _CompatibilityBar(percent: user.matchPercent),
+                      // Compatibility bar
+                      const SizedBox(height: 6),
+                      _CompatibilityBar(percent: user.matchPercent),
                     ],
                   ),
 
@@ -974,9 +1011,7 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                       // Like button
                       Expanded(
                         child: _ActionButton(
-                          label: user.isLiked
-                              ? 'Interested'
-                              : 'Like',
+                          label: user.isLiked ? 'Interested' : 'Like',
                           icon: user.isLiked
                               ? Icons.favorite
                               : Icons.favorite_border,
@@ -994,15 +1029,14 @@ class _ProfileSwipeUIState extends State<ProfileSwipeUI> {
                           icon: Icons.person_outline,
                           isPrimary: true,
                           onTap: () async {
-                            final prefs =
-                                await SharedPreferences.getInstance();
-                            final userDataString =
-                                prefs.getString('user_data');
+                            final prefs = await SharedPreferences.getInstance();
+                            final userDataString = prefs.getString('user_data');
                             final userData = jsonDecode(userDataString!);
-                            final senderId = int.tryParse(
-                                userData["id"].toString());
+                            final senderId =
+                                int.tryParse(userData["id"].toString());
                             if (!mounted) return;
-                            if (await VerificationService.requireVerification(context)) {
+                            if (await VerificationService.requireVerification(
+                                context)) {
                               if (!mounted) return;
                               Navigator.push(
                                 context,
@@ -1246,7 +1280,9 @@ class _ActionButton extends StatelessWidget {
                 valueColor: AlwaysStoppedAnimation<Color>(primaryColor),
               ),
             )
-          : Icon(icon, size: 16, color: isActive ? primaryColor : AppColors.textSecondary),
+          : Icon(icon,
+              size: 16,
+              color: isActive ? primaryColor : AppColors.textSecondary),
       label: Text(
         label,
         style: TextStyle(
@@ -1266,7 +1302,6 @@ class _ActionButton extends StatelessWidget {
     );
   }
 }
-
 
 class _ImageSliderWithDots extends StatefulWidget {
   final MatchedUser user;
@@ -1348,7 +1383,7 @@ class _ImageSliderWithDotsState extends State<_ImageSliderWithDots> {
             child: Row(
               children: List.generate(
                 widget.photos.length,
-(index) {
+                (index) {
                   final isActive = _currentPage == index;
                   return Expanded(
                     child: Container(
@@ -1483,7 +1518,7 @@ class _ImageSliderWithDotsState extends State<_ImageSliderWithDots> {
               child: CircularProgressIndicator(
                 value: loadingProgress.expectedTotalBytes != null
                     ? loadingProgress.cumulativeBytesLoaded /
-                    loadingProgress.expectedTotalBytes!
+                        loadingProgress.expectedTotalBytes!
                     : null,
                 valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
               ),
@@ -1533,9 +1568,10 @@ class _ImageSliderWithDotsState extends State<_ImageSliderWithDots> {
                     child: CircularProgressIndicator(
                       value: loadingProgress.expectedTotalBytes != null
                           ? loadingProgress.cumulativeBytesLoaded /
-                          loadingProgress.expectedTotalBytes!
+                              loadingProgress.expectedTotalBytes!
                           : null,
-                      valueColor: const AlwaysStoppedAnimation<Color>(Colors.red),
+                      valueColor:
+                          const AlwaysStoppedAnimation<Color>(Colors.red),
                     ),
                   ),
                 );
@@ -1573,5 +1609,4 @@ class _ImageSliderWithDotsState extends State<_ImageSliderWithDots> {
       );
     }
   }
-
 }

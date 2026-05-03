@@ -18,8 +18,10 @@ import '../main.dart';
 import '../pushnotification/pushservice.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/service/favorite_sync_service.dart';
 import 'package:ms2026/service/socket_service.dart';
 import 'package:ms2026/service/verification_service.dart';
+import 'package:ms2026/Chat/ChatdetailsScreen.dart';
 
 class FavoritePeoplePage extends StatefulWidget {
   const FavoritePeoplePage({super.key});
@@ -34,7 +36,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   static const String _defaultProfileImage =
       'https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e';
   static const double _badgeLabelMaxWidth = 150;
-  static const double _favoriteCardRadius = 30;
+  static const double _favoriteCardRadius = 22;
 
   List<dynamic> favoritePeople = [];
   bool isLoading = true;
@@ -46,12 +48,24 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   String? userLastName;
   bool _showPopup = false;
   String _popupMessage = '';
-  String _selectedRequestType = 'Profile';
+  String _selectedRequestType = 'Photo';
 
   @override
   void initState() {
     super.initState();
     _initializeUserData();
+    FavoriteSyncService.changes.addListener(_handleFavoriteSyncSignal);
+  }
+
+  void _handleFavoriteSyncSignal() {
+    if (!mounted || userId == null) return;
+    _fetchFavoritePeople(isRefresh: true);
+  }
+
+  @override
+  void dispose() {
+    FavoriteSyncService.changes.removeListener(_handleFavoriteSyncSignal);
+    super.dispose();
   }
 
   Future<void> _initializeUserData() async {
@@ -148,6 +162,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
             favoritePeople
                 .removeWhere((person) => person['userid'] == receiverId);
           });
+          FavoriteSyncService.notifyChanged();
           // Log unlike activity (fire-and-forget)
           ActivityService.instance.log(
             userId: userId.toString(),
@@ -307,11 +322,51 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     }
   }
 
+  Future<void> _handleChatNow(BuildContext context, int receiverId,
+      String receiverName, String receiverImage) async {
+    if (userId == null) return;
+    final currentUserIdStr = userId.toString();
+    final List<String> sortedIds = [currentUserIdStr, receiverId.toString()]
+      ..sort();
+    final chatRoomId = sortedIds.join('_');
+
+    final prefs = await SharedPreferences.getInstance();
+    final userDataString = prefs.getString('user_data');
+    String currentUserName = 'MS:$userId ${userLastName ?? ''}'.trim();
+    String currentUserImage = '';
+    if (userDataString != null) {
+      final userData = jsonDecode(userDataString);
+      currentUserName =
+          'MS:${userData['id']} ${userData['lastName'] ?? ''}'.trim();
+      currentUserImage =
+          resolveApiImageUrl(userData['profile_picture']?.toString() ?? '');
+    }
+
+    if (!context.mounted) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatDetailScreen(
+          chatRoomId: chatRoomId,
+          receiverId: receiverId.toString(),
+          receiverName: receiverName,
+          receiverImage: receiverImage.isNotEmpty
+              ? receiverImage
+              : 'https://via.placeholder.com/150',
+          currentUserId: currentUserIdStr,
+          currentUserName: currentUserName,
+          currentUserImage: currentUserImage,
+        ),
+      ),
+    );
+  }
+
   // EXACT SAME DIALOG AS MatchedProfilesPagee
   void _showSendRequestDialog(
       BuildContext context, int receiverId, String receiverName,
-      {String defaultRequestType = 'Profile'}) {
-    String dialogSelectedRequestType = defaultRequestType;
+      {String defaultRequestType = 'Photo'}) {
+    String dialogSelectedRequestType =
+        defaultRequestType.toLowerCase() == 'chat' ? 'Chat' : 'Photo';
 
     showDialog(
       context: context,
@@ -347,19 +402,6 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _buildRequestTypeOption(
-                    context,
-                    setState,
-                    dialogSelectedRequestType,
-                    'Profile',
-                    Icons.person_outline,
-                    'View',
-                    (newValue) {
-                      setState(() {
-                        dialogSelectedRequestType = newValue;
-                      });
-                    },
-                  ),
                   _buildRequestTypeOption(
                     context,
                     setState,
@@ -586,6 +628,23 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     if (trimmedName.isEmpty) return 'Unknown User, $age';
     if (age.isEmpty) return trimmedName;
     return '$trimmedName, $age';
+  }
+
+  String _readFirstNonEmpty(Map<String, dynamic> source, List<String> keys) {
+    for (final key in keys) {
+      final raw = source[key];
+      if (raw == null) continue;
+      final value = raw.toString().trim();
+      if (value.isEmpty) continue;
+      final normalized = value.toLowerCase();
+      if (normalized == 'null' ||
+          normalized == 'n/a' ||
+          normalized == 'not available') {
+        continue;
+      }
+      return value;
+    }
+    return '';
   }
 
   String _photoRequestHighlightLabel(String photoRequestStatus) {
@@ -906,7 +965,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                 parent: BouncingScrollPhysics(),
               ),
               slivers: [
-                SliverToBoxAdapter(child: _buildHeaderSection()),
+                const SliverToBoxAdapter(child: SizedBox(height: 6)),
                 if (isLoading)
                   const SliverFillRemaining(
                     hasScrollBody: false,
@@ -935,7 +994,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 20),
                     sliver: SliverList(
                       delegate: SliverChildBuilderDelegate(
                         (context, index) => _favoriteCard(
@@ -969,8 +1028,28 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     final fullName = lastName;
     final isVerified = person['isVerified'] == 1 || person['isVerified'] == '1';
     final city = person['city']?.toString() ?? _defaultLocationLabel;
+    final country = person['country']?.toString() ?? '';
+    final height = person['height_name']?.toString() ??
+        person['heightName']?.toString() ??
+        '';
     final designation =
         person['designation']?.toString() ?? _defaultProfessionLabel;
+    final maritalStatus = _readFirstNonEmpty(person, [
+      'maritalStatusName',
+      'marital_status_name',
+      'maritalstatus_name',
+      'maritalStatus',
+      'marital_status',
+      'maritalstatus',
+    ]);
+    final education = _readFirstNonEmpty(person, [
+      'degree',
+      'qualification',
+      'educationtype',
+      'educationType',
+      'education',
+      'faculty',
+    ]);
     final rawProfileImage = person['profile_picture']?.toString() ?? '';
     final resolvedProfileImage = resolveApiImageUrl(rawProfileImage);
     final profileImage = resolvedProfileImage.isNotEmpty
@@ -979,6 +1058,15 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     final age = person['age']?.toString() ?? '';
     final photoRequestStatus = _getPhotoRequestStatus(person);
     final displayName = _getDisplayNameWithFallback(fullName, age);
+    final ageHeightLine = [
+      if (age.isNotEmpty && age != '0') '$age yrs',
+      if (height.isNotEmpty && height.toLowerCase() != 'not available') height,
+    ].join(' • ');
+    final locationLine = [
+      if (city.isNotEmpty && city != _defaultLocationLabel) city,
+      if (country.isNotEmpty && country.toLowerCase() != 'not available')
+        country,
+    ].join(', ');
 
     // FIXED: Use 'userid' instead of 'id'
     final receiverIdStr = person['userid']?.toString() ?? '0';
@@ -988,15 +1076,15 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     final shouldShowClearImage = _shouldShowClearImage(person);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 20),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(_favoriteCardRadius),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.08),
-            blurRadius: 24,
-            offset: const Offset(0, 14),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -1009,7 +1097,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                   top: Radius.circular(_favoriteCardRadius),
                 ),
                 child: SizedBox(
-                  height: 250,
+                  height: 190,
                   width: double.infinity,
                   child: Stack(
                     fit: StackFit.expand,
@@ -1123,23 +1211,23 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                             _showDeleteConfirmationDialog(receiverId, fullName);
                           },
                           child: Container(
-                            width: 42,
-                            height: 42,
+                            width: 36,
+                            height: 36,
                             decoration: BoxDecoration(
                               color: Colors.white.withOpacity(0.92),
                               shape: BoxShape.circle,
                               boxShadow: [
                                 BoxShadow(
                                   color: Colors.black.withOpacity(0.12),
-                                  blurRadius: 14,
-                                  offset: const Offset(0, 8),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
                                 ),
                               ],
                             ),
                             child: const Icon(
                               Icons.favorite_rounded,
                               color: AppColors.primary,
-                              size: 22,
+                              size: 18,
                             ),
                           ),
                         ),
@@ -1157,7 +1245,7 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                                   child: Text(
                                     displayName,
                                     style: AppTextStyles.whiteHeading.copyWith(
-                                      fontSize: 22,
+                                      fontSize: 18,
                                       fontWeight: FontWeight.w700,
                                     ),
                                     maxLines: 1,
@@ -1174,10 +1262,10 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                                 ],
                               ],
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 6),
                             Wrap(
                               spacing: 8,
-                              runSpacing: 8,
+                              runSpacing: 6,
                               children: [
                                 if (designation != _defaultProfessionLabel)
                                   _buildImageBadge(
@@ -1205,20 +1293,47 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
             ],
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 18, 18, 20),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Quick highlights',
+                  'Highlights',
                   style: AppTextStyles.labelLarge.copyWith(
                     fontWeight: FontWeight.w700,
+                    fontSize: 14,
                   ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 8),
+                if (ageHeightLine.isNotEmpty)
+                  _buildProfileInfoRow(
+                    icon: Icons.cake_outlined,
+                    value: ageHeightLine,
+                  ),
+                if (designation != _defaultProfessionLabel)
+                  _buildProfileInfoRow(
+                    icon: Icons.work_outline_rounded,
+                    value: designation,
+                  ),
+                if (locationLine.isNotEmpty)
+                  _buildProfileInfoRow(
+                    icon: Icons.location_on_outlined,
+                    value: locationLine,
+                  ),
+                if (maritalStatus.isNotEmpty)
+                  _buildProfileInfoRow(
+                    icon: Icons.favorite_border_rounded,
+                    value: maritalStatus,
+                  ),
+                if (education.isNotEmpty)
+                  _buildProfileInfoRow(
+                    icon: Icons.school_outlined,
+                    value: education,
+                  ),
+                const SizedBox(height: 8),
                 Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     _buildInfoChip(
                       icon: Icons.favorite_rounded,
@@ -1248,31 +1363,51 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    _actionButton(
-                      text: 'Send Request',
-                      icon: Icons.send_rounded,
-                      gradient: const LinearGradient(
-                        colors: [Color(0xffFF3D57), Color(0xffFF7A45)],
-                      ),
-                      onPressed: () {
-                        _handleSendRequest(context, receiverId, fullName);
-                      },
-                    ),
-                    const SizedBox(width: 12),
-                    _actionButton(
-                      text: 'View Profile',
-                      icon: Icons.visibility_rounded,
-                      foregroundColor: AppColors.primary,
-                      borderColor: const Color(0xFFFFCCD2),
-                      backgroundColor: const Color(0xFFFFF7F8),
-                      onPressed: () {
-                        _handleViewProfile(context, receiverId);
-                      },
-                    ),
-                  ],
+                const SizedBox(height: 12),
+                Builder(
+                  builder: (context) {
+                    final chatRequestStatus =
+                        person['chat_request']?.toString().toLowerCase() ?? '';
+                    final isChatAccepted = chatRequestStatus == 'accepted';
+                    return Row(
+                      children: [
+                        if (isChatAccepted)
+                          _actionButton(
+                            text: 'Chat Now',
+                            icon: Icons.chat_rounded,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFF4CAF50), Color(0xFF2196F3)],
+                            ),
+                            onPressed: () {
+                              _handleChatNow(context, receiverId, displayName,
+                                  profileImage);
+                            },
+                          )
+                        else
+                          _actionButton(
+                            text: 'Send Request',
+                            icon: Icons.send_rounded,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xffFF3D57), Color(0xffFF7A45)],
+                            ),
+                            onPressed: () {
+                              _handleSendRequest(context, receiverId, fullName);
+                            },
+                          ),
+                        const SizedBox(width: 12),
+                        _actionButton(
+                          text: 'View Profile',
+                          icon: Icons.visibility_rounded,
+                          foregroundColor: AppColors.primary,
+                          borderColor: const Color(0xFFFFCCD2),
+                          backgroundColor: const Color(0xFFFFF7F8),
+                          onPressed: () {
+                            _handleViewProfile(context, receiverId);
+                          },
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
             ),
@@ -1331,23 +1466,50 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
     required Color textColor,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: color,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: textColor),
-          const SizedBox(width: 8),
+          Icon(icon, size: 14, color: textColor),
+          const SizedBox(width: 6),
           Flexible(
             child: Text(
               label,
               style: AppTextStyles.labelMedium.copyWith(
                 color: textColor,
                 fontWeight: FontWeight.w600,
-                fontSize: 13,
+                fontSize: 12,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileInfoRow({
+    required IconData icon,
+    required String value,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
+        children: [
+          Icon(icon, size: 13, color: AppColors.textHint),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              value,
+              style: AppTextStyles.captionSmall.copyWith(
+                fontSize: 12,
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w500,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
@@ -1420,11 +1582,11 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
   }) {
     return Expanded(
       child: Container(
-        height: 50,
+        height: 42,
         decoration: BoxDecoration(
           gradient: gradient,
           color: gradient == null ? backgroundColor ?? Colors.white : null,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(14),
           border: borderColor == null
               ? null
               : Border.all(
@@ -1435,8 +1597,8 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
               : [
                   BoxShadow(
                     color: AppColors.primary.withOpacity(0.22),
-                    blurRadius: 14,
-                    offset: const Offset(0, 10),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
                   ),
                 ],
         ),
@@ -1445,15 +1607,15 @@ class _FavoritePeoplePageState extends State<FavoritePeoplePage> {
           style: TextButton.styleFrom(
             foregroundColor: foregroundColor ?? Colors.white,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
+              borderRadius: BorderRadius.circular(14),
             ),
           ),
-          icon: Icon(icon, size: 18, color: foregroundColor ?? Colors.white),
+          icon: Icon(icon, size: 16, color: foregroundColor ?? Colors.white),
           label: Text(
             text,
             style: AppTextStyles.labelMedium.copyWith(
               color: foregroundColor ?? Colors.white,
-              fontSize: 13,
+              fontSize: 12,
             ),
             overflow: TextOverflow.ellipsis,
           ),

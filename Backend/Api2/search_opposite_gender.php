@@ -71,6 +71,13 @@ try {
         WHERE TRIM(LOWER(u.gender)) = :opp_gender
           AND TRIM(LOWER(u.usertype)) = 'paid'
           AND u.id != :me
+          AND u.id NOT IN (SELECT userid FROM delete_request WHERE status = 'pending')
+                    AND NOT EXISTS (
+                            SELECT 1
+                            FROM blocks b
+                            WHERE (b.blocker_id = :me AND b.blocked_id = u.id)
+                                 OR (b.blocker_id = u.id AND b.blocked_id = :me)
+                    )
     ";
 
     $params = [

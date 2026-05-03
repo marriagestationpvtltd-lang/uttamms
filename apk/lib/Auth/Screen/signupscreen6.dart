@@ -12,6 +12,7 @@ import '../../ReUsable/enhanced_form_fields.dart';
 import '../../constant/app_colors.dart';
 import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import '../../service/profile_field_options_service.dart';
 
 class EducationCareerPage extends StatefulWidget {
   const EducationCareerPage({
@@ -49,7 +50,8 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
 
   // Business Details
   final TextEditingController _businessNameController = TextEditingController();
-  final TextEditingController _businessDesignationController = TextEditingController();
+  final TextEditingController _businessDesignationController =
+      TextEditingController();
   String? _selectedBusinessWorkingWith;
   String? _selectedBusinessAnnualIncome;
 
@@ -74,65 +76,14 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
   };
 
   // Dropdown options
-  final List<String> _educationMediumOptions = [
-    'English',
-    'Nepali',
-    'Hindi',
-    'Other'
-  ];
-
-  final List<String> _educationTypeOptions = [
-    'Regular',
-    'Distance Learning',
-    'Online',
-    'Correspondence',
-    'Other'
-  ];
-
-  final List<String> _facultyOptions = [
-    'Science',
-    'Management',
-    'Humanities',
-    'Education',
-    'Engineering',
-    'Medicine',
-    'Law',
-    'Agriculture',
-    'Forestry',
-    'Computer Science',
-    'Other'
-  ];
-
-  final List<String> _educationDegreeOptions = [
-    'SEE/SLC',
-    '+2/Intermediate',
-    'Diploma',
-    'Bachelor',
-    'Master',
-    'PhD',
-    'Post Doctoral',
-    'Other'
-  ];
-
-  final List<String> _workingWithOptions = [
-    'Private Company',
-    'Government',
-    'NGO/INGO',
-    'Self Employed',
-    'Family Business',
-    'Startup',
-    'Other'
-  ];
-
-  final List<String> _annualIncomeOptions = [
-    'Below 2 Lakhs',
-    '2-5 Lakhs',
-    '5-10 Lakhs',
-    '10-20 Lakhs',
-    '20-50 Lakhs',
-    '50 Lakhs - 1 Crore',
-    'Above 1 Crore'
-  ];
+  // Dynamic dropdown options — loaded from master API
+  List<String> _educationMediumOptions = [];
+  List<String> _educationTypeOptions = [];
+  List<String> _facultyOptions = [];
+  List<String> _educationDegreeOptions = [];
+  List<String> _workingWithOptions = [];
+  List<String> _annualIncomeOptions = [];
+  bool _optionsLoading = true;
 
   final List<String> _designationOptions = [
     "Software Developer",
@@ -192,9 +143,24 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
   @override
   void initState() {
     super.initState();
+    _loadOptions();
     if (widget.isEditMode && widget.initialData != null) {
       _populateFromInitialData(widget.initialData!);
     }
+  }
+
+  Future<void> _loadOptions() async {
+    final all = await ProfileFieldOptionsService.getAllOptions();
+    if (!mounted) return;
+    setState(() {
+      _educationMediumOptions = all['educationmedium'] ?? [];
+      _educationTypeOptions = all['educationtype'] ?? [];
+      _facultyOptions = all['faculty'] ?? [];
+      _educationDegreeOptions = all['degree'] ?? [];
+      _workingWithOptions = all['workingwith'] ?? [];
+      _annualIncomeOptions = all['annualincome'] ?? [];
+      _optionsLoading = false;
+    });
   }
 
   String? _getValidValue(dynamic value, List<String> options) {
@@ -211,28 +177,39 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
   }
 
   void _populateFromInitialData(Map<String, dynamic> data) {
-    _selectedEducationMedium = _getValidValue(data['educationmedium'], _educationMediumOptions);
-    _selectedEducationType = _getValidValue(data['educationtype'], _educationTypeOptions);
+    _selectedEducationMedium =
+        _getValidValue(data['educationmedium'], _educationMediumOptions);
+    _selectedEducationType =
+        _getValidValue(data['educationtype'], _educationTypeOptions);
     _selectedFaculty = _getValidValue(data['faculty'], _facultyOptions);
-    _selectedEducationDegree = _getValidValue(data['degree'], _educationDegreeOptions);
+    _selectedEducationDegree =
+        _getValidValue(data['degree'], _educationDegreeOptions);
 
     final areYouWorking = data['areyouworking']?.toString().toLowerCase() ?? '';
-    _isWorking = areYouWorking == 'yes' || areYouWorking == '1' || areYouWorking == 'true';
+    _isWorking = areYouWorking == 'yes' ||
+        areYouWorking == '1' ||
+        areYouWorking == 'true';
     _occupationType = data['occupationtype']?.toString();
 
     _companyNameController.text = data['companyname']?.toString() ?? '';
     _designationController.text = '';
-    _selectedDesignation = _getValidValue(data['designation'], _designationOptions);
-    if (_selectedDesignation == null && (data['designation']?.toString() ?? '').isNotEmpty) {
+    _selectedDesignation =
+        _getValidValue(data['designation'], _designationOptions);
+    if (_selectedDesignation == null &&
+        (data['designation']?.toString() ?? '').isNotEmpty) {
       _designationController.text = data['designation'].toString();
     }
-    _selectedWorkingWith = _getValidValue(data['workingwith'], _workingWithOptions);
-    _selectedAnnualIncome = _getValidValue(data['annualincome'], _annualIncomeOptions);
+    _selectedWorkingWith =
+        _getValidValue(data['workingwith'], _workingWithOptions);
+    _selectedAnnualIncome =
+        _getValidValue(data['annualincome'], _annualIncomeOptions);
 
     if (_occupationType == 'Business') {
       _businessNameController.text = data['businessname']?.toString() ?? '';
-      _selectedBusinessWorkingWith = _getValidValue(data['workingwith'], _workingWithOptions);
-      _selectedBusinessAnnualIncome = _getValidValue(data['annualincome'], _annualIncomeOptions);
+      _selectedBusinessWorkingWith =
+          _getValidValue(data['workingwith'], _workingWithOptions);
+      _selectedBusinessAnnualIncome =
+          _getValidValue(data['annualincome'], _annualIncomeOptions);
     }
   }
 
@@ -264,7 +241,8 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
       }
 
       if (_occupationType == "Job") {
-        if (!_validateRequired(_companyNameController.text.trim(), 'companyName')) {
+        if (!_validateRequired(
+            _companyNameController.text.trim(), 'companyName')) {
           isValid = false;
         }
         if (!_validateRequired(_selectedDesignation, 'designation')) {
@@ -277,16 +255,19 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
           isValid = false;
         }
       } else if (_occupationType == "Business") {
-        if (!_validateRequired(_businessNameController.text.trim(), 'businessName')) {
+        if (!_validateRequired(
+            _businessNameController.text.trim(), 'businessName')) {
           isValid = false;
         }
         if (!_validateRequired(_selectedDesignation, 'designation')) {
           isValid = false;
         }
-        if (!_validateRequired(_selectedBusinessWorkingWith, 'businessWorkingWith')) {
+        if (!_validateRequired(
+            _selectedBusinessWorkingWith, 'businessWorkingWith')) {
           isValid = false;
         }
-        if (!_validateRequired(_selectedBusinessAnnualIncome, 'businessAnnualIncome')) {
+        if (!_validateRequired(
+            _selectedBusinessAnnualIncome, 'businessAnnualIncome')) {
           isValid = false;
         }
       }
@@ -424,356 +405,367 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
       body: SafeArea(
         child: RegistrationStepContainer(
           onBack: () => Navigator.pop(context),
-          onStepBack: () => Navigator.pop(context), // Allow step-by-step back navigation
+          onStepBack: () =>
+              Navigator.pop(context), // Allow step-by-step back navigation
           onContinue: _validateAndSubmit,
           isLoading: isLoading,
           canContinue: !isLoading,
           child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                RegistrationStepHeader(
-                  title: 'Education & Career',
-                  subtitle: 'Tell us about your educational background and professional life',
-                  currentStep: 7,
-                  totalSteps: 11,
-                  onBack: () => Navigator.pop(context),
-                  onStepBack: () => Navigator.pop(context), // Allow step-by-step back navigation
-                ),
-                const SizedBox(height: 32),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              RegistrationStepHeader(
+                title: 'Education & Career',
+                subtitle:
+                    'Tell us about your educational background and professional life',
+                currentStep: 7,
+                totalSteps: 11,
+                onBack: () => Navigator.pop(context),
+                onStepBack: () => Navigator.pop(
+                    context), // Allow step-by-step back navigation
+              ),
+              const SizedBox(height: 32),
 
-                // Education Section
-                const SectionHeader(
-                  title: 'Education Details',
-                  subtitle: 'Share your educational background',
-                  icon: Icons.school_rounded,
-                ),
-                const SizedBox(height: 20),
+              // Education Section
+              const SectionHeader(
+                title: 'Education Details',
+                subtitle: 'Share your educational background',
+                icon: Icons.school_rounded,
+              ),
+              const SizedBox(height: 20),
 
-                EnhancedDropdown<String>(
-                  label: 'Education Medium',
-                  value: _selectedEducationMedium,
-                  items: _educationMediumOptions,
-                  itemLabel: (item) => item,
-                  hint: 'Select medium of education',
-                  onChanged: _handleEducationMediumChange,
-                  hasError: submitted && _errors['educationMedium']!.isNotEmpty,
-                  errorText: _errors['educationMedium'],
-                  isRequired: true,
-                ),
-                const SizedBox(height: 16),
+              EnhancedDropdown<String>(
+                label: 'Education Medium',
+                value: _selectedEducationMedium,
+                items: _educationMediumOptions,
+                itemLabel: (item) => item,
+                hint: 'Select medium of education',
+                onChanged: _handleEducationMediumChange,
+                hasError: submitted && _errors['educationMedium']!.isNotEmpty,
+                errorText: _errors['educationMedium'],
+                isRequired: true,
+              ),
+              const SizedBox(height: 16),
 
-                EnhancedDropdown<String>(
-                  label: 'Education Type',
-                  value: _selectedEducationType,
-                  items: _educationTypeOptions,
-                  itemLabel: (item) => item,
-                  hint: 'Select type of education',
-                  onChanged: _handleEducationTypeChange,
-                  hasError: submitted && _errors['educationType']!.isNotEmpty,
-                  errorText: _errors['educationType'],
-                  isRequired: true,
-                ),
-                const SizedBox(height: 16),
+              EnhancedDropdown<String>(
+                label: 'Education Type',
+                value: _selectedEducationType,
+                items: _educationTypeOptions,
+                itemLabel: (item) => item,
+                hint: 'Select type of education',
+                onChanged: _handleEducationTypeChange,
+                hasError: submitted && _errors['educationType']!.isNotEmpty,
+                errorText: _errors['educationType'],
+                isRequired: true,
+              ),
+              const SizedBox(height: 16),
 
-                EnhancedDropdown<String>(
-                  label: 'Faculty',
-                  value: _selectedFaculty,
-                  items: _facultyOptions,
-                  itemLabel: (item) => item,
-                  hint: 'Select your faculty',
-                  onChanged: _handleFacultyChange,
-                  hasError: submitted && _errors['faculty']!.isNotEmpty,
-                  errorText: _errors['faculty'],
-                  isRequired: true,
-                ),
-                const SizedBox(height: 16),
+              EnhancedDropdown<String>(
+                label: 'Faculty',
+                value: _selectedFaculty,
+                items: _facultyOptions,
+                itemLabel: (item) => item,
+                hint: 'Select your faculty',
+                onChanged: _handleFacultyChange,
+                hasError: submitted && _errors['faculty']!.isNotEmpty,
+                errorText: _errors['faculty'],
+                isRequired: true,
+              ),
+              const SizedBox(height: 16),
 
-                EnhancedDropdown<String>(
-                  label: 'Education Degree',
-                  value: _selectedEducationDegree,
-                  items: _educationDegreeOptions,
-                  itemLabel: (item) => item,
-                  hint: 'Select your highest degree',
-                  onChanged: _handleEducationDegreeChange,
-                  hasError: submitted && _errors['educationDegree']!.isNotEmpty,
-                  errorText: _errors['educationDegree'],
-                  isRequired: true,
-                ),
-                const SizedBox(height: 32),
+              EnhancedDropdown<String>(
+                label: 'Education Degree',
+                value: _selectedEducationDegree,
+                items: _educationDegreeOptions,
+                itemLabel: (item) => item,
+                hint: 'Select your highest degree',
+                onChanged: _handleEducationDegreeChange,
+                hasError: submitted && _errors['educationDegree']!.isNotEmpty,
+                errorText: _errors['educationDegree'],
+                isRequired: true,
+              ),
+              const SizedBox(height: 32),
 
-                // Career Section
-                const SectionHeader(
-                  title: 'Career Details',
-                  subtitle: 'Tell us about your professional life',
-                  icon: Icons.work_rounded,
-                ),
-                const SizedBox(height: 20),
+              // Career Section
+              const SectionHeader(
+                title: 'Career Details',
+                subtitle: 'Tell us about your professional life',
+                icon: Icons.work_rounded,
+              ),
+              const SizedBox(height: 20),
 
-                // Working Status
-                _buildFieldLabel('Are You Currently Working?', isRequired: true),
+              // Working Status
+              _buildFieldLabel('Are You Currently Working?', isRequired: true),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: EnhancedRadioOption<bool>(
+                      label: 'Yes',
+                      value: true,
+                      groupValue: _isWorking,
+                      onChanged: _handleIsWorkingChange,
+                      icon: Icons.check_circle_outline,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: EnhancedRadioOption<bool>(
+                      label: 'No',
+                      value: false,
+                      groupValue: _isWorking,
+                      onChanged: _handleIsWorkingChange,
+                      icon: Icons.cancel_outlined,
+                    ),
+                  ),
+                ],
+              ),
+              if (submitted && _errors['isWorking']!.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                _buildErrorText(_errors['isWorking']!),
+              ],
+
+              // Show occupation type only if working
+              if (_isWorking == true) ...[
+                const SizedBox(height: 24),
+                _buildFieldLabel('Occupation Type', isRequired: true),
                 const SizedBox(height: 12),
                 Row(
                   children: [
                     Expanded(
-                      child: EnhancedRadioOption<bool>(
-                        label: 'Yes',
-                        value: true,
-                        groupValue: _isWorking,
-                        onChanged: _handleIsWorkingChange,
-                        icon: Icons.check_circle_outline,
+                      child: EnhancedRadioOption<String>(
+                        label: 'Job',
+                        value: 'Job',
+                        groupValue: _occupationType,
+                        onChanged: _handleOccupationTypeChange,
+                        icon: Icons.business_center_outlined,
                       ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: EnhancedRadioOption<bool>(
-                        label: 'No',
-                        value: false,
-                        groupValue: _isWorking,
-                        onChanged: _handleIsWorkingChange,
-                        icon: Icons.cancel_outlined,
+                      child: EnhancedRadioOption<String>(
+                        label: 'Business',
+                        value: 'Business',
+                        groupValue: _occupationType,
+                        onChanged: _handleOccupationTypeChange,
+                        icon: Icons.storefront_outlined,
                       ),
                     ),
                   ],
                 ),
-                if (submitted && _errors['isWorking']!.isNotEmpty) ...[
+                if (submitted && _errors['occupationType']!.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  _buildErrorText(_errors['isWorking']!),
+                  _buildErrorText(_errors['occupationType']!),
                 ],
 
-                // Show occupation type only if working
-                if (_isWorking == true) ...[
+                // Show Job Details
+                if (_occupationType == "Job") ...[
                   const SizedBox(height: 24),
-                  _buildFieldLabel('Occupation Type', isRequired: true),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: EnhancedRadioOption<String>(
-                          label: 'Job',
-                          value: 'Job',
-                          groupValue: _occupationType,
-                          onChanged: _handleOccupationTypeChange,
-                          icon: Icons.business_center_outlined,
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.border, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.shadowLight,
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: EnhancedRadioOption<String>(
-                          label: 'Business',
-                          value: 'Business',
-                          groupValue: _occupationType,
-                          onChanged: _handleOccupationTypeChange,
-                          icon: Icons.storefront_outlined,
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: AppColors.primaryGradient,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.work_outline,
+                                size: 20,
+                                color: AppColors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Job Details',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 20),
+                        EnhancedTextField(
+                          label: 'Company Name',
+                          controller: _companyNameController,
+                          hint: 'Enter your company name',
+                          prefixIcon: Icons.apartment_rounded,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                          hasError:
+                              submitted && _errors['companyName']!.isNotEmpty,
+                          errorText: _errors['companyName'],
+                          validator: (value) => '',
+                        ),
+                        const SizedBox(height: 16),
+                        EnhancedDropdown<String>(
+                          label: 'Designation',
+                          value: _selectedDesignation,
+                          items: _designationOptions,
+                          itemLabel: (item) => item,
+                          hint: 'Select your designation',
+                          onChanged: _handleDesignationChange,
+                          hasError:
+                              submitted && _errors['designation']!.isNotEmpty,
+                          errorText: _errors['designation'],
+                          isRequired: true,
+                        ),
+                        const SizedBox(height: 16),
+                        EnhancedDropdown<String>(
+                          label: 'Working With',
+                          value: _selectedWorkingWith,
+                          items: _workingWithOptions,
+                          itemLabel: (item) => item,
+                          hint: 'Select organization type',
+                          onChanged: _handleWorkingWithChange,
+                          hasError:
+                              submitted && _errors['workingWith']!.isNotEmpty,
+                          errorText: _errors['workingWith'],
+                          isRequired: true,
+                        ),
+                        const SizedBox(height: 16),
+                        EnhancedDropdown<String>(
+                          label: 'Annual Income',
+                          value: _selectedAnnualIncome,
+                          items: _annualIncomeOptions,
+                          itemLabel: (item) => item,
+                          hint: 'Select income range',
+                          onChanged: _handleAnnualIncomeChange,
+                          hasError:
+                              submitted && _errors['annualIncome']!.isNotEmpty,
+                          errorText: _errors['annualIncome'],
+                          isRequired: true,
+                        ),
+                      ],
+                    ),
                   ),
-                  if (submitted && _errors['occupationType']!.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    _buildErrorText(_errors['occupationType']!),
-                  ],
-
-                  // Show Job Details
-                  if (_occupationType == "Job") ...[
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppColors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.border, width: 1.5),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.shadowLight,
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  gradient: AppColors.primaryGradient,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.work_outline,
-                                  size: 20,
-                                  color: AppColors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              const Text(
-                                'Job Details',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          EnhancedTextField(
-                            label: 'Company Name',
-                            controller: _companyNameController,
-                            hint: 'Enter your company name',
-                            prefixIcon: Icons.apartment_rounded,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => FocusScope.of(context).unfocus(),
-                            hasError: submitted && _errors['companyName']!.isNotEmpty,
-                            errorText: _errors['companyName'],
-                            validator: (value) => '',
-                          ),
-                          const SizedBox(height: 16),
-                          EnhancedDropdown<String>(
-                            label: 'Designation',
-                            value: _selectedDesignation,
-                            items: _designationOptions,
-                            itemLabel: (item) => item,
-                            hint: 'Select your designation',
-                            onChanged: _handleDesignationChange,
-                            hasError: submitted && _errors['designation']!.isNotEmpty,
-                            errorText: _errors['designation'],
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 16),
-                          EnhancedDropdown<String>(
-                            label: 'Working With',
-                            value: _selectedWorkingWith,
-                            items: _workingWithOptions,
-                            itemLabel: (item) => item,
-                            hint: 'Select organization type',
-                            onChanged: _handleWorkingWithChange,
-                            hasError: submitted && _errors['workingWith']!.isNotEmpty,
-                            errorText: _errors['workingWith'],
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 16),
-                          EnhancedDropdown<String>(
-                            label: 'Annual Income',
-                            value: _selectedAnnualIncome,
-                            items: _annualIncomeOptions,
-                            itemLabel: (item) => item,
-                            hint: 'Select income range',
-                            onChanged: _handleAnnualIncomeChange,
-                            hasError: submitted && _errors['annualIncome']!.isNotEmpty,
-                            errorText: _errors['annualIncome'],
-                            isRequired: true,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-
-                  // Show Business Details
-                  if (_occupationType == "Business") ...[
-                    const SizedBox(height: 24),
-                    Container(
-                      padding: const EdgeInsets.all(20),
-                      decoration: BoxDecoration(
-                        color: AppColors.white,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppColors.border, width: 1.5),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppColors.shadowLight,
-                            blurRadius: 12,
-                            offset: const Offset(0, 4),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(
-                                  gradient: AppColors.primaryGradient,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Icon(
-                                  Icons.business_outlined,
-                                  size: 20,
-                                  color: AppColors.white,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              const Text(
-                                'Business Details',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.textPrimary,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          EnhancedTextField(
-                            label: 'Business Name',
-                            controller: _businessNameController,
-                            hint: 'Enter your business name',
-                            prefixIcon: Icons.storefront_rounded,
-                            textInputAction: TextInputAction.done,
-                            onSubmitted: (_) => FocusScope.of(context).unfocus(),
-                            hasError: submitted && _errors['businessName']!.isNotEmpty,
-                            errorText: _errors['businessName'],
-                            validator: (value) => '',
-                          ),
-                          const SizedBox(height: 16),
-                          EnhancedDropdown<String>(
-                            label: 'Designation',
-                            value: _selectedDesignation,
-                            items: _designationOptions,
-                            itemLabel: (item) => item,
-                            hint: 'Select your role',
-                            onChanged: _handleDesignationChange,
-                            hasError: submitted && _errors['designation']!.isNotEmpty,
-                            errorText: _errors['designation'],
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 16),
-                          EnhancedDropdown<String>(
-                            label: 'Business Type',
-                            value: _selectedBusinessWorkingWith,
-                            items: _workingWithOptions,
-                            itemLabel: (item) => item,
-                            hint: 'Select business type',
-                            onChanged: _handleBusinessWorkingWithChange,
-                            hasError: submitted && _errors['businessWorkingWith']!.isNotEmpty,
-                            errorText: _errors['businessWorkingWith'],
-                            isRequired: true,
-                          ),
-                          const SizedBox(height: 16),
-                          EnhancedDropdown<String>(
-                            label: 'Annual Income',
-                            value: _selectedBusinessAnnualIncome,
-                            items: _annualIncomeOptions,
-                            itemLabel: (item) => item,
-                            hint: 'Select income range',
-                            onChanged: _handleBusinessAnnualIncomeChange,
-                            hasError: submitted && _errors['businessAnnualIncome']!.isNotEmpty,
-                            errorText: _errors['businessAnnualIncome'],
-                            isRequired: true,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ],
 
-                const SizedBox(height: 32),
+                // Show Business Details
+                if (_occupationType == "Business") ...[
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: AppColors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: AppColors.border, width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.shadowLight,
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                gradient: AppColors.primaryGradient,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: const Icon(
+                                Icons.business_outlined,
+                                size: 20,
+                                color: AppColors.white,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Business Details',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        EnhancedTextField(
+                          label: 'Business Name',
+                          controller: _businessNameController,
+                          hint: 'Enter your business name',
+                          prefixIcon: Icons.storefront_rounded,
+                          textInputAction: TextInputAction.done,
+                          onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                          hasError:
+                              submitted && _errors['businessName']!.isNotEmpty,
+                          errorText: _errors['businessName'],
+                          validator: (value) => '',
+                        ),
+                        const SizedBox(height: 16),
+                        EnhancedDropdown<String>(
+                          label: 'Designation',
+                          value: _selectedDesignation,
+                          items: _designationOptions,
+                          itemLabel: (item) => item,
+                          hint: 'Select your role',
+                          onChanged: _handleDesignationChange,
+                          hasError:
+                              submitted && _errors['designation']!.isNotEmpty,
+                          errorText: _errors['designation'],
+                          isRequired: true,
+                        ),
+                        const SizedBox(height: 16),
+                        EnhancedDropdown<String>(
+                          label: 'Business Type',
+                          value: _selectedBusinessWorkingWith,
+                          items: _workingWithOptions,
+                          itemLabel: (item) => item,
+                          hint: 'Select business type',
+                          onChanged: _handleBusinessWorkingWithChange,
+                          hasError: submitted &&
+                              _errors['businessWorkingWith']!.isNotEmpty,
+                          errorText: _errors['businessWorkingWith'],
+                          isRequired: true,
+                        ),
+                        const SizedBox(height: 16),
+                        EnhancedDropdown<String>(
+                          label: 'Annual Income',
+                          value: _selectedBusinessAnnualIncome,
+                          items: _annualIncomeOptions,
+                          itemLabel: (item) => item,
+                          hint: 'Select income range',
+                          onChanged: _handleBusinessAnnualIncomeChange,
+                          hasError: submitted &&
+                              _errors['businessAnnualIncome']!.isNotEmpty,
+                          errorText: _errors['businessAnnualIncome'],
+                          isRequired: true,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ],
-            ),
+
+              const SizedBox(height: 32),
+            ],
+          ),
         ),
       ),
     );
@@ -878,17 +870,21 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
         "occupationtype": _occupationType ?? "",
         "companyname": _companyNameController.text.trim(),
         "designation": _selectedDesignation ?? "",
-        "workingwith": _selectedWorkingWith ?? _selectedBusinessWorkingWith ?? "",
-        "annualincome": _selectedAnnualIncome ?? _selectedBusinessAnnualIncome ?? "",
+        "workingwith":
+            _selectedWorkingWith ?? _selectedBusinessWorkingWith ?? "",
+        "annualincome":
+            _selectedAnnualIncome ?? _selectedBusinessAnnualIncome ?? "",
         "businessname": _businessNameController.text.trim(),
       };
 
       print("Sending request: $requestBody");
 
-      var response = await http.post(
-        Uri.parse("${kApiBaseUrl}/Api2/educationcareer.php"),
-        body: requestBody,
-      ).timeout(const Duration(seconds: 30));
+      var response = await http
+          .post(
+            Uri.parse("${kApiBaseUrl}/Api2/educationcareer.php"),
+            body: requestBody,
+          )
+          .timeout(const Duration(seconds: 30));
 
       print("Response status: ${response.statusCode}");
       print("Response body: ${response.body}");
@@ -916,8 +912,8 @@ class _EducationCareerPageState extends State<EducationCareerPage> {
               Future.delayed(const Duration(seconds: 1), () {
                 Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => AstrologicDetailsPage())
-                );
+                    MaterialPageRoute(
+                        builder: (context) => AstrologicDetailsPage()));
               });
             } else {
               _showError("Failed to update progress");

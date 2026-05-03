@@ -70,7 +70,8 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
       currentUserName: widget.callerName,
       onMaximize: () {
         navigatorKey.currentState?.popUntil(
-          (route) => route.settings.name == activeCallRouteName || route.isFirst,
+          (route) =>
+              route.settings.name == activeCallRouteName || route.isFirst,
         );
       },
       onEnd: _endCall,
@@ -132,7 +133,24 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         },
         onError: (err, msg) {
           print('❌ Active call error: $err - $msg');
-          _endCall();
+          if (_isFatalAgoraError(err, msg)) {
+            _endCall();
+            return;
+          }
+          if (mounted) {
+            setState(() => _connectionStatus = 'Reconnecting...');
+          }
+        },
+        onConnectionStateChanged: (connection, state, reason) {
+          print('🔌 Active call state: $state, reason: $reason');
+          if (!mounted) return;
+          if (state == ConnectionStateType.connectionStateConnected) {
+            setState(() => _connectionStatus = null);
+          } else if (state == ConnectionStateType.connectionStateReconnecting) {
+            setState(() => _connectionStatus = 'Reconnecting...');
+          } else if (state == ConnectionStateType.connectionStateFailed) {
+            _endCall();
+          }
         },
       ));
 
@@ -157,11 +175,23 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
           publishMicrophoneTrack: true,
         ),
       );
-
     } catch (e) {
       print('❌ Init engine error: $e');
       _endCall();
     }
+  }
+
+  bool _isFatalAgoraError(ErrorCodeType code, String message) {
+    final msg = message.toLowerCase();
+    final codeText = code.toString().toLowerCase();
+    // Authentication/channel errors are unrecoverable without new credentials.
+    return msg.contains('token') ||
+        msg.contains('invalid') ||
+        msg.contains('expired') ||
+        codeText.contains('token') ||
+        codeText.contains('invalid') ||
+        codeText.contains('expired') ||
+        codeText.contains('rejected');
   }
 
   void _startCallTimer() {
@@ -262,49 +292,63 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
                 children: [
                   // Minimize button at the top
                   Align(
-                      alignment: Alignment.topRight,
-                      child: Padding(
-                        padding: const EdgeInsets.only(right: 16, top: 12),
-                        child: CallMinimizeButton(onPressed: _minimizeCall),
-                      ),
+                    alignment: Alignment.topRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16, top: 12),
+                      child: CallMinimizeButton(onPressed: _minimizeCall),
                     ),
+                  ),
                   Expanded(
                     child: Center(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          const Icon(Icons.phone_in_talk, color: Colors.white, size: 80),
+                          const Icon(Icons.phone_in_talk,
+                              color: Colors.white, size: 80),
                           const SizedBox(height: 20),
                           Text(
                             'Call with ${widget.callerName}',
-                            style: const TextStyle(color: Colors.white, fontSize: 24),
+                            style: const TextStyle(
+                                color: Colors.white, fontSize: 24),
                           ),
                           const SizedBox(height: 10),
                           Text(
                             _formatDuration(_duration),
-                            style: const TextStyle(color: Colors.white70, fontSize: 18),
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 18),
                           ),
                           const SizedBox(height: 40),
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                             children: [
                               IconButton(
-                                 icon: Icon(_micMuted ? Icons.mic_off : Icons.mic,
-                                     color: Colors.white, size: 40),
-                                 onPressed: _toggleMute,
-                               ),
+                                icon: Icon(
+                                    _micMuted ? Icons.mic_off : Icons.mic,
+                                    color: Colors.white,
+                                    size: 40),
+                                onPressed: _toggleMute,
+                              ),
                               IconButton(
-                                icon: const Icon(Icons.call_end, color: Colors.red, size: 60),
+                                icon: const Icon(Icons.call_end,
+                                    color: Colors.red, size: 60),
                                 onPressed: _endCall,
                               ),
                               IconButton(
-                                 icon: Icon(_speakerOn ? Icons.volume_up : Icons.volume_off,
-                                     color: Colors.white, size: 40),
-                                 onPressed: _engineInitialized ? () {
-                                   setState(() => _speakerOn = !_speakerOn);
-                                   _engine.setEnableSpeakerphone(_speakerOn);
-                                 } : null,
-                               ),
+                                icon: Icon(
+                                    _speakerOn
+                                        ? Icons.volume_up
+                                        : Icons.volume_off,
+                                    color: Colors.white,
+                                    size: 40),
+                                onPressed: _engineInitialized
+                                    ? () {
+                                        setState(
+                                            () => _speakerOn = !_speakerOn);
+                                        _engine
+                                            .setEnableSpeakerphone(_speakerOn);
+                                      }
+                                    : null,
+                              ),
                             ],
                           ),
                         ],

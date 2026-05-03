@@ -1,4 +1,4 @@
-import 'dart:async' show unawaited;
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
@@ -35,6 +35,7 @@ import '../../purposal/purposalScreen.dart';
 import '../../purposal/purposalservice.dart';
 import '../../purposal/requestcard.dart' show showUpgradeDialog;
 import '../../service/Service_chat.dart';
+import '../../service/favorite_sync_service.dart';
 import '../../service/verification_service.dart';
 import '../../ReUsable/loading_widgets.dart';
 import '../../utils/privacy_utils.dart';
@@ -64,13 +65,22 @@ class MatrimonyHomeScreen extends StatefulWidget {
 
   @override
   State<MatrimonyHomeScreen> createState() => _MatrimonyHomeScreenState();
+
+  // Static broadcast stream so MainControllere can trigger a home-tab refresh
+  // even when the IndexedStack keeps the widget alive (initState never re-fires).
+  static final _tabActivated = StreamController<void>.broadcast();
+  static void requestRefresh() => _tabActivated.add(null);
 }
 
-class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
+class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen>
+    with WidgetsBindingObserver {
   static const String _apiBaseUrl = '${kApiBaseUrl}/Api2';
   static const String _placeholderProfileImage =
       'https://via.placeholder.com/150';
   static const Color _brandRed = AppColors.primary;
+
+  // Subscription for home-tab-activation refresh requests
+  StreamSubscription<void>? _homeTabActivatedSub;
 
   List<dynamic> _matchedProfilesApi = [];
   bool _isLoading = true;
@@ -109,6 +119,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
   // Pull-to-refresh shimmer flag
   bool _isRefreshing = false;
+
+  // Key counter to force ProfileSwipeUI recreation on resume so it re-fetches fresh profiles.
+  int _swipeUiResumeKey = 0;
 
   // Silent background refresh flag (shown as thin progress bar at top)
   bool _isSilentRefreshing = false;
@@ -253,9 +266,15 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   }
 
   Future<void> _fetchShortlistedProfiles() async {
+    await _fetchShortlistedProfilesInternal(forceRefresh: false);
+  }
+
+  Future<void> _fetchShortlistedProfilesInternal(
+      {required bool forceRefresh}) async {
     // Check cache first
     final cacheKey = 'shortlisted_profiles';
-    if (_cache.containsKey(cacheKey) &&
+    if (!forceRefresh &&
+        _cache.containsKey(cacheKey) &&
         !_cache[cacheKey]!.isExpired(const Duration(minutes: 2))) {
       if (!mounted) return;
       setState(() {
@@ -318,6 +337,69 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       setState(() => _isLoadingShortlist = false);
       debugPrint('Error fetching shortlisted profiles: $e');
     }
+  }
+
+  Future<void> _persistShortlistedCache(List<dynamic> profiles) async {
+    _cache['shortlisted_profiles'] = CachedData(profiles, DateTime.now());
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kShortlistedCacheKey, jsonEncode(profiles));
+    } catch (e) {
+      debugPrint('Error updating shortlist cache: $e');
+    }
+  }
+
+  Map<String, dynamic> _shortlistItemFromMatchedUser(MatchedUser user) {
+    return {
+      'userid': user.userId,
+      'lastName': user.lastName,
+      'city': user.city,
+      'country': user.country,
+      'profile_picture': user.profilePicture,
+      'isVerified': user.isVerified ? 1 : 0,
+      'privacy': user.privacy,
+      'photo_request': user.photo_request,
+      'can_view_photo': user.canViewPhoto,
+      'matchPercent': user.matchPercent,
+      'age': user.age,
+      'height_name': user.heightName,
+      'designation': user.designation,
+    };
+  }
+
+  Future<void> _onSuggestedProfileLikeChanged(
+      MatchedUser user, bool isLiked) async {
+    if (!mounted) return;
+
+    final receiverId = user.userId;
+    final existingIndex = _shortlistedProfiles.indexWhere(
+      (profile) => profile['userid']?.toString() == receiverId.toString(),
+    );
+
+    final updatedProfiles = List<dynamic>.from(_shortlistedProfiles);
+    if (isLiked) {
+      if (existingIndex == -1) {
+        updatedProfiles.insert(0, _shortlistItemFromMatchedUser(user));
+      } else {
+        updatedProfiles[existingIndex] = _shortlistItemFromMatchedUser(user);
+      }
+    } else {
+      if (existingIndex != -1) {
+        updatedProfiles.removeAt(existingIndex);
+      }
+    }
+
+    setState(() {
+      _shortlistedProfiles = updatedProfiles;
+      _favoriteRequestCount = _shortlistedProfiles.length;
+    });
+
+    await _persistShortlistedCache(updatedProfiles);
+  }
+
+  void _handleFavoriteSyncSignal() {
+    if (!mounted) return;
+    unawaited(_fetchShortlistedProfilesInternal(forceRefresh: true));
   }
 
   Future<void> _fetchQuickActionCounts({bool forceRefresh = false}) async {
@@ -478,10 +560,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   }
 
   Future<void> _fetchRecentMembers() async {
-    // Check cache first
+    if (_isLoadingRecentMembers) return;
+
+    // Check cache first (30-second TTL so new members appear quickly)
     final cacheKey = 'recent_members';
     if (_cache.containsKey(cacheKey) &&
-        !_cache[cacheKey]!.isExpired(const Duration(minutes: 2))) {
+        !_cache[cacheKey]!.isExpired(const Duration(seconds: 30))) {
       if (!mounted) return;
       setState(() {
         _recentMembers = _cache[cacheKey]!.data as List<Map<String, dynamic>>;
@@ -491,12 +575,20 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       return;
     }
 
+    if (mounted) {
+      setState(() => _isLoadingRecentMembers = true);
+    }
+
     final prefs = await SharedPreferences.getInstance();
     final userDataString = prefs.getString('user_data');
-    if (userDataString == null) return;
+    if (userDataString == null) {
+      if (mounted) {
+        setState(() => _isLoadingRecentMembers = false);
+      }
+      return;
+    }
     final userData = jsonDecode(userDataString);
     final userid = userData["id"];
-    final userCreatedDate = userData["created_at"] ?? "";
 
     try {
       // Use search_opposite_gender API with sort by recent registration
@@ -510,20 +602,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         if (data['success'] == true && data['data'] != null) {
           final List members = data['data'];
 
-          // Filter members registered after current user
-          final membersList = members.where((member) {
-            final memberCreatedDate = member['created_at'] ?? '';
-            if (memberCreatedDate.isEmpty || userCreatedDate.isEmpty)
-              return true;
-
-            try {
-              final memberDate = DateTime.parse(memberCreatedDate);
-              final userDate = DateTime.parse(userCreatedDate);
-              return memberDate.isAfter(userDate);
-            } catch (e) {
-              return true; // Include if date parsing fails
-            }
-          }).map<Map<String, dynamic>>((member) {
+          // Show all recently registered members (backend already sorts by
+          // newest first via ORDER BY id DESC — no client-side date filter).
+          final membersList = members.map<Map<String, dynamic>>((member) {
             // Construct full profile picture URL
             final rawImage = member['profile_picture'] ?? '';
             final imageUrl = rawImage.startsWith('http')
@@ -799,10 +880,40 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadPersistentCacheThenRefresh();
     loadMasterData();
     _loadUnreadNotificationCount();
     OnlineStatusService().start();
+    FavoriteSyncService.changes.addListener(_handleFavoriteSyncSignal);
+    // Refresh recent members (and matched profiles) when the home tab is
+    // re-activated via the bottom nav — IndexedStack never calls initState
+    // on tab switch, so we use a static broadcast stream.
+    _homeTabActivatedSub = MatrimonyHomeScreen._tabActivated.stream.listen((_) {
+      if (!mounted) return;
+      _cache.remove('recent_members');
+      unawaited(_fetchRecentMembers());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Clear in-memory cache so profile photos are refetched fresh on resume.
+      _cache
+        ..remove('matched_profiles')
+        ..remove('shortlisted_profiles')
+        ..remove('premium_members')
+        ..remove('recent_members');
+      if (mounted) setState(() => _swipeUiResumeKey++);
+      unawaited(Future.wait([
+        fetchMatchedProfiles(),
+        _fetchShortlistedProfiles(),
+        _fetchPremiumMembers(),
+        _fetchRecentMembers(),
+      ], eagerError: false));
+      loadMasterData();
+    }
   }
 
   /// Loads cached data from SharedPreferences for instant display, then
@@ -943,7 +1054,9 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
 
   @override
   void dispose() {
-    // Clean up resources
+    WidgetsBinding.instance.removeObserver(this);
+    FavoriteSyncService.changes.removeListener(_handleFavoriteSyncSignal);
+    _homeTabActivatedSub?.cancel();
     super.dispose();
   }
 
@@ -1080,6 +1193,8 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                             child: ClipRRect(
                               borderRadius: AppDimensions.borderRadiusXL,
                               child: ProfileSwipeUI(
+                                key: ValueKey(
+                                    'swipe-$userid-$_swipeUiResumeKey'),
                                 userId: userid,
                                 matchApiUrl: '${kApiBaseUrl}/Api2/match.php',
                                 baseUrl: '${kApiBaseUrl}/Api2',
@@ -1087,6 +1202,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                     '${kApiBaseUrl}/Api2/send_request.php',
                                 likeApiUrl:
                                     '${kApiBaseUrl}/Api2/like_action.php',
+                                onLikeChanged: _onSuggestedProfileLikeChanged,
                               ),
                             ),
                           ),
@@ -1935,16 +2051,18 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
           final location =
               '$city${city.isNotEmpty && country.isNotEmpty ? ', ' : ''}$country';
           final profilePicture = profile['profile_picture'] ?? '';
-          final imageUrl = profilePicture.isNotEmpty
-              ? '${kApiBaseUrl}/Api2/$profilePicture'
-              : '';
+          final imageUrl = _resolveApiImageUrl(profilePicture);
           final matchPercent = profile['matchPercent'];
           final isVerified = profile['isVerified'] == 1;
           final matchedPrivacy =
               profile['privacy']?.toString().toLowerCase() ?? '';
           final matchedPhotoRequest =
               profile['photo_request']?.toString().toLowerCase() ?? '';
-          final matchedShowClear = profile['can_view_photo'] == true;
+          final matchedShowClear = _shouldShowClearPhoto(
+            privacy: matchedPrivacy,
+            photoRequest: matchedPhotoRequest,
+            canViewPhoto: profile['can_view_photo'] == true,
+          );
 
           Color matchColor = AppColors.success;
           if (matchPercent != null) {
@@ -2078,6 +2196,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                             child: const Icon(Icons.verified_rounded,
                                 color: Color(0xFF2196F3), size: 16),
                           ),
+                        ),
+                      if (!matchedShowClear)
+                        Positioned(
+                          bottom: 8,
+                          right: 8,
+                          child: _buildPhotoLockedBadge(matchedPhotoRequest),
                         ),
                       if (matchPercent != null)
                         Positioned(
@@ -2236,12 +2360,27 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
       );
     }
 
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isSmallPhone = screenWidth <= 360;
+    final bool isLargePhone = screenWidth >= 430;
+
+    final double stripHeight = isSmallPhone ? 184 : (isLargePhone ? 214 : 198);
+    final double cardWidth = isSmallPhone ? 148 : (isLargePhone ? 174 : 162);
+    final double overlayHeight = isSmallPhone ? 78 : (isLargePhone ? 92 : 86);
+    final double horizontalPadding = isSmallPhone ? 12 : 16;
+    final double cardGap = isSmallPhone ? 10 : 12;
+    final double badgeTop = isSmallPhone ? 8 : 10;
+    final double badgeLeft = isSmallPhone ? 8 : 10;
+    final double verifiedBadgeSize = isSmallPhone ? 22 : 24;
+    final double verifiedIconSize = isSmallPhone ? 14 : 15;
+    final double infoTextSize = isSmallPhone ? 9 : 10;
+
     return SizedBox(
-      height: 180,
+      height: stripHeight,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         itemCount: _shortlistedProfiles.length,
-        padding: const EdgeInsets.only(left: 16, right: 8),
+        padding: EdgeInsets.only(left: horizontalPadding, right: 8),
         itemBuilder: (context, index) {
           final person = _shortlistedProfiles[index];
           final lastName = person['lastName']?.toString() ?? '';
@@ -2262,7 +2401,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               person['privacy']?.toString().toLowerCase() ?? '';
           final shortlistPhotoRequest =
               person['photo_request']?.toString().toLowerCase() ?? '';
-          final shortlistShowClear = person['can_view_photo'] == true;
+          final shortlistShowClear = _shouldShowClearPhoto(
+            privacy: shortlistPrivacy,
+            photoRequest: shortlistPhotoRequest,
+            canViewPhoto: person['can_view_photo'] == true,
+          );
 
           Widget shortlistProfileImg = imageUrl.isNotEmpty
               ? Image.network(
@@ -2305,21 +2448,24 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               }
             },
             child: Container(
-              width: 150,
-              margin: const EdgeInsets.only(right: 12),
+              width: cardWidth,
+              margin: EdgeInsets.only(right: cardGap),
               decoration: BoxDecoration(
                 color: AppColors.white,
-                borderRadius: AppDimensions.borderRadiusLG,
+                borderRadius: AppDimensions.borderRadiusXL,
+                border: Border.all(
+                  color: AppColors.border.withOpacity(0.35),
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.black.withOpacity(0.07),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    color: AppColors.black.withOpacity(0.08),
+                    blurRadius: 12,
+                    offset: const Offset(0, 6),
                   ),
                 ],
               ),
               child: ClipRRect(
-                borderRadius: AppDimensions.borderRadiusLG,
+                borderRadius: AppDimensions.borderRadiusXL,
                 child: Stack(
                   children: [
                     // Full-height image
@@ -2330,7 +2476,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                       left: 0,
                       right: 0,
                       child: Container(
-                        height: 90,
+                        height: overlayHeight,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
                             colors: [Colors.transparent, AppColors.black],
@@ -2343,15 +2489,15 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                     // Name & city text at bottom
                     Positioned(
                       bottom: 8,
-                      left: 10,
-                      right: 10,
+                      left: badgeLeft,
+                      right: badgeLeft,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             displayName,
-                            style: AppTextStyles.caption.copyWith(
+                            style: AppTextStyles.labelSmall.copyWith(
                               fontWeight: FontWeight.w700,
                               color: AppColors.white,
                               shadows: const [
@@ -2374,7 +2520,7 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                   child: Text(
                                     city,
                                     style: AppTextStyles.captionSmall.copyWith(
-                                        fontSize: 11,
+                                        fontSize: infoTextSize,
                                         color:
                                             AppColors.white.withOpacity(0.7)),
                                     overflow: TextOverflow.ellipsis,
@@ -2388,18 +2534,55 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                     // Verified badge
                     if (isVerified)
                       Positioned(
-                        top: 8,
-                        right: 8,
+                        top: badgeTop,
+                        right: badgeLeft,
                         child: Container(
-                          width: 22,
-                          height: 22,
+                          width: verifiedBadgeSize,
+                          height: verifiedBadgeSize,
                           decoration: const BoxDecoration(
                             color: AppColors.white,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.verified_rounded,
-                              color: Color(0xFF2196F3), size: 14),
+                          child: Icon(Icons.verified_rounded,
+                              color: const Color(0xFF2196F3),
+                              size: verifiedIconSize),
                         ),
+                      ),
+                    Positioned(
+                      top: badgeTop,
+                      left: badgeLeft,
+                      child: Container(
+                        padding: EdgeInsets.symmetric(
+                            horizontal: isSmallPhone ? 6 : 7,
+                            vertical: isSmallPhone ? 2.5 : 3),
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withOpacity(0.9),
+                          borderRadius: AppDimensions.borderRadiusMD,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.favorite_rounded,
+                                size: isSmallPhone ? 9 : 10,
+                                color: AppColors.white),
+                            AppSpacing.horizontalXS,
+                            Text(
+                              'Saved',
+                              style: AppTextStyles.captionSmall.copyWith(
+                                color: AppColors.white,
+                                fontSize: infoTextSize,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    if (!shortlistShowClear)
+                      Positioned(
+                        top: isSmallPhone ? 32 : 36,
+                        left: badgeLeft,
+                        child: _buildPhotoLockedBadge(shortlistPhotoRequest),
                       ),
                   ],
                 ),
@@ -2458,7 +2641,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               profile['privacy']?.toString().toLowerCase() ?? '';
           final premiumPhotoRequest =
               profile['photo_request']?.toString().toLowerCase() ?? '';
-          final premiumShowClear = profile['can_view_photo'] == true;
+          final premiumShowClear = _shouldShowClearPhoto(
+            privacy: premiumPrivacy,
+            photoRequest: premiumPhotoRequest,
+            canViewPhoto: profile['can_view_photo'] == true,
+          );
 
           Widget premiumProfileImg = Image.network(
             imageUrl,
@@ -2583,6 +2770,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                                 color: Color(0xFF2196F3), size: 18),
                           ),
                         ),
+                      if (!premiumShowClear)
+                        Positioned(
+                          bottom: 10,
+                          right: 10,
+                          child: _buildPhotoLockedBadge(premiumPhotoRequest),
+                        ),
                     ],
                   ),
                   Expanded(
@@ -2699,7 +2892,6 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
         itemBuilder: (context, index) {
           final profile = _recentMembers[index];
           final lastName = profile['lastName'] ?? '';
-          final firstName = profile['firstName'] ?? '';
           final memberid = profile['memberid'] ?? 'MS';
           final userIdd = profile['userId'] ?? profile['id'];
           final age = profile['age'] ?? '';
@@ -2714,7 +2906,11 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
               profile['photo_request']?.toString().toLowerCase() ?? '';
 
           // Determine if we should show clear image (use backend-computed can_view_photo)
-          final shouldShowClearImage = profile['can_view_photo'] == true;
+          final shouldShowClearImage = _shouldShowClearPhoto(
+            privacy: privacy,
+            photoRequest: photoRequest,
+            canViewPhoto: profile['can_view_photo'] == true,
+          );
 
           return GestureDetector(
             onTap: () async {
@@ -2844,6 +3040,12 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
                             child: const Icon(Icons.verified_rounded,
                                 color: Color(0xFF2196F3), size: 18),
                           ),
+                        ),
+                      if (!shouldShowClearImage)
+                        Positioned(
+                          bottom: 10,
+                          right: 10,
+                          child: _buildPhotoLockedBadge(photoRequest),
                         ),
                     ],
                   ),
@@ -3223,6 +3425,49 @@ class _MatrimonyHomeScreenState extends State<MatrimonyHomeScreen> {
     final normalizedPath =
         rawImage.startsWith('/') ? rawImage.substring(1) : rawImage;
     return '$_apiBaseUrl/$normalizedPath';
+  }
+
+  bool _shouldShowClearPhoto({
+    required String? privacy,
+    required String? photoRequest,
+    required bool? canViewPhoto,
+  }) {
+    return PrivacyUtils.shouldShowClearImage(
+      privacy: privacy,
+      photoRequest: photoRequest,
+      canViewPhoto: canViewPhoto,
+    );
+  }
+
+  Widget _buildPhotoLockedBadge(String? photoRequest) {
+    final normalized = photoRequest?.toString().toLowerCase().trim() ?? '';
+    String label = 'Photo Locked';
+    if (normalized == 'pending') label = 'Request Pending';
+    if (normalized == 'rejected') label = 'Request Rejected';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color: AppColors.black.withOpacity(0.7),
+        borderRadius: AppDimensions.borderRadiusMD,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.lock_outline_rounded,
+              size: 11, color: AppColors.white),
+          AppSpacing.horizontalXS,
+          Text(
+            label,
+            style: AppTextStyles.captionSmall.copyWith(
+              color: AppColors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildRequestLoadingState() {

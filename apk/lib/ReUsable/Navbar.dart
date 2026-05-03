@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 class AppNavbar extends StatelessWidget {
   final int selectedIndex;
   final Function(int) onItemSelected;
+  final VoidCallback onCreateTapped;
   final String? currentUserImage;
   final int chatUnreadCount;
 
@@ -14,13 +15,14 @@ class AppNavbar extends StatelessWidget {
     super.key,
     required this.selectedIndex,
     required this.onItemSelected,
+    required this.onCreateTapped,
     this.currentUserImage,
     this.chatUnreadCount = 0,
   });
 
   @override
   Widget build(BuildContext context) {
-    const items = [
+    const leftItems = [
       _NavItem(
         icon: Icons.home_outlined,
         activeIcon: Icons.home_rounded,
@@ -31,6 +33,9 @@ class AppNavbar extends StatelessWidget {
         activeIcon: Icons.favorite_rounded,
         label: 'Liked',
       ),
+    ];
+
+    const rightItems = [
       _NavItem(
         icon: Icons.chat_bubble_outline_rounded,
         activeIcon: Icons.chat_bubble_rounded,
@@ -56,23 +61,73 @@ class AppNavbar extends StatelessWidget {
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: SizedBox(
-            height: 64,
-            child: Row(
-              children: List.generate(items.length, (index) {
-                final isActive = selectedIndex == index;
-                final item = items[index];
-                return Expanded(
-                  child: _buildNavItem(
-                    item: item,
-                    index: index,
-                    isActive: isActive,
+        child: SizedBox(
+          height: 82,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      for (int i = 0; i < leftItems.length; i++)
+                        Expanded(
+                          child: _buildNavItem(
+                            item: leftItems[i],
+                            index: i,
+                            isActive: selectedIndex == i,
+                          ),
+                        ),
+                      const SizedBox(width: 72),
+                      for (int i = 0; i < rightItems.length; i++)
+                        Expanded(
+                          child: _buildNavItem(
+                            item: rightItems[i],
+                            index: i + 2,
+                            isActive: selectedIndex == (i + 2),
+                          ),
+                        ),
+                    ],
                   ),
-                );
-              }),
-            ),
+                ),
+              ),
+              Positioned(
+                top: -8,
+                left: 0,
+                right: 0,
+                child: Center(
+                  child: GestureDetector(
+                    onTap: onCreateTapped,
+                    child: Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: const LinearGradient(
+                          colors: [Color(0xFFF90E18), Color(0xFFFF5B62)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: _activeColor.withOpacity(0.35),
+                            blurRadius: 14,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                        border: Border.all(color: Colors.white, width: 3),
+                      ),
+                      child: const Icon(
+                        Icons.add_a_photo_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -95,7 +150,9 @@ class AppNavbar extends StatelessWidget {
             curve: Curves.easeOut,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: isActive ? _activeColor.withOpacity(0.10) : Colors.transparent,
+              color: isActive
+                  ? _activeColor.withOpacity(0.10)
+                  : Colors.transparent,
               borderRadius: BorderRadius.circular(16),
             ),
             child: Column(
@@ -126,9 +183,7 @@ class AppNavbar extends StatelessWidget {
                             minHeight: 16,
                           ),
                           child: Text(
-                            chatUnreadCount > 99
-                                ? '99+'
-                                : '$chatUnreadCount',
+                            chatUnreadCount > 99 ? '99+' : '$chatUnreadCount',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                               color: Colors.white,

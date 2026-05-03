@@ -401,6 +401,14 @@ class ProfileService {
         requestType: type,
         status: 'accepted',
       );
+      // Notify both sides via socket so their chat lists immediately update
+      // the photo-request status and show/hide photos accordingly.
+      SocketService().emitProposalAccepted(
+        originalSenderId: senderId,
+        acceptorId: myId,
+        acceptorName: senderName,
+        requestType: type,
+      );
     }
 
     return result;

@@ -4,6 +4,7 @@ error_reporting(0);
 ini_set('display_errors', 0);
 
 header("Content-Type: application/json");
+require_once __DIR__ . '/deletion_guard.php';
 
 // ---------------- DB CONNECTION ----------------
 $conn = new mysqli("localhost", "root", "", "ms");
@@ -27,6 +28,12 @@ if (!isset($_GET['user_id'], $_GET['type'])) {
 
 $user_id = (int) $_GET['user_id'];
 $type    = $_GET['type'];
+
+if (isUserPendingDeletionMysqli($conn, $user_id)) {
+    echo json_encode(deletionPendingResponse('Requests are unavailable while account deletion is pending'));
+    $conn->close();
+    exit;
+}
 
 $validTypes = ["received", "sent", "accepted"];
 if (!in_array($type, $validTypes)) {
@@ -84,7 +91,9 @@ try {
     LEFT JOIN userpersonaldetail upd_receiver ON upd_receiver.userid = ur.id
     LEFT JOIN maritalstatus ms_receiver ON ms_receiver.id = upd_receiver.maritalStatusId
 
-    WHERE
+        WHERE us.id NOT IN (SELECT userid FROM delete_request WHERE status = 'pending')
+            AND ur.id NOT IN (SELECT userid FROM delete_request WHERE status = 'pending')
+            AND
     ";
 
     if ($type === "received") {

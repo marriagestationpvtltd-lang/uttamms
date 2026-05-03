@@ -38,7 +38,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         _currentUserName = userData['name']?.toString() ?? '';
         _currentUserImage = userData['image']?.toString() ?? '';
         if (_currentUserId.isNotEmpty) {
-          _callsFuture = CallHistoryService.getCallHistoryFuture(_currentUserId);
+          _callsFuture =
+              CallHistoryService.getCallHistoryFuture(_currentUserId);
         }
       });
     }
@@ -80,7 +81,8 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       body: FutureBuilder<List<CallHistory>>(
         future: _callsFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting || _currentUserId.isEmpty) {
+          if (snapshot.connectionState == ConnectionState.waiting ||
+              _currentUserId.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -109,8 +111,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.call_outlined,
-                      size: 80, color: Colors.grey[400]),
+                  Icon(Icons.call_outlined, size: 80, color: Colors.grey[400]),
                   const SizedBox(height: 16),
                   Text(
                     'No call history',
@@ -154,22 +155,40 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     // Status icon based on call type and direction
     IconData statusIcon;
     Color statusColor;
+    String statusLabel;
 
-    if (call.status == CallStatus.missed && isIncoming) {
+    if (call.isGroup) {
+      statusIcon = Icons.groups;
+      statusColor = Colors.purple;
+      statusLabel = 'Group Call';
+    } else if (call.status == CallStatus.missed && isIncoming) {
       statusIcon = Icons.call_missed;
       statusColor = Colors.red;
-    } else if (call.status == CallStatus.declined) {
+      statusLabel = 'Missed Call';
+    } else if (call.status == CallStatus.missed && !isIncoming) {
+      statusIcon = Icons.call_missed_outgoing;
+      statusColor = Colors.orange;
+      statusLabel = 'No Answer';
+    } else if (call.status == CallStatus.declined && isIncoming) {
       statusIcon = Icons.call_end;
       statusColor = Colors.red;
+      statusLabel = 'Declined';
+    } else if (call.status == CallStatus.declined && !isIncoming) {
+      statusIcon = Icons.call_end;
+      statusColor = Colors.red;
+      statusLabel = 'Rejected';
     } else if (call.status == CallStatus.cancelled) {
       statusIcon = Icons.call_missed_outgoing;
       statusColor = Colors.orange;
+      statusLabel = 'Cancelled';
     } else if (isIncoming) {
       statusIcon = Icons.call_received;
       statusColor = Colors.green;
+      statusLabel = 'Incoming';
     } else {
       statusIcon = Icons.call_made;
       statusColor = Colors.green;
+      statusLabel = 'Outgoing';
     }
 
     return InkWell(
@@ -183,26 +202,33 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
         ),
         child: Row(
           children: [
-            // Profile Image
-            CircleAvatar(
-              radius: 26,
-              backgroundColor: Colors.grey[300],
-              backgroundImage: otherPersonImage.isNotEmpty
-                  ? NetworkImage(otherPersonImage)
-                  : null,
-              child: otherPersonImage.isEmpty
-                  ? Text(
-                      otherPersonName.isNotEmpty
-                          ? otherPersonName[0].toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    )
-                  : null,
-            ),
+            // Profile Image / Group Icon
+            call.isGroup
+                ? CircleAvatar(
+                    radius: 26,
+                    backgroundColor: Colors.purple[100],
+                    child: const Icon(Icons.groups,
+                        color: Colors.purple, size: 28),
+                  )
+                : CircleAvatar(
+                    radius: 26,
+                    backgroundColor: Colors.grey[300],
+                    backgroundImage: otherPersonImage.isNotEmpty
+                        ? NetworkImage(otherPersonImage)
+                        : null,
+                    child: otherPersonImage.isEmpty
+                        ? Text(
+                            otherPersonName.isNotEmpty
+                                ? otherPersonName[0].toUpperCase()
+                                : '?',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          )
+                        : null,
+                  ),
             const SizedBox(width: 12),
             // Call Details
             Expanded(
@@ -211,7 +237,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                 children: [
                   // Name
                   Text(
-                    otherPersonName,
+                    call.isGroup ? 'Group Call' : otherPersonName,
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: call.status == CallStatus.missed && isIncoming
@@ -225,16 +251,27 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  // Status and Date
+                  // Status label + date row
                   Row(
                     children: [
                       Icon(statusIcon, size: 16, color: statusColor),
                       const SizedBox(width: 4),
+                      Text(
+                        statusLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: statusColor,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text('·', style: TextStyle(color: Colors.grey[400])),
+                      const SizedBox(width: 6),
                       Expanded(
                         child: Text(
                           _formatCallTime(call.startTime),
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 12,
                             color: Colors.grey[600],
                           ),
                         ),
@@ -253,22 +290,21 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
                 ],
               ),
             ),
-            // Call Type Icon and Action Button
-            IconButton(
-              icon: Icon(
-                call.callType == CallType.video
-                    ? Icons.videocam
-                    : Icons.call,
-                color: const Color(0xFFF90E18),
-                size: 24,
+            // Call Type Icon and Action Button (not shown for group calls)
+            if (!call.isGroup)
+              IconButton(
+                icon: Icon(
+                  call.callType == CallType.video ? Icons.videocam : Icons.call,
+                  color: const Color(0xFFF90E18),
+                  size: 24,
+                ),
+                onPressed: () => _makeCall(
+                  otherPersonId,
+                  otherPersonName,
+                  otherPersonImage,
+                  call.callType,
+                ),
               ),
-              onPressed: () => _makeCall(
-                otherPersonId,
-                otherPersonName,
-                otherPersonImage,
-                call.callType,
-              ),
-            ),
           ],
         ),
       ),

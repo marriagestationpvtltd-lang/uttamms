@@ -10,8 +10,18 @@ class DeleteAccountPage extends StatefulWidget {
 }
 
 class _DeleteAccountPageState extends State<DeleteAccountPage> {
+  static const List<String> _reasonOptions = [
+    'Found a partner',
+    'Privacy concerns',
+    'Not useful anymore',
+    'Too many technical issues',
+    'Created duplicate account',
+    'Other',
+  ];
+
   final TextEditingController reasonCtrl = TextEditingController();
   final TextEditingController feedbackCtrl = TextEditingController();
+  String? selectedReason;
   bool isLoading = false;
 
   @override
@@ -22,11 +32,25 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
   }
 
   Future<void> deleteAccount() async {
+    final deleteReason = selectedReason == 'Other'
+        ? reasonCtrl.text.trim()
+        : (selectedReason ?? '').trim();
+
     // Validate reason
-    if (reasonCtrl.text.trim().isEmpty) {
+    if ((selectedReason ?? '').isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Please provide a reason for deletion"),
+          content: Text("Please select a reason for deletion"),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    if (selectedReason == 'Other' && deleteReason.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Please type your reason for deletion"),
           backgroundColor: Colors.orange,
         ),
       );
@@ -40,7 +64,7 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text(
-            "Delete Account",
+            "Request Account Deletion",
             style: TextStyle(color: Colors.red),
           ),
           content: const Column(
@@ -48,18 +72,19 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Are you sure you want to permanently delete your account?",
+                "Are you sure you want to submit a deletion request?",
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               SizedBox(height: 12),
-              Text("This action cannot be undone. You will lose:"),
+              Text(
+                  "Your request will be reviewed by our team. Until approved:"),
               SizedBox(height: 8),
-              Text("• All your profile information"),
-              Text("• All matches and conversations"),
-              Text("• All photos and preferences"),
+              Text("• You will be logged out immediately"),
+              Text("• You will not be able to log in"),
+              Text("• Your profile will be hidden from others"),
               SizedBox(height: 12),
               Text(
-                "Your data will be permanently removed from our servers.",
+                "Your account will only be permanently deleted after admin approval.",
                 style: TextStyle(color: Colors.red, fontSize: 12),
               ),
             ],
@@ -74,7 +99,7 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
               ),
-              child: const Text("Delete Permanently"),
+              child: const Text("Submit Request"),
             ),
           ],
         );
@@ -108,12 +133,13 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
         },
         body: {
           "userid": userId,
-          "delete_reason": reasonCtrl.text.trim(),
+          "delete_reason": deleteReason,
           "feedback": feedbackCtrl.text.trim(),
         },
       ).timeout(const Duration(seconds: 30));
 
-      final Map<String, dynamic> res = jsonDecode(response.body);
+      final responseText = utf8.decode(response.bodyBytes).trim();
+      final Map<String, dynamic> res = jsonDecode(responseText);
 
       if (res["status"] == "success") {
         // Clear all local data
@@ -124,7 +150,8 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text("Account deleted successfully"),
+              content:
+                  Text("Deletion request submitted. Pending admin approval."),
               backgroundColor: Colors.green,
             ),
           );
@@ -133,7 +160,7 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
           Navigator.pushNamedAndRemoveUntil(
             context,
             '/login',
-                (route) => false,
+            (route) => false,
           );
         }
       } else {
@@ -150,6 +177,16 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Network error: ${e.message}")),
+        );
+      }
+    } on FormatException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text("Server returned an invalid response. Please try again."),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } on Exception catch (e) {
@@ -193,7 +230,8 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.warning_amber_rounded, color: Colors.red.shade700),
+                      Icon(Icons.warning_amber_rounded,
+                          color: Colors.red.shade700),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Text(
@@ -240,22 +278,54 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  "Please tell us why you're deleting your account",
+                  "Please select the closest reason for deleting your account",
                   style: TextStyle(color: Colors.grey, fontSize: 12),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: reasonCtrl,
-                  maxLines: 3,
+                DropdownButtonFormField<String>(
+                  value: selectedReason,
                   decoration: InputDecoration(
-                    hintText: "e.g., Found a partner, Privacy concerns, Buggy app...",
+                    hintText: "Select a reason",
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     filled: true,
                     fillColor: Colors.grey.shade50,
                   ),
+                  items: _reasonOptions
+                      .map(
+                        (reason) => DropdownMenuItem<String>(
+                          value: reason,
+                          child: Text(reason),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: isLoading
+                      ? null
+                      : (value) {
+                          setState(() {
+                            selectedReason = value;
+                            if (value != 'Other') {
+                              reasonCtrl.clear();
+                            }
+                          });
+                        },
                 ),
+                if (selectedReason == 'Other') ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: reasonCtrl,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: "Please type your reason",
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 32),
                 SizedBox(
                   width: double.infinity,
@@ -270,21 +340,23 @@ class _DeleteAccountPageState extends State<DeleteAccountPage> {
                     ),
                     child: isLoading
                         ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
                         : const Text(
-                      "Permanently Delete Account",
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
+                            "Submit Deletion Request",
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 16),

@@ -69,7 +69,8 @@ class UserService {
     }
   }
 
-  /// Soft-delete one or more users.
+  /// Sends one or more users into the Delete Requests workflow.
+  /// Final deletion is completed from the Delete Requests screen.
   /// Returns a map with `'success'` (bool) and `'message'` (String).
   Future<Map<String, dynamic>> deleteUsers({required List<int> userIds}) async {
     try {

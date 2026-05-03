@@ -90,6 +90,68 @@ class _ChatSidebarState extends State<ChatSidebar> {
   Set<String> _pinnedUserIds = {};
   ChatProvider? _chatProvider;
 
+  static Map<String, dynamic>? _safeMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) return Map<String, dynamic>.from(value);
+    return null;
+  }
+
+  static List<Map<String, dynamic>> _safeRoomMaps(List<dynamic> rooms) {
+    final result = <Map<String, dynamic>>[];
+    for (final room in rooms) {
+      final map = _safeMap(room);
+      if (map != null) result.add(map);
+    }
+    return result;
+  }
+
+  static int _safeUnreadCount(dynamic raw) {
+    if (raw is num) return raw.toInt();
+    if (raw is String) return int.tryParse(raw) ?? 0;
+    if (raw is Map) {
+      return _safeUnreadCount(raw['count'] ?? raw['value'] ?? raw['unread']);
+    }
+    return 0;
+  }
+
+  static List<String> _extractParticipants(Map<String, dynamic> room) {
+    final raw = room['participants'] ?? room['participantIds'] ?? room['users'];
+
+    if (raw is List) {
+      return raw.map((e) => e.toString()).where((e) => e.isNotEmpty).toList();
+    }
+
+    if (raw is String) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is List) {
+          return decoded
+              .map((e) => e.toString())
+              .where((e) => e.isNotEmpty)
+              .toList();
+        }
+      } catch (_) {
+        // Fallback for non-JSON comma-delimited participant strings.
+        return raw
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList();
+      }
+    }
+
+    final fallback = <String>[
+      room['otherUserId']?.toString() ?? '',
+      room['other_user_id']?.toString() ?? '',
+      room['receiverId']?.toString() ?? '',
+      room['receiver_id']?.toString() ?? '',
+      room['userId']?.toString() ?? '',
+      room['user_id']?.toString() ?? '',
+    ];
+
+    return fallback.where((e) => e.isNotEmpty).toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -333,9 +395,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
   void _startSocketListeners() {
     _chatRoomsSub?.cancel();
     _chatRoomsSub = _socketService.onChatRoomsUpdate.listen((rooms) {
-      _applyChatRoomsUpdate(
-        rooms.map((room) => Map<String, dynamic>.from(room as Map)).toList(),
-      );
+      _applyChatRoomsUpdate(_safeRoomMaps(rooms));
     });
 
     _newMessageSub?.cancel();
@@ -476,9 +536,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
       final connected = await _socketService.ensureConnected();
       if (!connected) return;
       final rooms = await _socketService.getChatRooms();
-      _applyChatRoomsUpdate(
-        rooms.map((room) => Map<String, dynamic>.from(room as Map)).toList(),
-      );
+      _applyChatRoomsUpdate(_safeRoomMaps(rooms));
     } catch (error) {
       debugPrint('Error loading chat rooms: $error');
     }
@@ -696,7 +754,8 @@ class _ChatSidebarState extends State<ChatSidebar> {
         final jsonResponse = jsonDecode(response.body);
         final List<dynamic> data = (jsonResponse["data"] as List?) ?? [];
         if (data.isEmpty) return;
-        final newUser = Map<String, dynamic>.from(data[0] as Map);
+        final newUser = _safeMap(data[0]);
+        if (newUser == null) return;
         final existingIdx = _users.indexWhere(
           (u) => u['id']?.toString() == userId,
         );
@@ -752,9 +811,7 @@ class _ChatSidebarState extends State<ChatSidebar> {
     final Set<String> unknownIds = {};
 
     for (final room in rooms) {
-      final participants = (room['participants'] as List? ?? [])
-          .map((e) => e.toString())
-          .toList();
+      final participants = _extractParticipants(room);
       final otherUserId = participants.firstWhere(
         (id) => id != senderId.toString(),
         orElse: () => '',
@@ -762,18 +819,30 @@ class _ChatSidebarState extends State<ChatSidebar> {
       if (otherUserId.isEmpty) continue;
 
       final lastTime = AdminSocketService.parseTimestamp(
-        room['lastMessageTime'],
+        room['lastMessageTime'] ??
+            room['last_message_time'] ??
+            room['timestamp'],
       );
       tempMap[otherUserId] = {
-        'lastMessage': room['lastMessage'] ?? '',
+        'lastMessage': room['lastMessage'] ?? room['last_message'] ?? '',
         'lastMessagePreview': _formatConversationPreview(
-          rawMessage: room['lastMessage']?.toString() ?? '',
-          messageType: room['lastMessageType']?.toString(),
+          rawMessage:
+              room['lastMessage']?.toString() ??
+              room['last_message']?.toString() ??
+              '',
+          messageType:
+              room['lastMessageType']?.toString() ??
+              room['last_message_type']?.toString(),
         ),
         'lastTimestamp': lastTime,
-        'lastMessageType': room['lastMessageType']?.toString() ?? 'text',
+        'lastMessageType':
+            room['lastMessageType']?.toString() ??
+            room['last_message_type']?.toString() ??
+            'text',
       };
-      unreadCounts[otherUserId] = (room['unreadCount'] as num?)?.toInt() ?? 0;
+      unreadCounts[otherUserId] = _safeUnreadCount(
+        room['unreadCount'] ?? room['unread_count'],
+      );
       _prevLastTimestamps[otherUserId] = lastTime;
 
       Map<String, dynamic>? user;

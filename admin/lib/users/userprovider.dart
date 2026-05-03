@@ -9,7 +9,6 @@ import 'package:flutter/material.dart';
 
 import 'model/usermodel.dart';
 
-
 class UserProvider with ChangeNotifier {
   final UserService _userService = UserService();
   final UserDetailsService _userDetailsService = UserDetailsService();
@@ -22,11 +21,14 @@ class UserProvider with ChangeNotifier {
   String _searchQuery = '';
   String _statusFilter = 'all';
   String _userTypeFilter = 'all';
+  String _quickFilter = 'all';
+  String _sortBy =
+      'newest'; // newest | oldest | name_az | name_za | last_login | expiry
   bool _isSelectAll = false;
   bool _isSessionExpired = false;
 
   // Pagination state
-  final int _pageSize = 50;
+  final int _pageSize = 24;
   int _displayPage = 1;
 
   final AdminSocketService _socketService = AdminSocketService();
@@ -44,6 +46,8 @@ class UserProvider with ChangeNotifier {
   String get searchQuery => _searchQuery;
   String get statusFilter => _statusFilter;
   String get userTypeFilter => _userTypeFilter;
+  String get quickFilter => _quickFilter;
+  String get sortBy => _sortBy;
   Set<int> get selectedUserIds => _selectedUserIds;
   bool get isSelectAll => _isSelectAll;
   int get selectedCount => _selectedUserIds.length;
@@ -102,25 +106,28 @@ class UserProvider with ChangeNotifier {
 
   void _startPresenceListener() {
     _presenceSub?.cancel();
-    _presenceSub = _socketService.onUserStatusChange.listen((data) {
-      bool changed = false;
-      final docId = data['userId']?.toString() ?? '';
-      final isOnline = data['isOnline'] == true ? 1 : 0;
-      if (docId.isEmpty) return;
+    _presenceSub = _socketService.onUserStatusChange.listen(
+      (data) {
+        bool changed = false;
+        final docId = data['userId']?.toString() ?? '';
+        final isOnline = data['isOnline'] == true ? 1 : 0;
+        if (docId.isEmpty) return;
 
-      for (final user in _allUsers) {
-        if (user.id.toString() == docId) {
-          if (user.isOnline != isOnline) {
-            user.isOnline = isOnline;
-            changed = true;
+        for (final user in _allUsers) {
+          if (user.id.toString() == docId) {
+            if (user.isOnline != isOnline) {
+              user.isOnline = isOnline;
+              changed = true;
+            }
+            break;
           }
-          break;
         }
-      }
-      if (changed) _applyFilters();
-    }, onError: (e) {
-      debugPrint('UserProvider presence error: $e');
-    });
+        if (changed) _applyFilters();
+      },
+      onError: (e) {
+        debugPrint('UserProvider presence error: $e');
+      },
+    );
   }
 
   @override
@@ -163,7 +170,8 @@ class UserProvider with ChangeNotifier {
   }
 
   Future<void> preloadActivity(int userId) async {
-    if (_activityByUser.containsKey(userId) || _activityLoading.contains(userId)) {
+    if (_activityByUser.containsKey(userId) ||
+        _activityLoading.contains(userId)) {
       return;
     }
     _activityLoading.add(userId);
@@ -187,7 +195,6 @@ class UserProvider with ChangeNotifier {
   bool isUserSelected(int userId) {
     return _selectedUserIds.contains(userId);
   }
-
 
   /// Approve or reject a user's profile photo from the member list card.
   Future<bool> approvePhoto(int userId, String action, {String? reason}) async {
@@ -245,12 +252,11 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  /// Hard-delete a single user by ID.
+  /// Sends a single user into the Delete Requests workflow.
   Future<bool> deleteUser(int userId, BuildContext context) async {
     try {
       final result = await _userService.deleteUsers(userIds: [userId]);
       if (result['success'] == true) {
-        _allUsers.removeWhere((u) => u.id == userId);
         _applyFilters();
         clearSelection();
       }
@@ -260,7 +266,6 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-
   // -- Bulk action methods
 
   Future<void> suspendSelectedUsers(BuildContext context) async {
@@ -268,9 +273,10 @@ class UserProvider with ChangeNotifier {
 
     final ids = List<int>.from(_selectedUserIds);
     final confirmed = await _showConfirmationDialog(
-        context,
-        'Suspend Users',
-        'Are you sure you want to suspend ${ids.length} user(s)?');
+      context,
+      'Suspend Users',
+      'Are you sure you want to suspend ${ids.length} user(s)?',
+    );
 
     if (!confirmed) return;
 
@@ -295,8 +301,10 @@ class UserProvider with ChangeNotifier {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message']?.toString() ??
-                '${ids.length} user(s) suspended successfully'),
+            content: Text(
+              result['message']?.toString() ??
+                  '${ids.length} user(s) suspended successfully',
+            ),
             backgroundColor: Colors.orange,
           ),
         );
@@ -304,7 +312,9 @@ class UserProvider with ChangeNotifier {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message']?.toString() ?? 'Failed to suspend users'),
+            content: Text(
+              result['message']?.toString() ?? 'Failed to suspend users',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -312,10 +322,7 @@ class UserProvider with ChangeNotifier {
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     } finally {
       _isLoading = false;
@@ -328,9 +335,10 @@ class UserProvider with ChangeNotifier {
 
     final ids = List<int>.from(_selectedUserIds);
     final confirmed = await _showConfirmationDialog(
-        context,
-        'Delete Users',
-        'Are you sure you want to delete ${ids.length} user(s)? This action cannot be undone.');
+      context,
+      'Send To Delete Requests',
+      'Send ${ids.length} user(s) to Delete Requests? Final deletion will be completed from that section.',
+    );
 
     if (!confirmed) return;
 
@@ -341,23 +349,26 @@ class UserProvider with ChangeNotifier {
       final result = await _userService.deleteUsers(userIds: ids);
 
       if (result['success'] == true) {
-        _allUsers.removeWhere((user) => ids.contains(user.id));
         _applyFilters();
         clearSelection();
 
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message']?.toString() ??
-                '${ids.length} user(s) deleted successfully'),
-            backgroundColor: Colors.red,
+            content: Text(
+              result['message']?.toString() ??
+                  '${ids.length} user(s) sent to Delete Requests',
+            ),
+            backgroundColor: Colors.orange,
           ),
         );
       } else {
         if (!context.mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(result['message']?.toString() ?? 'Failed to delete users'),
+            content: Text(
+              result['message']?.toString() ?? 'Failed to delete users',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -365,10 +376,7 @@ class UserProvider with ChangeNotifier {
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
       );
     } finally {
       _isLoading = false;
@@ -376,27 +384,34 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  Future<bool> _showConfirmationDialog(BuildContext context, String title, String message) async {
+  Future<bool> _showConfirmationDialog(
+    BuildContext context,
+    String title,
+    String message,
+  ) async {
     return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(title),
+            content: Text(message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: title.contains('Delete')
+                      ? Colors.red
+                      : Colors.orange,
+                ),
+                child: Text(title.contains('Delete') ? 'Delete' : 'Suspend'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: title.contains('Delete') ? Colors.red : Colors.orange,
-            ),
-            child: Text(title.contains('Delete') ? 'Delete' : 'Suspend'),
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   void setSearchQuery(String query) {
@@ -411,6 +426,16 @@ class UserProvider with ChangeNotifier {
 
   void setUserTypeFilter(String userType) {
     _userTypeFilter = userType;
+    _applyFilters();
+  }
+
+  void setQuickFilter(String quickFilter) {
+    _quickFilter = quickFilter;
+    _applyFilters();
+  }
+
+  void setSortBy(String sortBy) {
+    _sortBy = sortBy;
     _applyFilters();
   }
 
@@ -431,11 +456,84 @@ class UserProvider with ChangeNotifier {
     }
 
     if (_statusFilter != 'all') {
-      filtered = filtered.where((user) => user.status == _statusFilter).toList();
+      filtered = filtered
+          .where((user) => user.status == _statusFilter)
+          .toList();
     }
 
     if (_userTypeFilter != 'all') {
-      filtered = filtered.where((user) => user.usertype == _userTypeFilter).toList();
+      filtered = filtered
+          .where((user) => user.usertype == _userTypeFilter)
+          .toList();
+    }
+
+    if (_quickFilter != 'all') {
+      switch (_quickFilter) {
+        case 'pending_photo':
+          filtered = filtered
+              .where(
+                (user) => user.hasProfilePicture && user.status == 'pending',
+              )
+              .toList();
+          break;
+        case 'incomplete_profile':
+          filtered = filtered.where((user) {
+            final hasPhone = (user.phone ?? '').trim().isNotEmpty;
+            final pageNo = user.pageno ?? 0;
+            return pageNo < 10 || !hasPhone || user.status == 'not_uploaded';
+          }).toList();
+          break;
+        case 'recent_photo':
+          filtered = filtered
+              .where(
+                (user) => user.hasProfilePicture && user.hasRecentPhotoUpdate,
+              )
+              .toList();
+          break;
+      }
+    }
+
+    // ── Sort ────────────────────────────────────────────────────────
+    switch (_sortBy) {
+      case 'oldest':
+        filtered.sort((a, b) {
+          final da = DateTime.tryParse(a.registrationDate ?? '') ?? DateTime(0);
+          final db = DateTime.tryParse(b.registrationDate ?? '') ?? DateTime(0);
+          return da.compareTo(db);
+        });
+        break;
+      case 'name_az':
+        filtered.sort(
+          (a, b) =>
+              a.fullName.toLowerCase().compareTo(b.fullName.toLowerCase()),
+        );
+        break;
+      case 'name_za':
+        filtered.sort(
+          (a, b) =>
+              b.fullName.toLowerCase().compareTo(a.fullName.toLowerCase()),
+        );
+        break;
+      case 'last_login':
+        filtered.sort((a, b) {
+          final da = DateTime.tryParse(a.lastLogin) ?? DateTime(0);
+          final db = DateTime.tryParse(b.lastLogin) ?? DateTime(0);
+          return db.compareTo(da); // most recent first
+        });
+        break;
+      case 'expiry':
+        filtered.sort((a, b) {
+          final da = DateTime.tryParse(a.expiryDate ?? '') ?? DateTime(9999);
+          final db = DateTime.tryParse(b.expiryDate ?? '') ?? DateTime(9999);
+          return da.compareTo(db); // soonest expiry first
+        });
+        break;
+      default: // 'newest'
+        filtered.sort((a, b) {
+          final da = DateTime.tryParse(a.registrationDate ?? '') ?? DateTime(0);
+          final db = DateTime.tryParse(b.registrationDate ?? '') ?? DateTime(0);
+          return db.compareTo(da);
+        });
     }
 
     resetPaging();
@@ -456,6 +554,8 @@ class UserProvider with ChangeNotifier {
     _searchQuery = '';
     _statusFilter = 'all';
     _userTypeFilter = 'all';
+    _quickFilter = 'all';
+    _sortBy = 'newest';
     _applyFilters();
   }
 

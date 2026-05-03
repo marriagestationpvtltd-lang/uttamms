@@ -38,6 +38,15 @@ import '../settings/sound_vibration_settings_screen.dart';
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
 
+  // Static broadcast stream used to trigger a refresh from outside the widget
+  // (e.g. when the chat tab is re-activated via IndexedStack).
+  static final StreamController<void> _tabActivated =
+      StreamController<void>.broadcast();
+
+  /// Call this whenever the chat tab becomes visible so the list re-fetches
+  /// fresh participant images from the socket server.
+  static void requestRefresh() => _tabActivated.add(null);
+
   @override
   State<ChatListScreen> createState() => _ChatListScreenState();
 }
@@ -51,6 +60,7 @@ enum _MessageViewContext { listPreview, chat }
 class _ChatListScreenState extends State<ChatListScreen>
     with WidgetsBindingObserver {
   String userimage = '';
+  int _selfImageVersion = DateTime.now().millisecondsSinceEpoch;
   var pageno;
   String userId = '';
   String name = '';
@@ -62,6 +72,10 @@ class _ChatListScreenState extends State<ChatListScreen>
   List<ProposalModel> _sentChatRequests = [];
   bool _requestsLoading = true;
   bool _sentRequestsLoading = true;
+  final PageController _receivedReqPageCtrl = PageController();
+  final PageController _sentReqPageCtrl = PageController();
+  int _receivedReqPage = 0;
+  int _sentReqPage = 0;
   int _receivedProposalCount = 0;
   int _unreadNotificationCount = 0;
   int _totalUnreadCount = 0;
@@ -71,6 +85,14 @@ class _ChatListScreenState extends State<ChatListScreen>
   bool _isLoadingMore = false;
   int _cachedTotalRooms = 0;
   final ScrollController _scrollController = ScrollController();
+
+  // Track if user is actively scrolling to debounce message updates
+  bool _isUserScrolling = false;
+  Timer? _scrollIdleTimer;
+
+  // Buffer for pending room updates during scroll
+  List<Map<String, dynamic>>? _pendingRoomUpdate;
+
   StreamSubscription? _adminChatSubscription;
   String _adminLastMessage = '';
   DateTime? _adminLastMessageTime;
@@ -81,6 +103,7 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   // Local cache keys (user-specific suffix appended at runtime)
   static const String _chatRoomsCacheKey = 'chat_rooms_cache';
+  static const String _chatRoomsCacheTsKey = 'chat_rooms_cache_ts';
   static const String _pendingRequestsCacheKey = 'pending_chat_requests_cache';
   static const String _sentRequestsCacheKey = 'sent_chat_requests_cache';
 
@@ -93,7 +116,18 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   // Tracks when the chat rooms were last fetched to avoid redundant refreshes.
   DateTime? _lastChatRoomsFetch;
-  static const Duration _minRefreshInterval = Duration(seconds: 30);
+  DateTime? _lastSuccessfulChatRoomsFetch;
+  bool _chatRoomsRefreshInFlight = false;
+  bool _chatRoomsRefreshQueued = false;
+  static const Duration _minRefreshGap = Duration(milliseconds: 900);
+  static const Duration _cacheFreshWindow = Duration(seconds: 20);
+
+  // Subscription for tab-activation refresh requests
+  StreamSubscription? _tabActivatedSub;
+
+  // Subscription for proposal accepted events (e.g. photo request accepted)
+  // so the chat list updates participant photo visibility immediately.
+  StreamSubscription? _proposalAcceptedSub;
 
   // Online status for chat participants
   final Map<String, bool> _onlineStatuses = {};
@@ -115,19 +149,42 @@ class _ChatListScreenState extends State<ChatListScreen>
     OnlineStatusService().start();
     _scrollController.addListener(_onScroll);
     _searchController.addListener(_onSearchChanged);
+    // Refresh chat rooms when the chat tab is re-activated (IndexedStack does
+    // not call initState on tab switch, so we use a static broadcast stream).
+    _tabActivatedSub = ChatListScreen._tabActivated.stream.listen((_) {
+      if (!mounted || userId.isEmpty) return;
+      final last = _lastChatRoomsFetch;
+      // Throttle to at most once every 5 seconds to avoid rapid re-fetches
+      // when the user quickly switches tabs back and forth.
+      if (last == null ||
+          DateTime.now().difference(last) >= const Duration(seconds: 5)) {
+        _refreshChatRooms();
+      }
+    });
+    // When any proposal is accepted (photo request, chat request), refresh
+    // the chat list immediately so the updated photo-request status is shown.
+    _proposalAcceptedSub = SocketService().onProposalAccepted.listen((_) {
+      if (!mounted || userId.isEmpty) return;
+      _refreshChatRooms();
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _tabActivatedSub?.cancel();
+    _proposalAcceptedSub?.cancel();
     _adminChatSubscription?.cancel();
     _onlineStatusSubscription?.cancel();
     _chatRoomsUpdateSubscription?.cancel();
     _newMessageSubscription?.cancel();
     _userBlockedSubscription?.cancel();
     _adminStatusSubscription?.cancel();
+    _scrollIdleTimer?.cancel();
     _scrollController.dispose();
     _searchController.dispose();
+    _receivedReqPageCtrl.dispose();
+    _sentReqPageCtrl.dispose();
     super.dispose();
   }
 
@@ -137,23 +194,73 @@ class _ChatListScreenState extends State<ChatListScreen>
         state == AppLifecycleState.detached) {
       OnlineStatusService().setOffline();
     } else if (state == AppLifecycleState.resumed) {
+      _syncCurrentUserImageFromLocalCache();
       OnlineStatusService().start();
       _startAdminStatusListener();
       _startOnlineStatusListeners();
-      // Re-fetch chat rooms so any conversations started while the app was
-      // in the background (or the socket was reconnecting) are shown.
-      // Throttled to avoid redundant fetches on rapid foreground/background cycles.
+      // Re-fetch chat rooms on every resume so that profile-photo changes made
+      // by any participant are reflected immediately without requiring a full
+      // app restart or waiting for the throttle window to expire.
       if (userId.isNotEmpty) {
-        final lastFetch = _lastChatRoomsFetch;
-        if (lastFetch == null ||
-            DateTime.now().difference(lastFetch) >= _minRefreshInterval) {
-          _refreshChatRooms();
-        }
+        _refreshChatRooms();
       }
     }
   }
 
+  String _resolvedCurrentUserImage() {
+    final base = resolveApiImageUrl(userimage).trim();
+    if (base.isEmpty) return base;
+    final sep = base.contains('?') ? '&' : '?';
+    return '$base${sep}v=$_selfImageVersion';
+  }
+
+  Future<void> _syncCurrentUserImageFromLocalCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataString = prefs.getString('user_data');
+      if (userDataString == null || userDataString.isEmpty) return;
+
+      final userData = jsonDecode(userDataString);
+      final latest = (userData['profile_picture'] ??
+              userData['profilePicture'] ??
+              userData['image'] ??
+              '')
+          .toString()
+          .trim();
+
+      if (latest.isEmpty) return;
+
+      final normalizedLatest = resolveApiImageUrl(latest);
+      final normalizedCurrent = resolveApiImageUrl(userimage);
+      if (normalizedLatest == normalizedCurrent) return;
+
+      if (!mounted) return;
+      setState(() {
+        userimage = latest;
+        _selfImageVersion = DateTime.now().millisecondsSinceEpoch;
+      });
+    } catch (_) {}
+  }
+
   void _onScroll() {
+    // Mark that user is actively scrolling
+    if (!_isUserScrolling) {
+      _isUserScrolling = true;
+    }
+
+    // Reset idle timer to detect when scrolling stops
+    _scrollIdleTimer?.cancel();
+    _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _isUserScrolling = false;
+        // Apply any pending room updates after scroll completes
+        if (_pendingRoomUpdate != null) {
+          _applyRoomUpdate(_pendingRoomUpdate!);
+          _pendingRoomUpdate = null;
+        }
+      }
+    });
+
     if (_searchQuery.isNotEmpty) return;
     if (_scrollController.hasClients &&
         _scrollController.position.pixels >=
@@ -184,8 +291,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       final cached = prefs.getString('${_chatRoomsCacheKey}_$userId');
       if (cached == null || !mounted) return false;
       final List<dynamic> decoded = jsonDecode(cached);
-      final parsedRooms =
-          decoded.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      final parsedRooms = _safeRoomList(decoded);
       int totalUnread = 0;
       int unreadConvs = 0;
       for (final room in parsedRooms) {
@@ -201,6 +307,12 @@ class _ChatListScreenState extends State<ChatListScreen>
         _totalUnreadCount = totalUnread;
         _totalUnreadConversations = unreadConvs;
       });
+
+      final cacheTs = prefs.getInt('${_chatRoomsCacheTsKey}_$userId');
+      if (cacheTs != null && cacheTs > 0) {
+        _lastSuccessfulChatRoomsFetch =
+            DateTime.fromMillisecondsSinceEpoch(cacheTs);
+      }
       return true;
     } catch (e) {
       print('Error loading chat rooms cache for user $userId: $e');
@@ -214,9 +326,17 @@ class _ChatListScreenState extends State<ChatListScreen>
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('${_chatRoomsCacheKey}_$userId', jsonEncode(rooms));
+      await prefs.setInt('${_chatRoomsCacheTsKey}_$userId',
+          DateTime.now().millisecondsSinceEpoch);
     } catch (e) {
       print('Error saving chat rooms cache for user $userId: $e');
     }
+  }
+
+  bool _isChatRoomsCacheFresh() {
+    final last = _lastSuccessfulChatRoomsFetch;
+    if (last == null) return false;
+    return DateTime.now().difference(last) <= _cacheFreshWindow;
   }
 
   /// Loads pending/sent chat requests from SharedPreferences cache.
@@ -283,10 +403,17 @@ class _ChatListScreenState extends State<ChatListScreen>
       UserMasterData user = await fetchUserMasterData(userIdString);
       pageno = user.pageno;
 
+      final localProfileImage =
+          (userData["profile_picture"] ?? userData["profilePicture"] ?? '')
+              .toString()
+              .trim();
+
       _initializeChatBootstrap(
         resolvedUserId: user.id?.toString() ?? userIdString,
         resolvedName: '${user.firstName} ${user.lastName}'.trim(),
-        resolvedImage: user.profilePicture,
+        resolvedImage: localProfileImage.isNotEmpty
+            ? localProfileImage
+            : user.profilePicture,
       );
 
       // Keep UserState in sync with the data already fetched above –
@@ -340,6 +467,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (!mounted) return;
     setState(() {
       userimage = resolvedImage;
+      _selfImageVersion = DateTime.now().millisecondsSinceEpoch;
       userId = resolvedUserId;
       name = resolvedName;
       isLoading = false;
@@ -468,8 +596,7 @@ class _ChatListScreenState extends State<ChatListScreen>
 
     for (int i = 0; i < attempts; i++) {
       final rooms = await socketService.getChatRooms(uid);
-      parsedRooms =
-          rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      parsedRooms = _safeRoomList(rooms);
       if (parsedRooms.isNotEmpty) return parsedRooms;
 
       if (!socketService.isConnected) {
@@ -487,8 +614,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     final ids = [uid, _adminUserId]..sort();
     final adminRoomId = ids.join('_');
 
-    final adminRoomList = rooms
-        .cast<Map<String, dynamic>>()
+    final adminRoomList = _safeRoomList(rooms)
         .where((r) => r['chatRoomId'] == adminRoomId)
         .toList();
 
@@ -558,6 +684,10 @@ class _ChatListScreenState extends State<ChatListScreen>
 
     // Load from cache first so the list appears instantly without a spinner
     _loadChatRoomsFromCache().then((_) {
+      if (_isChatRoomsCacheFresh()) {
+        return;
+      }
+
       _fetchChatRoomsWithRetry(userId).then((parsedRooms) {
         if (!mounted) return;
 
@@ -589,6 +719,7 @@ class _ChatListScreenState extends State<ChatListScreen>
           _totalUnreadCount = totalUnread;
           _totalUnreadConversations = unreadConvs;
         });
+        _lastSuccessfulChatRoomsFetch = DateTime.now();
         // Persist fresh data for next launch
         _saveChatRoomsToCache(parsedRooms);
         // Seed initial online status from room data before real-time events arrive
@@ -627,8 +758,7 @@ class _ChatListScreenState extends State<ChatListScreen>
     _chatRoomsUpdateSubscription =
         SocketService().onChatRoomsUpdate.listen((rooms) {
       if (!mounted) return;
-      final parsedRooms =
-          rooms.map((r) => Map<String, dynamic>.from(r as Map)).toList();
+      final parsedRooms = _safeRoomList(rooms);
       int totalUnread = 0;
       int unreadConvs = 0;
       for (final room in parsedRooms) {
@@ -688,6 +818,25 @@ class _ChatListScreenState extends State<ChatListScreen>
         room['unreadCount'] = prevUnread + 1;
       }
 
+      // If user is actively scrolling, defer the update to prevent scroll jank
+      if (_isUserScrolling) {
+        _pendingRoomUpdate = [room];
+        return;
+      }
+
+      _applyRoomUpdate([room]);
+    });
+  }
+
+  /// Applies room updates and recomputes totals (avoiding duplicate logic)
+  void _applyRoomUpdate(List<Map<String, dynamic>> updatedRooms) {
+    if (updatedRooms.isEmpty) return;
+
+    final room = updatedRooms[0];
+    final idx = _socketChatRooms.indexWhere(
+        (r) => r['chatRoomId']?.toString() == room['chatRoomId']?.toString());
+
+    if (idx >= 0) {
       setState(() {
         _socketChatRooms.removeAt(idx);
         _socketChatRooms.insert(0, room);
@@ -706,19 +855,21 @@ class _ChatListScreenState extends State<ChatListScreen>
       // Keep the pinned admin card in sync when the admin room receives a message.
       if (_isAdminRoom(room)) {
         final String preview = _formatConversationPreview(
-          rawMessage: message,
-          messageType: messageType,
+          rawMessage: room['lastMessage']?.toString() ?? '',
+          messageType: room['lastMessageType']?.toString() ?? 'text',
           compactMediaLabels: true,
         );
         DateTime? latestTime;
+        final timestamp = room['lastMessageTime'];
         if (timestamp is String) latestTime = DateTime.tryParse(timestamp);
         setState(() {
           _adminLastMessage = preview;
           _adminLastMessageTime = latestTime;
-          if (senderId != userId) _adminUnreadCount += 1;
+          final senderId = room['lastMessageSenderId']?.toString() ?? '';
+          if (senderId != userId && senderId.isNotEmpty) _adminUnreadCount += 1;
         });
       }
-    });
+    }
   }
 
   /// Listen to Socket.IO user_status_change for admin's online status.
@@ -811,6 +962,25 @@ class _ChatListScreenState extends State<ChatListScreen>
     );
   }
 
+  /// Safely normalizes a dynamic map payload to Map<String, dynamic>.
+  Map<String, dynamic>? _safeDynamicMap(dynamic raw) {
+    if (raw is Map<String, dynamic>) return raw;
+    if (raw is Map) return Map<String, dynamic>.from(raw);
+    return null;
+  }
+
+  /// Converts a dynamic list payload to a list of map payloads, skipping
+  /// malformed entries instead of throwing cast errors.
+  List<Map<String, dynamic>> _safeRoomList(dynamic rawRooms) {
+    if (rawRooms is! List) return const [];
+    final out = <Map<String, dynamic>>[];
+    for (final item in rawRooms) {
+      final map = _safeDynamicMap(item);
+      if (map != null) out.add(map);
+    }
+    return out;
+  }
+
   // User-side public label: MS user ID + last name (first name hidden).
   String _publicIdentityFromIds({String? userId, String? lastName}) {
     final String u = (userId ?? '').trim();
@@ -894,8 +1064,22 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   /// Fetch fresh chat rooms from the server and update state.
   /// Called on demand (e.g. after returning from ChatDetailScreen).
-  Future<void> _refreshChatRooms() async {
+  Future<void> _refreshChatRooms({bool force = false}) async {
     if (userId.isEmpty || !mounted) return;
+
+    final now = DateTime.now();
+    if (!force &&
+        _lastSuccessfulChatRoomsFetch != null &&
+        now.difference(_lastSuccessfulChatRoomsFetch!) < _minRefreshGap) {
+      return;
+    }
+
+    if (_chatRoomsRefreshInFlight) {
+      _chatRoomsRefreshQueued = true;
+      return;
+    }
+
+    _chatRoomsRefreshInFlight = true;
     _lastChatRoomsFetch = DateTime.now();
     try {
       final parsedRooms = await _fetchChatRoomsWithRetry(userId);
@@ -924,10 +1108,17 @@ class _ChatListScreenState extends State<ChatListScreen>
         _totalUnreadCount = totalUnread;
         _totalUnreadConversations = unreadConvs;
       });
+      _lastSuccessfulChatRoomsFetch = DateTime.now();
       _saveChatRoomsToCache(parsedRooms);
       _updateOnlineStatusesFromRooms(parsedRooms);
     } catch (e) {
       debugPrint('_refreshChatRooms error: $e');
+    } finally {
+      _chatRoomsRefreshInFlight = false;
+      if (_chatRoomsRefreshQueued && mounted) {
+        _chatRoomsRefreshQueued = false;
+        Future.microtask(() => _refreshChatRooms(force: true));
+      }
     }
   }
 
@@ -1114,14 +1305,12 @@ class _ChatListScreenState extends State<ChatListScreen>
 
   bool _isAdminRoom(Map<String, dynamic> room) {
     if (userId.isEmpty) return false;
-    final participantsRaw = room['participants'];
-    if (participantsRaw is List) {
-      final participants = participantsRaw.map((p) => p.toString()).toList();
-      if (participants.contains(_adminUserId) &&
-          participants.contains(userId)) {
-        return true;
-      }
+
+    final participants = _participantsFromRoom(room);
+    if (participants.contains(_adminUserId) && participants.contains(userId)) {
+      return true;
     }
+
     final chatRoomId = room['chatRoomId']?.toString() ?? '';
     if (chatRoomId.isEmpty) return false;
     final ids = [userId, _adminUserId]..sort();
@@ -1362,7 +1551,7 @@ class _ChatListScreenState extends State<ChatListScreen>
               messageId: const Uuid().v4(),
               user1Name: name,
               user2Name: senderName,
-              user1Image: resolveApiImageUrl(userimage),
+              user1Image: _resolvedCurrentUserImage(),
               user2Image: senderImage,
             );
 
@@ -2433,7 +2622,7 @@ class _ChatListScreenState extends State<ChatListScreen>
       receiverPhotoRequest: sel['receiverPhotoRequest'],
       currentUserId: userId,
       currentUserName: name,
-      currentUserImage: resolveApiImageUrl(userimage),
+      currentUserImage: _resolvedCurrentUserImage(),
     );
   }
 
@@ -2535,33 +2724,33 @@ class _ChatListScreenState extends State<ChatListScreen>
     final bool showConversationsHeader =
         (showRequestsHeader || showSentHeader) && displayedRooms.isNotEmpty;
 
-    // ── Index offsets inside the ListView ──
-    // 0                      : received requests header (if showRequestsHeader)
-    // 1..reqCount            : received request rows
-    // next                   : sent requests header (if showSentHeader)
-    // next..sentCount        : sent request rows
-    // next                   : conversations header (if showConversationsHeader)
-    // next..                 : chat room rows
-    // last                   : loading indicator (if _isLoadingMore)
-
-    int cursor = 0;
-
-    final int requestsHeaderIdx = showRequestsHeader ? cursor++ : -1;
-    if (showRequestsHeader) cursor += reqCount;
-
-    final int sentHeaderIdx = showSentHeader ? cursor++ : -1;
-    final int firstSentIdx = showSentHeader ? cursor : -1;
-    if (showSentHeader) cursor += sentCount;
-
-    final int conversationsHeaderIdx = showConversationsHeader ? cursor++ : -1;
-    final int firstRoomIdx = cursor;
-
+    // ── Section widgets: carousels for requests + conversations header ─────────
     final bool showLoadingMore = _isLoadingMore && !isSearching;
+    final List<Widget> sectionItems = [];
+    if (showRequestsHeader)
+      sectionItems.add(_buildReceivedRequestsCarousel(reqCount));
+    if (showSentHeader) sectionItems.add(_buildSentRequestsCarousel(sentCount));
+    if (showConversationsHeader) {
+      sectionItems.add(Semantics(
+        header: true,
+        label: 'Conversations section',
+        child: Container(
+          color: Colors.grey.shade50,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: const Text(
+            'Conversations',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: Colors.black54,
+            ),
+          ),
+        ),
+      ));
+    }
+    final int sectionCount = sectionItems.length;
     final int totalItems =
-        firstRoomIdx + displayedRooms.length + (showLoadingMore ? 1 : 0);
-
-    // Precompute first request index for received section
-    final int firstRequestIdx = showRequestsHeader ? 1 : -1;
+        sectionCount + displayedRooms.length + (showLoadingMore ? 1 : 0);
 
     return Container(
       color: Colors.white,
@@ -2569,122 +2758,15 @@ class _ChatListScreenState extends State<ChatListScreen>
         controller: _scrollController,
         itemCount: totalItems,
         separatorBuilder: (_, index) {
-          if (showRequestsHeader && index == requestsHeaderIdx) {
-            return const SizedBox.shrink();
-          }
-          if (showSentHeader && index == sentHeaderIdx) {
-            return const SizedBox.shrink();
-          }
-          if (showConversationsHeader && index == conversationsHeaderIdx) {
-            return const SizedBox.shrink();
-          }
+          if (index < sectionCount) return const SizedBox.shrink();
           return const Divider(indent: 72, height: 1, color: Color(0xFFE0E0E0));
         },
         itemBuilder: (context, index) {
-          // ── Received requests header ──
-          if (showRequestsHeader && index == requestsHeaderIdx) {
-            return Semantics(
-              header: true,
-              label: _requestsLoading
-                  ? 'Loading chat requests'
-                  : 'Chat Requests section, $reqCount requests',
-              child: Container(
-                color: const Color(0xFFF90E18).withOpacity(0.06),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: _requestsLoading
-                    ? const LinearProgressIndicator()
-                    : Row(
-                        children: [
-                          const Icon(Icons.mark_chat_unread,
-                              color: Color(0xFFF90E18), size: 18),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Chat Requests ($reqCount)',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFF90E18),
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-            );
-          }
-
-          // ── Received request rows ──
-          if (showRequestsHeader &&
-              index >= firstRequestIdx &&
-              index < firstRequestIdx + reqCount) {
-            return _buildChatRequestCard(
-                _pendingChatRequests[index - firstRequestIdx]);
-          }
-
-          // ── Sent requests header ──
-          if (showSentHeader && index == sentHeaderIdx) {
-            return Semantics(
-              header: true,
-              label: _sentRequestsLoading
-                  ? 'Loading sent chat requests'
-                  : 'Sent Chat Requests section, $sentCount requests',
-              child: Container(
-                color: const Color(0xFF1565C0).withOpacity(0.06),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: _sentRequestsLoading
-                    ? const LinearProgressIndicator()
-                    : Row(
-                        children: [
-                          const Icon(Icons.send,
-                              color: Color(0xFF1565C0), size: 18),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Sent Requests ($sentCount)',
-                            style: const TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1565C0),
-                            ),
-                          ),
-                        ],
-                      ),
-              ),
-            );
-          }
-
-          // ── Sent request rows ──
-          if (showSentHeader &&
-              firstSentIdx >= 0 &&
-              index >= firstSentIdx &&
-              index < firstSentIdx + sentCount) {
-            return _buildSentChatRequestCard(
-                _sentChatRequests[index - firstSentIdx]);
-          }
-
-          // ── Conversations header ──
-          if (showConversationsHeader && index == conversationsHeaderIdx) {
-            return Semantics(
-              header: true,
-              label: 'Conversations section',
-              child: Container(
-                color: Colors.grey.shade50,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: const Text(
-                  'Conversations',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.black54,
-                  ),
-                ),
-              ),
-            );
-          }
+          // ── Section items (carousels, conversations header) ──
+          if (index < sectionCount) return sectionItems[index];
 
           // ── Loading indicator at tail ──
-          final int roomIndex = index - firstRoomIdx;
+          final int roomIndex = index - sectionCount;
           if (showLoadingMore && roomIndex == displayedRooms.length) {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
@@ -2872,6 +2954,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                 // Web two-panel: update the right panel instead of navigating
                 setState(() => _webSelectedChatData = chatData);
               } else {
+                await _syncCurrentUserImageFromLocalCache();
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -2884,7 +2967,7 @@ class _ChatListScreenState extends State<ChatListScreen>
                       receiverPhotoRequest: chatData['receiverPhotoRequest'],
                       currentUserId: userId,
                       currentUserName: name,
-                      currentUserImage: resolveApiImageUrl(userimage),
+                      currentUserImage: _resolvedCurrentUserImage(),
                     ),
                   ),
                 ).then((_) => _refreshChatRooms());
@@ -3091,6 +3174,147 @@ class _ChatListScreenState extends State<ChatListScreen>
           );
         },
       ),
+    );
+  }
+
+  // ── Received chat requests carousel ─────────────────────────────────────────
+  Widget _buildReceivedRequestsCarousel(int reqCount) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          color: const Color(0xFFF90E18).withOpacity(0.06),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: _requestsLoading
+              ? const LinearProgressIndicator()
+              : Row(
+                  children: [
+                    const Icon(Icons.mark_chat_unread,
+                        color: Color(0xFFF90E18), size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Chat Requests ($reqCount)',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFF90E18),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (reqCount > 1)
+                      Text(
+                        '${_receivedReqPage + 1} / $reqCount',
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFFF90E18)),
+                      ),
+                  ],
+                ),
+        ),
+        if (!_requestsLoading && reqCount > 0)
+          SizedBox(
+            height: 120,
+            child: PageView.builder(
+              controller: _receivedReqPageCtrl,
+              itemCount: reqCount,
+              onPageChanged: (p) => setState(() => _receivedReqPage = p),
+              itemBuilder: (_, i) =>
+                  _buildChatRequestCard(_pendingChatRequests[i]),
+            ),
+          ),
+        if (!_requestsLoading && reqCount > 1)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                reqCount,
+                (i) => AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: i == _receivedReqPage ? 10 : 6,
+                  height: 6,
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    color: i == _receivedReqPage
+                        ? const Color(0xFFF90E18)
+                        : Colors.grey.shade300,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  // ── Sent chat requests carousel ───────────────────────────────────────────
+  Widget _buildSentRequestsCarousel(int sentCount) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          color: const Color(0xFF1565C0).withOpacity(0.06),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: _sentRequestsLoading
+              ? const LinearProgressIndicator()
+              : Row(
+                  children: [
+                    const Icon(Icons.send, color: Color(0xFF1565C0), size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Sent Requests ($sentCount)',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1565C0),
+                      ),
+                    ),
+                    const Spacer(),
+                    if (sentCount > 1)
+                      Text(
+                        '${_sentReqPage + 1} / $sentCount',
+                        style: const TextStyle(
+                            fontSize: 12, color: Color(0xFF1565C0)),
+                      ),
+                  ],
+                ),
+        ),
+        if (!_sentRequestsLoading && sentCount > 0)
+          SizedBox(
+            height: 120,
+            child: PageView.builder(
+              controller: _sentReqPageCtrl,
+              itemCount: sentCount,
+              onPageChanged: (p) => setState(() => _sentReqPage = p),
+              itemBuilder: (_, i) =>
+                  _buildSentChatRequestCard(_sentChatRequests[i]),
+            ),
+          ),
+        if (!_sentRequestsLoading && sentCount > 1)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(
+                sentCount,
+                (i) => AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  width: i == _sentReqPage ? 10 : 6,
+                  height: 6,
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(3),
+                    color: i == _sentReqPage
+                        ? const Color(0xFF1565C0)
+                        : Colors.grey.shade300,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 

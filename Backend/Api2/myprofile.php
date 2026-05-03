@@ -33,7 +33,7 @@ if ($userid <= 0) {
 $sql = "
 SELECT 
     -- Users table
-    u.firstName, u.lastName, u.profile_picture, u.usertype, u.isVerified,
+    u.firstName, u.lastName, u.profile_picture, u.profile_photo_status AS profilePhotoStatus, u.usertype, u.isVerified,
 
     -- Permanent address
     pa.city, pa.country,
@@ -46,8 +46,10 @@ SELECT
     ec.workingwith AS ec_workingwith, ec.annualincome AS ec_annualincome, ec.businessname,
 
     -- Personal details
-    up.memberid, up.height_name, up.maritalStatusId, ms.name AS maritalStatusName,
+    up.memberid, up.height_name, up.weight_name, up.maritalStatusId, ms.name AS maritalStatusName,
     up.motherTongue, up.aboutMe, up.birthDate, up.Disability, up.bloodGroup,
+    up.haveSpecs, up.anyDisability, up.complexion, up.bodyType,
+    up.childStatus, up.childLiveWith,
     r.name AS religionName,
     c.name AS communityName,
     sc.name AS subCommunityName,
@@ -96,12 +98,50 @@ $result = $stmt->get_result();
 if ($result->num_rows > 0) {
     $row = $result->fetch_assoc();
 
+    $isHttps = (
+        (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+        || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443)
+    );
+    $scheme = $isHttps ? 'https' : 'http';
+    $hostName = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? ''));
+    $scriptDir = rtrim($scriptDir, '/');
+    $baseUrl = $scheme . '://' . $hostName . $scriptDir . '/';
+
+    $gallery = [];
+    $galleryStmt = $conn->prepare(
+        'SELECT id, imageurl, status, reject_reason, created_at
+         FROM user_gallery
+         WHERE userid = ?
+         ORDER BY id DESC'
+    );
+    $galleryStmt->bind_param('i', $userid);
+    $galleryStmt->execute();
+    $galleryResult = $galleryStmt->get_result();
+
+    while ($img = $galleryResult->fetch_assoc()) {
+        $rawImageUrl = (string) ($img['imageurl'] ?? '');
+        $imageUrl = preg_match('#^https?://#i', $rawImageUrl)
+            ? $rawImageUrl
+            : $baseUrl . ltrim($rawImageUrl, '/');
+
+        $gallery[] = [
+            'id' => (int) ($img['id'] ?? 0),
+            'imageurl' => $imageUrl,
+            'status' => (string) ($img['status'] ?? 'pending'),
+            'reject_reason' => $img['reject_reason'] ?? null,
+            'created_at' => $img['created_at'] ?? null,
+        ];
+    }
+    $galleryStmt->close();
+
     // Restructure JSON into sections
     $data = [
         "personalDetail" => [
             "firstName" => $row['firstName'],
             "lastName" => $row['lastName'],
             "profile_picture" => $row['profile_picture'],
+            "profilePhotoStatus" => $row['profilePhotoStatus'],
             "usertype" => $row['usertype'],
             "isVerified" => $row['isVerified'],
             "city" => $row['city'],
@@ -123,13 +163,20 @@ if ($result->num_rows > 0) {
             // Personal details
             "memberid" => $row['memberid'],
             "height_name" => $row['height_name'],
+            "weight_name" => $row['weight_name'],
             "maritalStatusId" => $row['maritalStatusId'],
             "maritalStatusName" => $row['maritalStatusName'],
             "motherTongue" => $row['motherTongue'],
             "aboutMe" => $row['aboutMe'],
             "birthDate" => $row['birthDate'],
             "Disability" => $row['Disability'],
+            "haveSpecs" => $row['haveSpecs'],
+            "anyDisability" => $row['anyDisability'],
             "bloodGroup" => $row['bloodGroup'],
+            "complexion" => $row['complexion'],
+            "bodyType" => $row['bodyType'],
+            "childStatus" => $row['childStatus'],
+            "childLiveWith" => $row['childLiveWith'],
             "religionName" => $row['religionName'],
             "communityName" => $row['communityName'],
             "subCommunityName" => $row['subCommunityName'],
@@ -192,7 +239,8 @@ if ($result->num_rows > 0) {
 
     echo json_encode([
         "status" => "success",
-        "data" => $data
+        "data" => $data,
+        "gallery" => $gallery
     ]);
 
 } else {

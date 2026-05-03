@@ -28,6 +28,12 @@ class FeatureFlags {
   /// Story/Status feature like WhatsApp
   static const bool enableStories = false;
 
+  /// TikTok-style short video reels feed + interactions
+  static const bool enableReels = false;
+
+  /// Content safety checks before story/reel publish
+  static const bool enableMediaModeration = false;
+
   /// Voice messages in chat
   static const bool enableVoiceMessages = true; // Already implemented
 
@@ -93,6 +99,8 @@ class FeatureFlags {
     if (enablePremiumFeatures) enabled.add('Premium Features');
     if (enableChatReactions) enabled.add('Chat Reactions');
     if (enableStories) enabled.add('Stories');
+    if (enableReels) enabled.add('Reels');
+    if (enableMediaModeration) enabled.add('Media Moderation');
     if (enableVoiceMessages) enabled.add('Voice Messages');
     if (enableLiveStreaming) enabled.add('Live Streaming');
     if (enableAnalytics) enabled.add('Analytics');

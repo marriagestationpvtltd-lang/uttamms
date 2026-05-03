@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:ui'; // Required for ImageFilter
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:ms2026/Chat/ChatdetailsScreen.dart';
 import 'package:ms2026/Notification/notification_inbox_service.dart';
@@ -19,18 +21,23 @@ import '../constant/constant.dart';
 import '../core/user_state.dart';
 import '../main.dart';
 import '../otherenew/service.dart';
+import '../service/favorite_sync_service.dart';
 import '../service/socket_service.dart';
 import '../utils/image_utils.dart';
 import '../utils/time_utils.dart';
 import 'modelfile.dart';
 import 'package:ms2026/config/app_endpoints.dart';
 import 'package:ms2026/features/activity/services/activity_service.dart';
+import 'package:ms2026/features/shorts/services/shorts_service.dart';
+import 'package:ms2026/features/shorts/story_viewer_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String userId;
 
-
-ProfileScreen({super.key, required this.userId,});
+  ProfileScreen({
+    super.key,
+    required this.userId,
+  });
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -41,6 +48,107 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _isBlocked = false;
   bool _isLoadingBlock = false;
+  bool _isProcessingShortlist = false;
+  bool _isViewedProfileShortlisted = false;
+
+  Future<void> _shortlistViewedProfile() async {
+    if (_isProcessingShortlist) return;
+
+    final bool previousShortlistState = _isViewedProfileShortlisted;
+    final bool nextShortlistState = !previousShortlistState;
+
+    setState(() {
+      _isProcessingShortlist = true;
+      _isViewedProfileShortlisted = nextShortlistState;
+    });
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataString = prefs.getString('user_data');
+      if (userDataString == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('User data not found. Please login again.')),
+        );
+        return;
+      }
+
+      final userData = jsonDecode(userDataString);
+      final senderId = userData['id']?.toString() ?? '';
+      final receiverId = widget.userId.toString();
+
+      if (senderId.isEmpty || receiverId.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Unable to shortlist this profile.')),
+        );
+        return;
+      }
+
+      final response = await http.post(
+        Uri.parse('${kApiBaseUrl}/Api2/like_action.php'),
+        body: {
+          'sender_id': senderId,
+          'receiver_id': receiverId,
+          'action': nextShortlistState ? 'add' : 'delete',
+        },
+      );
+
+      if (!mounted) return;
+
+      if (response.statusCode != 200) {
+        setState(() {
+          _isViewedProfileShortlisted = previousShortlistState;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content:
+                  Text('Failed to shortlist. HTTP ${response.statusCode}')),
+        );
+        return;
+      }
+
+      final data = jsonDecode(response.body);
+      final bool success = data['success'] == true ||
+          data['status']?.toString().toLowerCase() == 'success';
+
+      if (success) {
+        FavoriteSyncService.notifyChanged();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(nextShortlistState
+                ? 'Profile shortlisted!'
+                : 'Removed from shortlist!'),
+          ),
+        );
+      } else {
+        setState(() {
+          _isViewedProfileShortlisted = previousShortlistState;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text(data['message']?.toString() ??
+                  'Failed to shortlist profile')),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isViewedProfileShortlisted = previousShortlistState;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingShortlist = false;
+        });
+      }
+    }
+  }
+
   Future<void> _checkBlockStatus() async {
     final prefs = await SharedPreferences.getInstance();
     final userDataString = prefs.getString('user_data');
@@ -70,7 +178,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (BuildContext dialogContext) {
           return AlertDialog(
             title: const Text('Unblock Profile'),
-            content: const Text('Are you sure you want to unblock this profile? They will be able to contact you again.'),
+            content: const Text(
+                'Are you sure you want to unblock this profile? They will be able to contact you again.'),
             actions: <Widget>[
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
@@ -94,7 +203,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (BuildContext dialogContext) {
           return AlertDialog(
             title: const Text('Block Profile'),
-            content: const Text('Are you sure you want to block this profile? They will not be able to contact you or see your profile.'),
+            content: const Text(
+                'Are you sure you want to block this profile? They will not be able to contact you or see your profile.'),
             actions: <Widget>[
               TextButton(
                 onPressed: () => Navigator.of(dialogContext).pop(),
@@ -113,7 +223,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
   }
-
 
   Future<void> _blockUser(BuildContext dialogContext) async {
     setState(() {
@@ -225,9 +334,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-
-
-
   void _showReportDialog(BuildContext context) {
     String? selectedReason;
     showModalBottomSheet<void>(
@@ -284,16 +390,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ...AppConstants.reportReasons.map((reason) => RadioListTile<String>(
-                        value: reason,
-                        groupValue: selectedReason,
-                        onChanged: (value) =>
-                            setSheetState(() => selectedReason = value),
-                        title: Text(reason,
-                            style: const TextStyle(fontSize: 14)),
-                        activeColor: Colors.red,
-                        dense: true,
-                      )),
+                  ...AppConstants.reportReasons
+                      .map((reason) => RadioListTile<String>(
+                            value: reason,
+                            groupValue: selectedReason,
+                            onChanged: (value) =>
+                                setSheetState(() => selectedReason = value),
+                            title: Text(reason,
+                                style: const TextStyle(fontSize: 14)),
+                            activeColor: Colors.red,
+                            dense: true,
+                          )),
                   const SizedBox(height: 12),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -301,8 +408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         Expanded(
                           child: OutlinedButton(
-                            onPressed: () =>
-                                Navigator.of(sheetContext).pop(),
+                            onPressed: () => Navigator.of(sheetContext).pop(),
                             child: const Text('Cancel'),
                           ),
                         ),
@@ -346,16 +452,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final currentUserId = userData['id'].toString();
       final adminUserId = AppConstants.adminUserId;
 
-      final userProfile =
-          Provider.of<UserProfile>(context, listen: false);
+      final userProfile = Provider.of<UserProfile>(context, listen: false);
       final reportedUserName =
           userProfile.name.isNotEmpty ? userProfile.name : 'Unknown';
 
-      final reporterName = '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim();
+      final reporterName =
+          '${userData['firstName'] ?? ''} ${userData['lastName'] ?? ''}'.trim();
       final reportPayload = jsonEncode({
         'reportedUserId': widget.userId,
         'reportedUserName': reportedUserName,
-        'reporterName': reporterName.isNotEmpty ? reporterName : (userData['firstName']?.toString() ?? 'Unknown'),
+        'reporterName': reporterName.isNotEmpty
+            ? reporterName
+            : (userData['firstName']?.toString() ?? 'Unknown'),
         'reporterId': currentUserId,
         'reporterImage': userData['image']?.toString() ?? '',
         'reportReason': reason,
@@ -392,6 +500,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       }
     }
   }
+
   @override
   void initState() {
     super.initState();
@@ -407,7 +516,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _onlineStatusSub?.cancel();
     super.dispose();
   }
-
 
   Future<void> addProfileView(String viewedUserId) async {
     try {
@@ -425,7 +533,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          "userid": myId,           // viewer
+          "userid": myId, // viewer
           "viewuserid": viewedUserId // profile owner
         }),
       );
@@ -435,7 +543,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       if (response.statusCode == 200 &&
           result['status']?.toString().toLowerCase() == 'success') {
-        final viewerName = await NotificationInboxService.getCurrentUserDisplayName();
+        final viewerName =
+            await NotificationInboxService.getCurrentUserDisplayName();
         await NotificationService.sendProfileViewNotification(
           recipientUserId: viewedUserId,
           viewerName: viewerName,
@@ -448,7 +557,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           targetUserId: viewedUserId,
         );
       }
-
     } catch (e) {
       debugPrint("Error adding profile view: $e");
     }
@@ -473,7 +581,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return UserMasterData.fromJson(res['data']);
   }
-
 
   Future<void> _loadUserData() async {
     try {
@@ -501,9 +608,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         });
         // Keep UserState in sync with the data already fetched above –
         // avoids a separate masterdata.php call just for verification/usertype.
-        context.read<UserState>().updateFromMasterData(user.docStatus, user.isVerified, user.usertype);
+        context.read<UserState>().updateFromMasterData(
+            user.docStatus, user.isVerified, user.usertype);
       }
-
     } catch (e) {
       debugPrint('Error loading user data: $e');
       if (mounted) {
@@ -513,6 +620,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String myidd = '';
+  int _viewedMatchPercent = 0;
   String userimage = '';
   var pageno;
   String userId = '';
@@ -531,8 +639,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       final bool isOnline = data['isOnline'] == true;
       final DateTime? lastSeen = SocketService.parseTimestamp(data['lastSeen']);
-      final bool recentlySeen = lastSeen != null &&
-          DateTime.now().difference(lastSeen).inMinutes < 5;
+      final bool recentlySeen =
+          lastSeen != null && DateTime.now().difference(lastSeen).inMinutes < 5;
       setState(() {
         _isOtherUserOnline = isOnline || recentlySeen;
         _otherUserLastSeen = lastSeen;
@@ -547,8 +655,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (uid != targetId) return;
       final bool isOnline = data['isOnline'] == true;
       final DateTime? lastSeen = SocketService.parseTimestamp(data['lastSeen']);
-      final bool recentlySeen = lastSeen != null &&
-          DateTime.now().difference(lastSeen).inMinutes < 5;
+      final bool recentlySeen =
+          lastSeen != null && DateTime.now().difference(lastSeen).inMinutes < 5;
       if (_isOtherUserOnline != (isOnline || recentlySeen) ||
           _otherUserLastSeen != lastSeen) {
         setState(() {
@@ -572,16 +680,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       // Load both profile and matched profiles in parallel
       final results = await Future.wait([
-        service.fetchProfile(myId: myid.toString(), userId: widget.userId.toString()),
+        service.fetchProfile(
+            myId: myid.toString(), userId: widget.userId.toString()),
         service.fetchMatchedProfiles(userId: myid.toString()),
       ]);
 
       final profileResponse = results[0] as ProfileResponse;
-      final matchedProfiles = results[1] as List<MatchedProfile>;
-      // Sort: new members (higher userId) first
-      matchedProfiles.sort((a, b) => b.userid.compareTo(a.userid));
+      final rawMatched = results[1] as List<MatchedProfile>;
+      // Exclude the profile currently being viewed, then sort newest first
+      final viewedId = int.tryParse(widget.userId.toString());
+      final matchedProfiles = rawMatched
+          .where((p) => p.userid != viewedId)
+          .toList()
+        ..sort((a, b) => b.userid.compareTo(a.userid));
+
+      // Extract the match.php matchPercent for the profile being viewed
+      final viewedMatch = rawMatched.where((p) => p.userid == viewedId);
+      int viewedMatchPercent = 0;
+      bool viewedIsLiked = false;
+      if (viewedMatch.isNotEmpty) {
+        viewedMatchPercent = viewedMatch.first.matchPercent;
+        viewedIsLiked = viewedMatch.first.like;
+      }
 
       if (mounted) {
+        setState(() {
+          _viewedMatchPercent = viewedMatchPercent;
+          _isViewedProfileShortlisted = viewedIsLiked;
+        });
         final userProfile = Provider.of<UserProfile>(context, listen: false);
         userProfile.updateProfileData(profileResponse, matchedProfiles);
       }
@@ -590,6 +716,94 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _openFullScreenPhotoViewer(UserProfile userProfile,
+      {required int initialIndex}) {
+    // Build list of all available images (profile + gallery)
+    final List<String> allImages = <String>[];
+    if (userProfile.avatarUrl.isNotEmpty) {
+      allImages.add(userProfile.avatarUrl);
+    }
+    for (final url in userProfile.photoAlbumUrls) {
+      if (url.isNotEmpty && !allImages.contains(url)) {
+        allImages.add(url);
+      }
+    }
+
+    if (allImages.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No photos available')),
+      );
+      return;
+    }
+
+    // Check access: only allow viewing if canViewPhoto AND request accepted
+    final bool canView =
+        userProfile.canViewPhoto && userProfile.isPhotoRequestAccepted;
+
+    if (!canView) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text(
+              'Photo access is locked. Send photo request to unlock.'),
+          action: SnackBarAction(
+            label: 'Send Request',
+            onPressed: () => _handlePhotoRequest(context),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final int safeIndex = initialIndex.clamp(0, allImages.length - 1);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => _SecurePhotoViewerScreen(
+          imageUrls: allImages,
+          initialIndex: safeIndex,
+          photoAccessExpiresAt: userProfile.photoAccessExpiresAt,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openStoriesOrPhoto(UserProfile userProfile) async {
+    final int? viewerId = int.tryParse(myidd.toString());
+    final int? targetId = int.tryParse(widget.userId.toString());
+    if (viewerId == null ||
+        viewerId <= 0 ||
+        targetId == null ||
+        targetId <= 0) {
+      _openFullScreenPhotoViewer(userProfile, initialIndex: 0);
+      return;
+    }
+
+    try {
+      final stories = await ShortsService.fetchUserStories(
+        userId: viewerId,
+        targetUserId: targetId,
+      );
+      if (!mounted) return;
+
+      if (stories.isNotEmpty) {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => StoryViewerScreen(
+              userName: userProfile.name,
+              profilePicture: userProfile.avatarUrl,
+              stories: stories,
+              currentUserId: viewerId,
+            ),
+          ),
+        );
+        return;
+      }
+    } catch (_) {
+      // Story errors should not block photo viewing.
+    }
+
+    if (!mounted) return;
+    _openFullScreenPhotoViewer(userProfile, initialIndex: 0);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -608,7 +822,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     final UserProfile userProfile = context.watch<UserProfile>();
 
-
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.white,
@@ -622,8 +835,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: <Widget>[
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
-            child:
-            PopupMenuButton<String>(
+            child: PopupMenuButton<String>(
               onSelected: (String result) {
                 if (result == 'block') {
                   _showBlockProfileDialog(context);
@@ -664,144 +876,526 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
       body: userProfile.profileResponse == null
           ? const Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 16),
-            Text('Loading profile...'),
-          ],
-        ),
-      )
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Loading profile...'),
+                ],
+              ),
+            )
           : SingleChildScrollView(
-        child: Column(
-          children: <Widget>[
-            _ProfileHeaderSection(
-              userProfile: userProfile,
-              red: red,
-              buttonGradient: buttonGradient,
-              onPhotoRequestPressed: () => _handlePhotoRequest(context),
-              onUpgradePressed: () => _showUpgradeDialog(context),
-              userid: widget.userId,
-              isOnline: _isOtherUserOnline,
-              lastSeen: _otherUserLastSeen,
-              isCurrentUserPaid: context.read<UserState>().usertype == 'paid',
+              child: Column(
+                children: <Widget>[
+                  _ProfileHeaderSection(
+                    userProfile: userProfile,
+                    red: red,
+                    buttonGradient: buttonGradient,
+                    onPhotoRequestPressed: () => _handlePhotoRequest(context),
+                    onProfilePhotoTap: () => _openStoriesOrPhoto(userProfile),
+                    onShortlistPressed: _shortlistViewedProfile,
+                    isShortlisted: _isViewedProfileShortlisted,
+                    isShortlistBusy: _isProcessingShortlist,
+                    onUpgradePressed: () => _showUpgradeDialog(context),
+                    userid: widget.userId,
+                    isOnline: _isOtherUserOnline,
+                    lastSeen: _otherUserLastSeen,
+                    isCurrentUserPaid:
+                        context.read<UserState>().usertype == 'paid',
+                  ),
+                  const SizedBox(height: 16),
+                  _ContactInfoSection(
+                    contactInfo: userProfile.contactInfo,
+                    red: red,
+                    buttonGradient: buttonGradient,
+                    dimmedButtonGradient: dimmedButtonGradient,
+                    dimmedButtonTextColor: dimmedButtonTextColor,
+                    userProfile: userProfile,
+                    onChatRequestPressed: () => _handleChatRequest(context),
+                    onUpgradePressed: () => _showUpgradeDialog(context),
+                    userId: widget.userId,
+                    userName: userProfile.name,
+                    currentUserId: myidd,
+                    currentUserName: name,
+                    currentUserImage: userimage,
+                    docStatus: context.read<UserState>().identityStatus,
+                    userType: context.read<UserState>().usertype,
+                    matchPercent: _viewedMatchPercent,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildProfileControlOverview(
+                    userProfile,
+                    red,
+                    onImageTap: (index) {
+                      final int base =
+                          userProfile.avatarUrl.isNotEmpty ? index + 1 : index;
+                      _openFullScreenPhotoViewer(userProfile,
+                          initialIndex: base);
+                    },
+                    onPhotoRequestPressed: () => _handlePhotoRequest(context),
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (userProfile.personalDetails.isNotEmpty)
+                    _DetailsGridSection<PersonalDetailItem>(
+                      title: "Personal Details",
+                      red: red,
+                      items: userProfile.personalDetails,
+                      itemBuilder:
+                          (PersonalDetailItem item, Color sectionRed) =>
+                              _DetailGridItem(
+                        icon: item.icon,
+                        title: item.title,
+                        value: item.value,
+                        red: sectionRed,
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Community Details Section
+                  if (userProfile.communityDetails.isNotEmpty)
+                    _DetailsGridSection<CommunityDetailItem>(
+                      title: "Community Details",
+                      red: red,
+                      items: userProfile.communityDetails,
+                      itemBuilder:
+                          (CommunityDetailItem item, Color sectionRed) =>
+                              _DetailGridItem(
+                        icon: item.icon,
+                        title: item.title,
+                        value: item.value,
+                        red: sectionRed,
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Education & Career Details Section
+                  if (userProfile.educationCareerDetails.isNotEmpty)
+                    _DetailsGridSection<EducationCareerDetailItem>(
+                      title: "Education & Career Details",
+                      red: red,
+                      items: userProfile.educationCareerDetails,
+                      itemBuilder:
+                          (EducationCareerDetailItem item, Color sectionRed) =>
+                              _DetailGridItem(
+                        icon: item.icon,
+                        title: item.title,
+                        value: item.value,
+                        red: sectionRed,
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Life Style Details Section
+                  if (userProfile.lifeStyleDetails.isNotEmpty)
+                    _DetailsGridSection<LifeStyleDetailItem>(
+                      title: "Life Style Details",
+                      red: red,
+                      items: userProfile.lifeStyleDetails,
+                      itemBuilder:
+                          (LifeStyleDetailItem item, Color sectionRed) =>
+                              _DetailGridItem(
+                        icon: item.icon,
+                        title: item.title,
+                        value: item.value,
+                        red: sectionRed,
+                      ),
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Match Overview Section
+                  if (userProfile.matchedPreferencesCount > 0)
+                    _MatchOverviewSection(
+                      matchedPreferencesCount:
+                          userProfile.matchedPreferencesCount,
+                      totalPreferencesCount: userProfile.totalPreferencesCount,
+                      red: red,
+                      imageUrl: userProfile.avatarUrl,
+                      shouldBlurPhoto: userProfile.shouldBlurPhotos ||
+                          !userProfile.isPhotoRequestAccepted,
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Partner Preference Section
+                  if (userProfile.partnerPreferences.isNotEmpty)
+                    _PartnerPreferenceSection(
+                      partnerPreferences: userProfile.partnerPreferences,
+                      red: red,
+                    ),
+                  const SizedBox(height: 16),
+
+                  // Other Matched Profiles Section
+                  if (userProfile.otherMatchedProfiles.isNotEmpty)
+                    _OtherMatchedProfilesSection(
+                      otherMatchedProfiles: userProfile.otherMatchedProfiles,
+                      red: red,
+                      gradient: buttonGradient,
+                    ),
+                  const SizedBox(height: 20), // ... rest of your sections
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
-            _ContactInfoSection(
-              contactInfo: userProfile.contactInfo,
-              red: red,
-              buttonGradient: buttonGradient,
-              dimmedButtonGradient: dimmedButtonGradient,
-              dimmedButtonTextColor: dimmedButtonTextColor,
-              userProfile: userProfile,
-              onChatRequestPressed: () => _handleChatRequest(context),
-              onUpgradePressed: () => _showUpgradeDialog(context),
-              userId: widget.userId, // Pass the user ID from ProfileScreen
-              userName: userProfile.name, currentUserId: myidd, currentUserName: name, currentUserImage: userimage, docStatus: context.read<UserState>().identityStatus, userType: context.read<UserState>().usertype, // Pass the user name
+    );
+  }
+
+  Widget _buildProfileControlOverview(
+    UserProfile userProfile,
+    Color red, {
+    required ValueChanged<int> onImageTap,
+    required VoidCallback onPhotoRequestPressed,
+  }) {
+    // Determine if photos should be blurred/locked
+    final bool canViewPhotos =
+        userProfile.canViewPhoto && userProfile.isPhotoRequestAccepted;
+    final List<String> photos = userProfile.photoAlbumUrls
+        .where((p) => p.trim().isNotEmpty)
+        .map(_resolveOtherProfileImageUrl)
+        .toList();
+
+    // If no gallery photos, show a clear status instead of hiding the section.
+    if (photos.isEmpty) {
+      final bool accessAccepted =
+          userProfile.canViewPhoto && userProfile.isPhotoRequestAccepted;
+      String message;
+
+      if (accessAccepted) {
+        message =
+            'No approved gallery photos available yet. User may have pending photos awaiting admin approval.';
+      } else if (userProfile.isPhotoRequestPending) {
+        message =
+            'Photo request is pending. Gallery will appear after request acceptance and admin approval.';
+      } else if (userProfile.isPhotoRequestRejected) {
+        message =
+            'Photo request was rejected. Send a new request to unlock gallery photos.';
+      } else {
+        message =
+            'Gallery is locked. Send a photo request to view approved photos.';
+      }
+
+      return Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: red.withOpacity(0.14)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
             ),
-            const SizedBox(height: 16),
-            _PhotosAlbumSection(
-              photoAlbumUrls: userProfile.photoAlbumUrls,
-              red: red,
-              buttonGradient: buttonGradient,
-              userProfile: userProfile,
-              onUpgradePressed: () => _showUpgradeDialog(context),
-              onPhotoRequestPressed: () => _handlePhotoRequest(context),
-              isCurrentUserPaid: context.read<UserState>().usertype == 'paid',
-            ),
-            const SizedBox(height: 16),
-            if (userProfile.personalDetails.isNotEmpty)
-              _DetailsGridSection<PersonalDetailItem>(
-                title: "Personal Details",
-                red: red,
-                items: userProfile.personalDetails,
-                itemBuilder: (PersonalDetailItem item, Color sectionRed) =>
-                    _DetailGridItem(
-                      icon: item.icon,
-                      title: item.title,
-                      value: item.value,
-                      red: sectionRed,
-                    ),
-              ),
-            const SizedBox(height: 16),
-
-            // Community Details Section
-            if (userProfile.communityDetails.isNotEmpty)
-              _DetailsGridSection<CommunityDetailItem>(
-                title: "Community Details",
-                red: red,
-                items: userProfile.communityDetails,
-                itemBuilder: (CommunityDetailItem item, Color sectionRed) =>
-                    _DetailGridItem(
-                      icon: item.icon,
-                      title: item.title,
-                      value: item.value,
-                      red: sectionRed,
-                    ),
-              ),
-            const SizedBox(height: 16),
-
-            // Education & Career Details Section
-            if (userProfile.educationCareerDetails.isNotEmpty)
-              _DetailsGridSection<EducationCareerDetailItem>(
-                title: "Education & Career Details",
-                red: red,
-                items: userProfile.educationCareerDetails,
-                itemBuilder: (EducationCareerDetailItem item, Color sectionRed) =>
-                    _DetailGridItem(
-                      icon: item.icon,
-                      title: item.title,
-                      value: item.value,
-                      red: sectionRed,
-                    ),
-              ),
-            const SizedBox(height: 16),
-
-            // Life Style Details Section
-            if (userProfile.lifeStyleDetails.isNotEmpty)
-              _DetailsGridSection<LifeStyleDetailItem>(
-                title: "Life Style Details",
-                red: red,
-                items: userProfile.lifeStyleDetails,
-                itemBuilder: (LifeStyleDetailItem item, Color sectionRed) =>
-                    _DetailGridItem(
-                      icon: item.icon,
-                      title: item.title,
-                      value: item.value,
-                      red: sectionRed,
-                    ),
-              ),
-            const SizedBox(height: 16),
-
-            // Match Overview Section
-            if (userProfile.matchedPreferencesCount > 0)
-              _MatchOverviewSection(
-                matchedPreferencesCount: userProfile.matchedPreferencesCount,
-                totalPreferencesCount: userProfile.totalPreferencesCount,
-                red: red,
-                imageUrl: userProfile.avatarUrl,
-              ),
-            const SizedBox(height: 16),
-
-            // Partner Preference Section
-            if (userProfile.partnerPreferences.isNotEmpty)
-              _PartnerPreferenceSection(
-                partnerPreferences: userProfile.partnerPreferences,
-                red: red,
-              ),
-            const SizedBox(height: 16),
-
-            // Other Matched Profiles Section
-            if (userProfile.otherMatchedProfiles.isNotEmpty)
-              _OtherMatchedProfilesSection(
-                otherMatchedProfiles: userProfile.otherMatchedProfiles,
-                red: red,
-                gradient: buttonGradient,
-              ),
-            const SizedBox(height: 20),// ... rest of your sections
           ],
         ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.photo_library_rounded, color: red, size: 18),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF1A1A2E).withOpacity(0.82),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: red.withOpacity(0.14)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Icon(Icons.photo_library_rounded, color: red, size: 18),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Gallery',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: const Color(0xFF1A1A2E),
+                  ),
+                ),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: red.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${photos.length} photo${photos.length == 1 ? '' : 's'}',
+                  style: TextStyle(
+                    color: red,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 11,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Gallery Grid
+          SizedBox(
+            height: 80,
+            child: Stack(
+              children: [
+                ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: photos.length,
+                  itemBuilder: (context, i) {
+                    return GestureDetector(
+                      onTap: () {
+                        if (!canViewPhotos) {
+                          onPhotoRequestPressed();
+                        } else {
+                          // Pass the index + 1 because avatar is at index 0
+                          onImageTap(i + 1);
+                        }
+                      },
+                      child: Container(
+                        width: 76,
+                        height: 80,
+                        margin: const EdgeInsets.only(right: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: red.withOpacity(0.20),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 6,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(11),
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              // Image (blurred or clear based on access)
+                              canViewPhotos
+                                  ? Image.network(
+                                      photos[i],
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => Container(
+                                        color: Colors.grey.shade300,
+                                        child: Icon(Icons.broken_image,
+                                            color: Colors.grey.shade600),
+                                      ),
+                                    )
+                                  : ImageFiltered(
+                                      imageFilter: ImageFilter.blur(
+                                        sigmaX: 5,
+                                        sigmaY: 5,
+                                      ),
+                                      child: Image.network(
+                                        photos[i],
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Container(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                      ),
+                                    ),
+                              // Lock overlay if photos are not accessible
+                              if (!canViewPhotos)
+                                Positioned.fill(
+                                  child: Container(
+                                    alignment: Alignment.center,
+                                    color: Colors.black.withOpacity(0.3),
+                                    child: Icon(
+                                      Icons.lock_rounded,
+                                      color: Colors.white.withOpacity(0.8),
+                                      size: 24,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                // Locked state overlay message
+                if (!canViewPhotos)
+                  Positioned.fill(
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.6),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.2),
+                            width: 0.8,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_rounded,
+                              color: Colors.white.withOpacity(0.9),
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Tap to request access',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.9),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // Access status badge
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: canViewPhotos
+                  ? const Color(0xFFF0F8F0)
+                  : red.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: canViewPhotos
+                    ? const Color(0xFF43A047).withOpacity(0.3)
+                    : red.withOpacity(0.2),
+                width: 0.8,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  canViewPhotos ? Icons.verified : Icons.lock_outline,
+                  size: 14,
+                  color: canViewPhotos
+                      ? const Color(0xFF43A047)
+                      : red.withOpacity(0.6),
+                ),
+                const SizedBox(width: 7),
+                Expanded(
+                  child: Text(
+                    canViewPhotos
+                        ? 'Photos unlocked • tap to view'
+                        : 'Photos locked • send request to unlock',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: canViewPhotos
+                          ? const Color(0xFF43A047)
+                          : red.withOpacity(0.7),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _resolveOtherProfileImageUrl(String rawUrl) {
+    final String value = rawUrl.trim();
+    if (value.isEmpty) {
+      return value;
+    }
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    return '${kApiBaseUrl}/Api2/${value.replaceFirst(RegExp(r'^/+'), '')}';
+  }
+
+  Widget _buildCompactStatusChip({
+    required IconData icon,
+    required String title,
+    required String value,
+    required String subtitle,
+    required Color color,
+  }) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 105),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.09),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 13, color: color),
+              const SizedBox(width: 4),
+              Text(
+                title,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 5),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Color(0xFF1A1A2E),
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: Colors.grey[600], fontSize: 10.5),
+          ),
+        ],
       ),
     );
   }
@@ -814,7 +1408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           title: const Text('Upgrade Account'),
           content: const Text(
             'This feature is available for paid members. '
-                'Upgrade your account to access photos and chat.',
+            'Upgrade your account to access photos and chat.',
           ),
           actions: [
             TextButton(
@@ -852,8 +1446,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Send Photo Request'),
-          content: const Text(
-              'Do you want to request photo access from this user?'),
+          content:
+              const Text('Do you want to request photo access from this user?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -868,49 +1462,68 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Navigator.pop(context);
 
                 // Optimistically update UI immediately
-                final userProfile = Provider.of<UserProfile>(context, listen: false);
+                final userProfile =
+                    Provider.of<UserProfile>(context, listen: false);
                 final currentResponse = userProfile.profileResponse;
                 if (currentResponse != null) {
                   // Create updated response with pending status
                   final updatedPersonalDetail = PersonalDetail(
                     photoRequest: 'pending',
-                    chatRequest: currentResponse.data.personalDetail.chatRequest,
+                    chatRequest:
+                        currentResponse.data.personalDetail.chatRequest,
                     firstName: currentResponse.data.personalDetail.firstName,
                     lastName: currentResponse.data.personalDetail.lastName,
-                    profilePicture: currentResponse.data.personalDetail.profilePicture,
+                    profilePicture:
+                        currentResponse.data.personalDetail.profilePicture,
                     usertype: currentResponse.data.personalDetail.usertype,
                     isVerified: currentResponse.data.personalDetail.isVerified,
                     privacy: currentResponse.data.personalDetail.privacy,
                     city: currentResponse.data.personalDetail.city,
                     country: currentResponse.data.personalDetail.country,
-                    educationmedium: currentResponse.data.personalDetail.educationmedium,
-                    educationtype: currentResponse.data.personalDetail.educationtype,
+                    educationmedium:
+                        currentResponse.data.personalDetail.educationmedium,
+                    educationtype:
+                        currentResponse.data.personalDetail.educationtype,
                     faculty: currentResponse.data.personalDetail.faculty,
                     degree: currentResponse.data.personalDetail.degree,
-                    areyouworking: currentResponse.data.personalDetail.areyouworking,
-                    occupationtype: currentResponse.data.personalDetail.occupationtype,
-                    companyname: currentResponse.data.personalDetail.companyname,
-                    designation: currentResponse.data.personalDetail.designation,
-                    workingwith: currentResponse.data.personalDetail.workingwith,
-                    annualincome: currentResponse.data.personalDetail.annualincome,
-                    businessname: currentResponse.data.personalDetail.businessname,
+                    areyouworking:
+                        currentResponse.data.personalDetail.areyouworking,
+                    occupationtype:
+                        currentResponse.data.personalDetail.occupationtype,
+                    companyname:
+                        currentResponse.data.personalDetail.companyname,
+                    designation:
+                        currentResponse.data.personalDetail.designation,
+                    workingwith:
+                        currentResponse.data.personalDetail.workingwith,
+                    annualincome:
+                        currentResponse.data.personalDetail.annualincome,
+                    businessname:
+                        currentResponse.data.personalDetail.businessname,
                     memberid: currentResponse.data.personalDetail.memberid,
                     heightName: currentResponse.data.personalDetail.heightName,
-                    maritalStatusId: currentResponse.data.personalDetail.maritalStatusId,
-                    maritalStatusName: currentResponse.data.personalDetail.maritalStatusName,
-                    motherTongue: currentResponse.data.personalDetail.motherTongue,
+                    maritalStatusId:
+                        currentResponse.data.personalDetail.maritalStatusId,
+                    maritalStatusName:
+                        currentResponse.data.personalDetail.maritalStatusName,
+                    motherTongue:
+                        currentResponse.data.personalDetail.motherTongue,
                     aboutMe: currentResponse.data.personalDetail.aboutMe,
                     birthDate: currentResponse.data.personalDetail.birthDate,
                     disability: currentResponse.data.personalDetail.disability,
                     bloodGroup: currentResponse.data.personalDetail.bloodGroup,
-                    religionName: currentResponse.data.personalDetail.religionName,
-                    communityName: currentResponse.data.personalDetail.communityName,
-                    subCommunityName: currentResponse.data.personalDetail.subCommunityName,
+                    religionName:
+                        currentResponse.data.personalDetail.religionName,
+                    communityName:
+                        currentResponse.data.personalDetail.communityName,
+                    subCommunityName:
+                        currentResponse.data.personalDetail.subCommunityName,
                     manglik: currentResponse.data.personalDetail.manglik,
                     birthtime: currentResponse.data.personalDetail.birthtime,
                     birthcity: currentResponse.data.personalDetail.birthcity,
                     photoRequestType: 'sent',
-                    chatRequestType: currentResponse.data.personalDetail.chatRequestType,
+                    chatRequestType:
+                        currentResponse.data.personalDetail.chatRequestType,
                   );
 
                   final updatedData = ProfileData(
@@ -1002,8 +1615,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text('Send Chat Request'),
-          content: const Text(
-              'Do you want to request chat access from this user?'),
+          content:
+              const Text('Do you want to request chat access from this user?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -1018,48 +1631,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Navigator.pop(context);
 
                 // Optimistically update UI immediately
-                final userProfile = Provider.of<UserProfile>(context, listen: false);
+                final userProfile =
+                    Provider.of<UserProfile>(context, listen: false);
                 final currentResponse = userProfile.profileResponse;
                 if (currentResponse != null) {
                   // Create updated response with pending status
                   final updatedPersonalDetail = PersonalDetail(
-                    photoRequest: currentResponse.data.personalDetail.photoRequest,
+                    photoRequest:
+                        currentResponse.data.personalDetail.photoRequest,
                     chatRequest: 'pending',
                     firstName: currentResponse.data.personalDetail.firstName,
                     lastName: currentResponse.data.personalDetail.lastName,
-                    profilePicture: currentResponse.data.personalDetail.profilePicture,
+                    profilePicture:
+                        currentResponse.data.personalDetail.profilePicture,
                     usertype: currentResponse.data.personalDetail.usertype,
                     isVerified: currentResponse.data.personalDetail.isVerified,
                     privacy: currentResponse.data.personalDetail.privacy,
                     city: currentResponse.data.personalDetail.city,
                     country: currentResponse.data.personalDetail.country,
-                    educationmedium: currentResponse.data.personalDetail.educationmedium,
-                    educationtype: currentResponse.data.personalDetail.educationtype,
+                    educationmedium:
+                        currentResponse.data.personalDetail.educationmedium,
+                    educationtype:
+                        currentResponse.data.personalDetail.educationtype,
                     faculty: currentResponse.data.personalDetail.faculty,
                     degree: currentResponse.data.personalDetail.degree,
-                    areyouworking: currentResponse.data.personalDetail.areyouworking,
-                    occupationtype: currentResponse.data.personalDetail.occupationtype,
-                    companyname: currentResponse.data.personalDetail.companyname,
-                    designation: currentResponse.data.personalDetail.designation,
-                    workingwith: currentResponse.data.personalDetail.workingwith,
-                    annualincome: currentResponse.data.personalDetail.annualincome,
-                    businessname: currentResponse.data.personalDetail.businessname,
+                    areyouworking:
+                        currentResponse.data.personalDetail.areyouworking,
+                    occupationtype:
+                        currentResponse.data.personalDetail.occupationtype,
+                    companyname:
+                        currentResponse.data.personalDetail.companyname,
+                    designation:
+                        currentResponse.data.personalDetail.designation,
+                    workingwith:
+                        currentResponse.data.personalDetail.workingwith,
+                    annualincome:
+                        currentResponse.data.personalDetail.annualincome,
+                    businessname:
+                        currentResponse.data.personalDetail.businessname,
                     memberid: currentResponse.data.personalDetail.memberid,
                     heightName: currentResponse.data.personalDetail.heightName,
-                    maritalStatusId: currentResponse.data.personalDetail.maritalStatusId,
-                    maritalStatusName: currentResponse.data.personalDetail.maritalStatusName,
-                    motherTongue: currentResponse.data.personalDetail.motherTongue,
+                    maritalStatusId:
+                        currentResponse.data.personalDetail.maritalStatusId,
+                    maritalStatusName:
+                        currentResponse.data.personalDetail.maritalStatusName,
+                    motherTongue:
+                        currentResponse.data.personalDetail.motherTongue,
                     aboutMe: currentResponse.data.personalDetail.aboutMe,
                     birthDate: currentResponse.data.personalDetail.birthDate,
                     disability: currentResponse.data.personalDetail.disability,
                     bloodGroup: currentResponse.data.personalDetail.bloodGroup,
-                    religionName: currentResponse.data.personalDetail.religionName,
-                    communityName: currentResponse.data.personalDetail.communityName,
-                    subCommunityName: currentResponse.data.personalDetail.subCommunityName,
+                    religionName:
+                        currentResponse.data.personalDetail.religionName,
+                    communityName:
+                        currentResponse.data.personalDetail.communityName,
+                    subCommunityName:
+                        currentResponse.data.personalDetail.subCommunityName,
                     manglik: currentResponse.data.personalDetail.manglik,
                     birthtime: currentResponse.data.personalDetail.birthtime,
                     birthcity: currentResponse.data.personalDetail.birthcity,
-                    photoRequestType: currentResponse.data.personalDetail.photoRequestType,
+                    photoRequestType:
+                        currentResponse.data.personalDetail.photoRequestType,
                     chatRequestType: 'sent',
                   );
 
@@ -1156,14 +1788,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ]);
       final response = results[0] as ProfileResponse;
-      final matchedProfiles = results[1] as List<MatchedProfile>;
+      final rawMatched = results[1] as List<MatchedProfile>;
+      // Exclude the profile currently being viewed, then sort newest first
+      final viewedId = int.tryParse(widget.userId.toString());
+      final matchedProfiles = rawMatched
+          .where((p) => p.userid != viewedId)
+          .toList()
+        ..sort((a, b) => b.userid.compareTo(a.userid));
 
       // Update the profile with both sets of data
       final userProfile = Provider.of<UserProfile>(context, listen: false);
       userProfile.updateProfileData(response, matchedProfiles);
 
-      debugPrint('✅ Loaded ${matchedProfiles.length} matched profiles');
-
+      debugPrint(
+          '✅ Loaded ${matchedProfiles.length} matched profiles (excluded viewed user)');
     } catch (e) {
       debugPrint('❌ Error refreshing profile: $e');
     }
@@ -1212,7 +1850,8 @@ Widget _buildPackageRequiredButton({
                   color: Colors.white.withOpacity(0.2),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.workspace_premium, color: Colors.white, size: 24),
+                child: const Icon(Icons.workspace_premium,
+                    color: Colors.white, size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -1266,16 +1905,24 @@ class _ProfileHeaderSection extends StatelessWidget {
   final Color red;
   final LinearGradient buttonGradient;
   final VoidCallback onPhotoRequestPressed;
+  final VoidCallback onProfilePhotoTap;
+  final VoidCallback onShortlistPressed;
+  final bool isShortlisted;
+  final bool isShortlistBusy;
   final VoidCallback onUpgradePressed;
   final bool isOnline;
   final DateTime? lastSeen;
   final bool isCurrentUserPaid;
 
-   _ProfileHeaderSection({
+  _ProfileHeaderSection({
     required this.userProfile,
     required this.red,
     required this.buttonGradient,
     required this.onPhotoRequestPressed,
+    required this.onProfilePhotoTap,
+    required this.onShortlistPressed,
+    required this.isShortlisted,
+    required this.isShortlistBusy,
     required this.onUpgradePressed,
     required this.userid,
     this.isOnline = false,
@@ -1290,43 +1937,48 @@ class _ProfileHeaderSection extends StatelessWidget {
 
     return Container(
       //color: Colors.white,
-     // padding: const EdgeInsets.all(1),
+      // padding: const EdgeInsets.all(1),
       child: Column(
         children: <Widget>[
           Stack(
             alignment: Alignment.bottomRight,
             children: <Widget>[
-              Container(
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: red, width: 4),
-                ),
-                child: CircleAvatar(
-                  radius: 45,
-                  backgroundImage: shouldBlurPhoto
-                      ? null
-                      : NetworkImage(userProfile.avatarUrl),
-                  backgroundColor: Colors.grey.shade200,
-                  child: shouldBlurPhoto
-                      ? ClipOval(
-                    child: ImageFiltered(
-                      imageFilter: ImageFilter.blur(
-                        sigmaX: 5.0,
-                        sigmaY: 5.0,
-                      ),
-                      child: Image.network(
-                        userProfile.avatarUrl,
-                        width: 110,
-                        height: 110,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) =>
-                        const Icon(Icons.person, size: 55),
-                      ),
-                    ),
-                  )
-                      : (userProfile.avatarUrl.isEmpty
-                      ? const Icon(Icons.person, size: 55)
-                      : null),
+              GestureDetector(
+                onTap: (!shouldBlurPhoto && userProfile.avatarUrl.isNotEmpty)
+                    ? onProfilePhotoTap
+                    : null,
+                child: Container(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: red, width: 4),
+                  ),
+                  child: CircleAvatar(
+                    radius: 45,
+                    backgroundImage: shouldBlurPhoto
+                        ? null
+                        : NetworkImage(userProfile.avatarUrl),
+                    backgroundColor: Colors.grey.shade200,
+                    child: shouldBlurPhoto
+                        ? ClipOval(
+                            child: ImageFiltered(
+                              imageFilter: ImageFilter.blur(
+                                sigmaX: 5.0,
+                                sigmaY: 5.0,
+                              ),
+                              child: Image.network(
+                                userProfile.avatarUrl,
+                                width: 110,
+                                height: 110,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) =>
+                                    const Icon(Icons.person, size: 55),
+                              ),
+                            ),
+                          )
+                        : (userProfile.avatarUrl.isEmpty
+                            ? const Icon(Icons.person, size: 55)
+                            : null),
+                  ),
                 ),
               ),
               if (userProfile.isVerified)
@@ -1428,13 +2080,13 @@ class _ProfileHeaderSection extends StatelessWidget {
 
           // Shortlist Button
           _GradientButton(
-            text: "Shortlist this Profile",
-            icon: Icons.favorite_border,
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Profile shortlisted!')),
-              );
-            },
+            text: isShortlistBusy
+                ? "Updating..."
+                : (isShortlisted ? "Shortlisted" : "Shortlist this Profile"),
+            icon: isShortlistBusy
+                ? Icons.hourglass_top
+                : (isShortlisted ? Icons.favorite : Icons.favorite_border),
+            onPressed: isShortlistBusy ? () {} : onShortlistPressed,
             gradient: buttonGradient,
           ),
         ],
@@ -1443,6 +2095,16 @@ class _ProfileHeaderSection extends StatelessWidget {
   }
 
   Widget _buildPhotoRequestButton(BuildContext context) {
+    final bool shouldBlurRequestAvatar =
+        userProfile.shouldBlurPhotos || !userProfile.isPhotoRequestAccepted;
+
+    if (userProfile.isPhotoAccessExpired) {
+      return _buildPackageRequiredButton(
+        message: 'Photo access expired after 24 hours. Request again.',
+        onPressed: onPhotoRequestPressed,
+      );
+    }
+
     // 🔥 RECEIVED REQUEST → Accept/Reject with beautiful design
     if (userProfile.isPhotoRequestReceived) {
       return Container(
@@ -1483,12 +2145,31 @@ class _ProfileHeaderSection extends StatelessWidget {
                     child: CircleAvatar(
                       radius: 24,
                       backgroundColor: Colors.white,
-                      backgroundImage: userProfile.avatarUrl.isNotEmpty
+                      backgroundImage: (!shouldBlurRequestAvatar &&
+                              userProfile.avatarUrl.isNotEmpty)
                           ? NetworkImage(userProfile.avatarUrl)
                           : null,
                       child: userProfile.avatarUrl.isEmpty
                           ? const Icon(Icons.person, color: Colors.grey)
-                          : null,
+                          : (shouldBlurRequestAvatar
+                              ? ClipOval(
+                                  child: ImageFiltered(
+                                    imageFilter: ImageFilter.blur(
+                                      sigmaX: 5.0,
+                                      sigmaY: 5.0,
+                                    ),
+                                    child: Image.network(
+                                      userProfile.avatarUrl,
+                                      width: 48,
+                                      height: 48,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                          Icons.person,
+                                          color: Colors.grey),
+                                    ),
+                                  ),
+                                )
+                              : null),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -1552,7 +2233,8 @@ class _ProfileHeaderSection extends StatelessWidget {
                       color: Colors.green,
                       onPressed: () async {
                         final prefs = await SharedPreferences.getInstance();
-                        final userData = jsonDecode(prefs.getString('user_data')!);
+                        final userData =
+                            jsonDecode(prefs.getString('user_data')!);
                         final myId = userData["id"].toString();
 
                         final service = ProfileService();
@@ -1580,8 +2262,8 @@ class _ProfileHeaderSection extends StatelessWidget {
                             ),
                           );
 
-                          final parentState =
-                          context.findAncestorStateOfType<_ProfileScreenState>();
+                          final parentState = context
+                              .findAncestorStateOfType<_ProfileScreenState>();
                           parentState?._refreshProfile(context);
                         }
                       },
@@ -1596,7 +2278,8 @@ class _ProfileHeaderSection extends StatelessWidget {
                       color: Colors.red,
                       onPressed: () async {
                         final prefs = await SharedPreferences.getInstance();
-                        final userData = jsonDecode(prefs.getString('user_data')!);
+                        final userData =
+                            jsonDecode(prefs.getString('user_data')!);
                         final myId = userData["id"].toString();
 
                         final service = ProfileService();
@@ -1624,8 +2307,8 @@ class _ProfileHeaderSection extends StatelessWidget {
                             ),
                           );
 
-                          final parentState =
-                          context.findAncestorStateOfType<_ProfileScreenState>();
+                          final parentState = context
+                              .findAncestorStateOfType<_ProfileScreenState>();
                           parentState?._refreshProfile(context);
                         }
                       },
@@ -1658,7 +2341,8 @@ class _ProfileHeaderSection extends StatelessWidget {
                   color: Colors.orange.shade100,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.hourglass_bottom, color: Colors.orange.shade700, size: 24),
+                child: Icon(Icons.hourglass_bottom,
+                    color: Colors.orange.shade700, size: 24),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -1783,7 +2467,8 @@ class _ProfileHeaderSection extends StatelessWidget {
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.photo_camera, color: Colors.white, size: 24),
+                    child: const Icon(Icons.photo_camera,
+                        color: Colors.white, size: 24),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -1882,7 +2567,8 @@ class _ProfileHeaderSection extends StatelessWidget {
         ),
       ),
     );
-  }}
+  }
+}
 
 class _ContactInfoSection extends StatelessWidget {
   final List<ContactInfoItem> contactInfo;
@@ -1902,6 +2588,7 @@ class _ContactInfoSection extends StatelessWidget {
   final String currentUserImage;
   final String docStatus;
   final String userType;
+  final int matchPercent;
 
   const _ContactInfoSection({
     required this.contactInfo,
@@ -1919,6 +2606,7 @@ class _ContactInfoSection extends StatelessWidget {
     required this.currentUserImage,
     required this.docStatus,
     required this.userType,
+    this.matchPercent = 0,
   });
 
   @override
@@ -1954,13 +2642,16 @@ class _ContactInfoSection extends StatelessWidget {
   }
 
   String _calculateAgeFromBirthDate(String birthDate) {
-    if (birthDate.isEmpty || birthDate == 'Not specified' || birthDate == 'Not available') {
+    if (birthDate.isEmpty ||
+        birthDate == 'Not specified' ||
+        birthDate == 'Not available') {
       return 'N/A';
     }
     try {
       DateTime? dob = DateTime.tryParse(birthDate);
       if (dob == null) {
-        final match = RegExp(r'^(\d{2})-(\d{2})-(\d{4})$').firstMatch(birthDate);
+        final match =
+            RegExp(r'^(\d{2})-(\d{2})-(\d{4})$').firstMatch(birthDate);
         if (match != null) {
           dob = DateTime.tryParse(
             '${match.group(3)}-${match.group(2)}-${match.group(1)}',
@@ -1970,7 +2661,8 @@ class _ContactInfoSection extends StatelessWidget {
       if (dob == null) return 'N/A';
       final now = DateTime.now();
       int age = now.year - dob.year;
-      if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+      if (now.month < dob.month ||
+          (now.month == dob.month && now.day < dob.day)) {
         age--;
       }
       return age.toString();
@@ -1983,9 +2675,11 @@ class _ContactInfoSection extends StatelessWidget {
     final Map<String, dynamic> profileData = {
       // Unified fields
       'userId': userId,
-      'memberId': userProfile.profileResponse?.data.personalDetail.memberid ?? '',
+      'memberId':
+          userProfile.profileResponse?.data.personalDetail.memberid ?? '',
       'firstName': '',
-      'lastName': userProfile.profileResponse?.data.personalDetail.lastName ?? '',
+      'lastName':
+          userProfile.profileResponse?.data.personalDetail.lastName ?? '',
       'name': userProfile.name,
       'profileImage': userProfile.avatarUrl,
       'galleryImages': userProfile.photoAlbumUrls,
@@ -1999,10 +2693,11 @@ class _ContactInfoSection extends StatelessWidget {
       'height': userProfile.height,
       'maritalStatus': userProfile.maritalStatus,
       'bio': userProfile.bio,
-      'matchPercent': 0,
+      'matchPercent': matchPercent,
       'isPremium': userProfile.isCurrentUserPaid,
       'isProfileVerified': userProfile.isVerified,
-      'privacy': userProfile.profileResponse?.data.personalDetail.privacy ?? 'private',
+      'privacy':
+          userProfile.profileResponse?.data.personalDetail.privacy ?? 'private',
       'photoRequest': userProfile.photoRequestStatus,
       'canViewPhoto': !userProfile.shouldBlurPhotos,
       'sharedBy': 'user',
@@ -2115,9 +2810,8 @@ class _ContactInfoSection extends StatelessWidget {
                           Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (context) => IDVerificationScreen()
-                              )
-                          );
+                                  builder: (context) =>
+                                      IDVerificationScreen()));
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
@@ -2203,7 +2897,8 @@ class _ContactInfoSection extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(30),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 40, vertical: 14),
                   ),
                   child: const Text(
                     "Got it",
@@ -2301,9 +2996,8 @@ class _ContactInfoSection extends StatelessWidget {
                           Navigator.push(
                               context,
                               MaterialPageRoute(
-                                  builder: (context) => IDVerificationScreen()
-                              )
-                          );
+                                  builder: (context) =>
+                                      IDVerificationScreen()));
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.red,
@@ -2419,8 +3113,7 @@ class _ContactInfoSection extends StatelessWidget {
                               context,
                               MaterialPageRoute(
                                 builder: (context) => const SubscriptionPage(),
-                              )
-                          );
+                              ));
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: Colors.white,
@@ -2448,8 +3141,10 @@ class _ContactInfoSection extends StatelessWidget {
     );
   }
 
-
   Widget _buildChatButton(BuildContext context) {
+    final bool shouldBlurRequestAvatar =
+        userProfile.shouldBlurPhotos || !userProfile.isPhotoRequestAccepted;
+
     // 🔥 RECEIVED REQUEST → Accept/Reject with beautiful design
     if (userProfile.isChatRequestReceived) {
       return Container(
@@ -2490,12 +3185,31 @@ class _ContactInfoSection extends StatelessWidget {
                     child: CircleAvatar(
                       radius: 24,
                       backgroundColor: Colors.white,
-                      backgroundImage: userProfile.avatarUrl.isNotEmpty
+                      backgroundImage: (!shouldBlurRequestAvatar &&
+                              userProfile.avatarUrl.isNotEmpty)
                           ? NetworkImage(userProfile.avatarUrl)
                           : null,
                       child: userProfile.avatarUrl.isEmpty
                           ? const Icon(Icons.person, color: Colors.grey)
-                          : null,
+                          : (shouldBlurRequestAvatar
+                              ? ClipOval(
+                                  child: ImageFiltered(
+                                    imageFilter: ImageFilter.blur(
+                                      sigmaX: 5.0,
+                                      sigmaY: 5.0,
+                                    ),
+                                    child: Image.network(
+                                      userProfile.avatarUrl,
+                                      width: 48,
+                                      height: 48,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Icon(
+                                          Icons.person,
+                                          color: Colors.grey),
+                                    ),
+                                  ),
+                                )
+                              : null),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -2559,7 +3273,8 @@ class _ContactInfoSection extends StatelessWidget {
                       color: Colors.green,
                       onPressed: () async {
                         final prefs = await SharedPreferences.getInstance();
-                        final userData = jsonDecode(prefs.getString('user_data')!);
+                        final userData =
+                            jsonDecode(prefs.getString('user_data')!);
                         final myId = userData["id"].toString();
 
                         final service = ProfileService();
@@ -2576,7 +3291,8 @@ class _ContactInfoSection extends StatelessWidget {
                                 children: const [
                                   Icon(Icons.check_circle, color: Colors.white),
                                   SizedBox(width: 8),
-                                  Text("Chat request accepted • Start chatting now"),
+                                  Text(
+                                      "Chat request accepted • Start chatting now"),
                                 ],
                               ),
                               backgroundColor: Colors.green,
@@ -2588,8 +3304,8 @@ class _ContactInfoSection extends StatelessWidget {
                             ),
                           );
 
-                          final parentState =
-                          context.findAncestorStateOfType<_ProfileScreenState>();
+                          final parentState = context
+                              .findAncestorStateOfType<_ProfileScreenState>();
                           parentState?._refreshProfile(context);
                         }
                       },
@@ -2604,7 +3320,8 @@ class _ContactInfoSection extends StatelessWidget {
                       color: Colors.red,
                       onPressed: () async {
                         final prefs = await SharedPreferences.getInstance();
-                        final userData = jsonDecode(prefs.getString('user_data')!);
+                        final userData =
+                            jsonDecode(prefs.getString('user_data')!);
                         final myId = userData["id"].toString();
 
                         final service = ProfileService();
@@ -2632,8 +3349,8 @@ class _ContactInfoSection extends StatelessWidget {
                             ),
                           );
 
-                          final parentState =
-                          context.findAncestorStateOfType<_ProfileScreenState>();
+                          final parentState = context
+                              .findAncestorStateOfType<_ProfileScreenState>();
                           parentState?._refreshProfile(context);
                         }
                       },
@@ -2644,14 +3361,16 @@ class _ContactInfoSection extends StatelessWidget {
 
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: Colors.grey.shade100,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.access_time, size: 16, color: Colors.grey.shade600),
+                    Icon(Icons.access_time,
+                        size: 16, color: Colors.grey.shade600),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -2690,7 +3409,8 @@ class _ContactInfoSection extends StatelessWidget {
                   color: Colors.orange.shade100,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.hourglass_bottom, color: Colors.orange.shade700, size: 24),
+                child: Icon(Icons.hourglass_bottom,
+                    color: Colors.orange.shade700, size: 24),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -2777,10 +3497,10 @@ class _ContactInfoSection extends StatelessWidget {
                       builder: (context) => ChatDetailScreen(
                         chatRoomId: chatRoomId,
                         receiverId: userId,
-                        receiverName: userName.isNotEmpty
-                            ? userName
-                            : "User $userId",
-                        receiverImage: resolveApiImageUrl(userProfile.avatarUrl),
+                        receiverName:
+                            userName.isNotEmpty ? userName : "User $userId",
+                        receiverImage:
+                            resolveApiImageUrl(userProfile.avatarUrl),
                         currentUserId: currentUserId,
                         currentUserName: currentUserName.isNotEmpty
                             ? currentUserName
@@ -2827,7 +3547,8 @@ class _ContactInfoSection extends StatelessWidget {
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.chat, color: Colors.white, size: 24),
+                    child:
+                        const Icon(Icons.chat, color: Colors.white, size: 24),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -2892,7 +3613,8 @@ class _ContactInfoSection extends StatelessWidget {
                   color: Colors.grey.shade200,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.chat_bubble_outline, color: Colors.grey.shade600, size: 24),
+                child: Icon(Icons.chat_bubble_outline,
+                    color: Colors.grey.shade600, size: 24),
               ),
               const SizedBox(width: 16),
               Expanded(
@@ -2976,7 +3698,8 @@ class _ContactInfoSection extends StatelessWidget {
                       color: Colors.white.withOpacity(0.2),
                       shape: BoxShape.circle,
                     ),
-                    child: const Icon(Icons.chat_bubble_outline, color: Colors.white, size: 24),
+                    child: const Icon(Icons.chat_bubble_outline,
+                        color: Colors.white, size: 24),
                   ),
                   const SizedBox(width: 12),
                   const Expanded(
@@ -3088,6 +3811,7 @@ class _PhotosAlbumSection extends StatelessWidget {
   final Color red;
   final LinearGradient buttonGradient;
   final UserProfile userProfile;
+  final ValueChanged<int>? onImageTap;
   final VoidCallback onUpgradePressed;
   final VoidCallback onPhotoRequestPressed;
   final bool isCurrentUserPaid;
@@ -3097,6 +3821,7 @@ class _PhotosAlbumSection extends StatelessWidget {
     required this.red,
     required this.buttonGradient,
     required this.userProfile,
+    this.onImageTap,
     required this.onUpgradePressed,
     required this.onPhotoRequestPressed,
     this.isCurrentUserPaid = false,
@@ -3124,49 +3849,54 @@ class _PhotosAlbumSection extends StatelessWidget {
               itemCount: photoAlbumUrls.length,
               itemBuilder: (BuildContext context, int i) => Padding(
                 padding: const EdgeInsets.only(right: 12),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: !shouldBlur
-                      ? Image.network(
-                    photoAlbumUrls[i],
-                    width: 110,
-                    height: 140,
-                    fit: BoxFit.cover,
-                    errorBuilder: (context, error, stackTrace) {
-                      return Container(
-                        width: 110,
-                        height: 140,
-                        color: Colors.grey.shade300,
-                        child: const Icon(Icons.broken_image,
-                            color: Colors.grey),
-                      );
-                    },
-                  )
-                      : ImageFiltered(
-                    imageFilter: ImageFilter.blur(
-                      sigmaX: 5.0,
-                      sigmaY: 5.0,
-                    ),
-                    child: Container(
-                      width: 110,
-                      height: 140,
-                      color: Colors.grey.shade300,
-                      child: Image.network(
-                        photoAlbumUrls[i],
-                        fit: BoxFit.cover,
-                        color: Colors.black.withAlpha(
-                          (255 * 0.4).round(),
-                        ),
-                        colorBlendMode: BlendMode.darken,
-                        errorBuilder: (context, error, stackTrace) {
-                          return Container(
-                            color: Colors.grey.shade300,
-                            child: const Icon(Icons.broken_image,
-                                color: Colors.grey),
-                          );
-                        },
-                      ),
-                    ),
+                child: GestureDetector(
+                  onTap: (!shouldBlur && onImageTap != null)
+                      ? () => onImageTap!(i)
+                      : null,
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: !shouldBlur
+                        ? Image.network(
+                            photoAlbumUrls[i],
+                            width: 110,
+                            height: 140,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Container(
+                                width: 110,
+                                height: 140,
+                                color: Colors.grey.shade300,
+                                child: const Icon(Icons.broken_image,
+                                    color: Colors.grey),
+                              );
+                            },
+                          )
+                        : ImageFiltered(
+                            imageFilter: ImageFilter.blur(
+                              sigmaX: 5.0,
+                              sigmaY: 5.0,
+                            ),
+                            child: Container(
+                              width: 110,
+                              height: 140,
+                              color: Colors.grey.shade300,
+                              child: Image.network(
+                                photoAlbumUrls[i],
+                                fit: BoxFit.cover,
+                                color: Colors.black.withAlpha(
+                                  (255 * 0.4).round(),
+                                ),
+                                colorBlendMode: BlendMode.darken,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    color: Colors.grey.shade300,
+                                    child: const Icon(Icons.broken_image,
+                                        color: Colors.grey),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
                   ),
                 ),
               ),
@@ -3184,6 +3914,19 @@ class _PhotosAlbumSection extends StatelessWidget {
   }
 
   Widget _buildOverlay(BuildContext context) {
+    if (userProfile.isPhotoAccessExpired) {
+      return _RequestButton(
+        text: '24h access expired - Request Again',
+        icon: Icons.refresh,
+        onPressed: onPhotoRequestPressed,
+        color: Colors.blueGrey,
+        isPending: false,
+        isRejected: false,
+        isAccepted: false,
+        isUpgrade: false,
+      );
+    }
+
     // Case 1: Request is pending
     if (userProfile.isPhotoRequestPending) {
       return Container(
@@ -3268,6 +4011,131 @@ class _PhotosAlbumSection extends StatelessWidget {
   }
 }
 
+class _SecurePhotoViewerScreen extends StatefulWidget {
+  final List<String> imageUrls;
+  final int initialIndex;
+  final String photoAccessExpiresAt;
+
+  const _SecurePhotoViewerScreen({
+    required this.imageUrls,
+    required this.initialIndex,
+    required this.photoAccessExpiresAt,
+  });
+
+  @override
+  State<_SecurePhotoViewerScreen> createState() =>
+      _SecurePhotoViewerScreenState();
+}
+
+class _SecurePhotoViewerScreenState extends State<_SecurePhotoViewerScreen> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+    _enableSecureMode();
+  }
+
+  static const _windowManagerChannel =
+      MethodChannel('com.ms2026/window_manager');
+
+  Future<void> _enableSecureMode() async {
+    if (kIsWeb) return;
+    try {
+      await _windowManagerChannel
+          .invokeMethod('setSecureFlag', {'secure': true});
+    } catch (_) {
+      // Ignore unsupported platforms.
+    }
+  }
+
+  Future<void> _disableSecureMode() async {
+    if (kIsWeb) return;
+    try {
+      await _windowManagerChannel
+          .invokeMethod('setSecureFlag', {'secure': false});
+    } catch (_) {
+      // Ignore unsupported platforms.
+    }
+  }
+
+  @override
+  void dispose() {
+    _disableSecureMode();
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String caption = widget.photoAccessExpiresAt.isNotEmpty
+        ? 'Access valid until ${widget.photoAccessExpiresAt}'
+        : 'Protected photo view';
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+        title: Text('${_currentIndex + 1} / ${widget.imageUrls.length}'),
+      ),
+      body: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.imageUrls.length,
+            onPageChanged: (index) {
+              setState(() {
+                _currentIndex = index;
+              });
+            },
+            itemBuilder: (context, index) {
+              return InteractiveViewer(
+                minScale: 1.0,
+                maxScale: 4.0,
+                child: Center(
+                  child: Image.network(
+                    widget.imageUrls[index],
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Icon(
+                      Icons.broken_image,
+                      color: Colors.white54,
+                      size: 48,
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                caption,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _DetailsGridSection<T> extends StatelessWidget {
   final String title;
   final List<T> items;
@@ -3311,12 +4179,14 @@ class _MatchOverviewSection extends StatelessWidget {
   final int totalPreferencesCount;
   final Color red;
   final String imageUrl;
+  final bool shouldBlurPhoto;
 
   const _MatchOverviewSection({
     required this.matchedPreferencesCount,
     required this.totalPreferencesCount,
     required this.red,
     this.imageUrl = '',
+    this.shouldBlurPhoto = false,
   });
 
   Color _matchColor(double ratio) {
@@ -3362,13 +4232,51 @@ class _MatchOverviewSection extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: <Widget>[
-              CircleAvatar(
-                radius: 28,
-                backgroundImage: NetworkImage(imageUrl),
-                onBackgroundImageError: (_, __) {},
-                child: imageUrl.isEmpty
-                    ? const Icon(Icons.person, size: 28)
-                    : null,
+              SizedBox(
+                width: 56,
+                height: 56,
+                child: ClipOval(
+                  child: imageUrl.isEmpty
+                      ? Container(
+                          color: Colors.grey.shade200,
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.person, size: 28),
+                        )
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Container(
+                                color: Colors.grey.shade200,
+                                alignment: Alignment.center,
+                                child: const Icon(Icons.person, size: 28),
+                              ),
+                            ),
+                            if (shouldBlurPhoto)
+                              ImageFiltered(
+                                imageFilter: ImageFilter.blur(
+                                  sigmaX: 8.0,
+                                  sigmaY: 8.0,
+                                ),
+                                child: Image.network(
+                                  imageUrl,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, __, ___) => Container(
+                                    color: Colors.grey.shade200,
+                                    alignment: Alignment.center,
+                                    child: const Icon(Icons.person, size: 28),
+                                  ),
+                                ),
+                              ),
+                            if (shouldBlurPhoto)
+                              Container(
+                                color: Colors.black.withOpacity(0.15),
+                              ),
+                          ],
+                        ),
+                ),
               ),
               const SizedBox(width: 16),
               Flexible(
@@ -3404,7 +4312,8 @@ class _MatchOverviewSection extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
                         color: color.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(20),
@@ -3792,8 +4701,9 @@ class _MatchedProfileCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Use backend-computed canViewPhoto (respects target's privacy + viewer's plan/verification)
-    final bool canViewPhoto = profile.canViewPhoto;
+    // Strict privacy rule: show clear photo only after explicit acceptance.
+    final bool canViewPhoto =
+        profile.canViewPhoto && profile.photoRequest == 'accepted';
 
     return Container(
       width: 180,
@@ -3815,49 +4725,53 @@ class _MatchedProfileCard extends StatelessWidget {
           Stack(
             children: [
               ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
                 child: canViewPhoto
                     ? Image.network(
-                  profile.imageUrl,
-                  height: 120,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) {
-                    return Container(
-                      height: 120,
-                      width: double.infinity,
-                      color: Colors.grey.shade300,
-                      child: const Icon(Icons.person, size: 50, color: Colors.grey),
-                    );
-                  },
-                )
+                        profile.imageUrl,
+                        height: 120,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Container(
+                            height: 120,
+                            width: double.infinity,
+                            color: Colors.grey.shade300,
+                            child: const Icon(Icons.person,
+                                size: 50, color: Colors.grey),
+                          );
+                        },
+                      )
                     : ImageFiltered(
-                  imageFilter: ImageFilter.blur(
-                    sigmaX: 5.0,
-                    sigmaY: 5.0,
-                  ),
-                  child: Container(
-                    height: 120,
-                    width: double.infinity,
-                    color: Colors.grey.shade300,
-                    child: profile.imageUrl.isNotEmpty
-                        ? Image.network(
-                      profile.imageUrl,
-                      fit: BoxFit.cover,
-                      color: Colors.black.withAlpha(
-                        (255 * 0.4).round(),
-                      ),
-                      colorBlendMode: BlendMode.darken,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
+                        imageFilter: ImageFilter.blur(
+                          sigmaX: 5.0,
+                          sigmaY: 5.0,
+                        ),
+                        child: Container(
+                          height: 120,
+                          width: double.infinity,
                           color: Colors.grey.shade300,
-                          child: const Icon(Icons.person, size: 50, color: Colors.grey),
-                        );
-                      },
-                    )
-                        : const Icon(Icons.person, size: 50, color: Colors.grey),
-                  ),
-                ),
+                          child: profile.imageUrl.isNotEmpty
+                              ? Image.network(
+                                  profile.imageUrl,
+                                  fit: BoxFit.cover,
+                                  color: Colors.black.withAlpha(
+                                    (255 * 0.4).round(),
+                                  ),
+                                  colorBlendMode: BlendMode.darken,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Container(
+                                      color: Colors.grey.shade300,
+                                      child: const Icon(Icons.person,
+                                          size: 50, color: Colors.grey),
+                                    );
+                                  },
+                                )
+                              : const Icon(Icons.person,
+                                  size: 50, color: Colors.grey),
+                        ),
+                      ),
               ),
 
               // Match Percent Badge
@@ -3866,7 +4780,8 @@ class _MatchedProfileCard extends StatelessWidget {
                   top: 8,
                   right: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: _getMatchColor(profile.matchPercent),
                       borderRadius: BorderRadius.circular(12),
@@ -3887,7 +4802,8 @@ class _MatchedProfileCard extends StatelessWidget {
                   top: 38,
                   left: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: red,
                       borderRadius: BorderRadius.circular(12),
@@ -3924,7 +4840,8 @@ class _MatchedProfileCard extends StatelessWidget {
                   bottom: 8,
                   left: 8,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: _getPhotoRequestColor(profile.photoRequest),
                       borderRadius: BorderRadius.circular(8),
@@ -3977,7 +4894,8 @@ class _MatchedProfileCard extends StatelessWidget {
                     maxLines: 1,
                   ),
                   const SizedBox(height: 8),
-                  _buildInfoRow("Location:", "${profile.city}, ${profile.country}"),
+                  _buildInfoRow(
+                      "Location:", "${profile.city}, ${profile.country}"),
                   _buildInfoRow("Profession:", profile.profession),
 
                   // Photo Request Status (if not accepted)
@@ -3985,9 +4903,11 @@ class _MatchedProfileCard extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.only(top: 4),
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: _getPhotoRequestColor(profile.photoRequest).withOpacity(0.1),
+                          color: _getPhotoRequestColor(profile.photoRequest)
+                              .withOpacity(0.1),
                           borderRadius: BorderRadius.circular(4),
                         ),
                         child: Row(
@@ -3995,14 +4915,16 @@ class _MatchedProfileCard extends StatelessWidget {
                           children: [
                             Icon(
                               _getPhotoRequestIcon(profile.photoRequest),
-                              color: _getPhotoRequestColor(profile.photoRequest),
+                              color:
+                                  _getPhotoRequestColor(profile.photoRequest),
                               size: 12,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               _getPhotoRequestText(profile.photoRequest),
                               style: TextStyle(
-                                color: _getPhotoRequestColor(profile.photoRequest),
+                                color:
+                                    _getPhotoRequestColor(profile.photoRequest),
                                 fontSize: 10,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -4033,7 +4955,9 @@ class _MatchedProfileCard extends StatelessWidget {
                       // You'll need to implement setState or state management
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(profile.like ? 'Removed like' : 'Liked ${profile.firstName}'),
+                          content: Text(profile.like
+                              ? 'Removed like'
+                              : 'Liked ${profile.firstName}'),
                           duration: const Duration(seconds: 1),
                         ),
                       );
@@ -4056,7 +4980,7 @@ class _MatchedProfileCard extends StatelessWidget {
                         context,
                         MaterialPageRoute(
                           builder: (context) => ProfileLoader(
-                            myId:myid.toString(),
+                            myId: myid.toString(),
                             userId: profile.userid.toString(),
                           ),
                         ),
@@ -4192,7 +5116,6 @@ class _SmallIconButton extends StatelessWidget {
   }
 }
 
-
 // Small icon button helper
 
 // Request Button Widget
@@ -4221,12 +5144,20 @@ class _RequestButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        gradient: (!isPending && !isRejected && !isAccepted && !isUpgrade && onPressed != null)
+        gradient: (!isPending &&
+                !isRejected &&
+                !isAccepted &&
+                !isUpgrade &&
+                onPressed != null)
             ? LinearGradient(
-          colors: [color, color.withOpacity(0.8)],
-        )
+                colors: [color, color.withOpacity(0.8)],
+              )
             : null,
-        color: (isPending || isRejected || isAccepted || isUpgrade || onPressed == null)
+        color: (isPending ||
+                isRejected ||
+                isAccepted ||
+                isUpgrade ||
+                onPressed == null)
             ? color
             : null,
         borderRadius: BorderRadius.circular(30),

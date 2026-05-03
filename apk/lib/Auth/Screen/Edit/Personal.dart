@@ -8,13 +8,14 @@ import '../../../ReUsable/dropdownwidget.dart';
 import '../../../service/personal_details_api.dart';
 import '../../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
-
+import 'package:ms2026/config/profile_constants.dart';
 
 class PersonalDetailsPageEdit extends StatefulWidget {
   const PersonalDetailsPageEdit({super.key});
 
   @override
-  State<PersonalDetailsPageEdit> createState() => _PersonalDetailsPageEditState();
+  State<PersonalDetailsPageEdit> createState() =>
+      _PersonalDetailsPageEditState();
 }
 
 class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
@@ -27,84 +28,26 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
   bool _hasSpecs = false;
   bool _hasDisability = false;
   String _ChildStatus = '';
-  String _Childlivewith= '';
+  String _Childlivewith = '';
   final TextEditingController _disabilityController = TextEditingController();
   String? _selectedBloodGroup;
   String? _selectedComplexion;
   String? _selectedBodyType;
-  final TextEditingController _aboutYourselfController = TextEditingController();
+  final TextEditingController _aboutYourselfController =
+      TextEditingController();
 
-  // Dropdown options
-  final List<String> _maritalStatusOptions = [
-    'Still Unmarried',
-    'Widowed',
-    'Divorced',
-    'Waiting Divorce',
-  ];
-
-  final List<String> _bloodGroupOptions = [
-    'A+',
-    'A-',
-    'B+',
-    'B-',
-    'AB+',
-    'AB-',
-    'O+',
-    'O-'
-  ];
-
-  final List<String> _complexionOptions = [
-    'Very Fair',
-    'Fair',
-    'Wheatish',
-    'Olive',
-    'Brown',
-    'Dark'
-  ];
-
-  final List<String> _bodyTypeOptions = [
-    'Slim',
-    'Athletic',
-    'Average',
-    'Heavy',
-    'Muscular'
-  ];
+  // Dropdown options — use centralised constants
+  static final List<String> _maritalStatusOptions =
+      kMaritalStatusIdEntries.map((e) => e['label']!).toList();
 
   String _SelectedHeight = '';
-
-  final List<String> _heightOptions = List.generate(121, (index) {
-    int cm = 100 + index;
-    double totalInches = cm / 2.54;
-    int feet = totalInches ~/ 12;
-    int inches = (totalInches % 12).round();
-    return "$cm cm ($feet' $inches\").ft";
-  });
-
 
   String _selectedWeight = '';
 
   final List<String> _weightOptions = List.generate(121, (index) {
-    int kg = 30 + index; // 30 kg to 150 kg
+    int kg = 30 + index;
     return "$kg kg";
   });
-
-
-  // String _selectedBloodGroup = '';
-
-  final List<String> _bloodGroups = [
-    "A+",
-    "A-",
-    "B+",
-    "B-",
-    "AB+",
-    "AB-",
-    "O+",
-    "O-",
-  ];
-
-
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -115,7 +58,8 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Personal Details', style: TextStyle(color: Colors.white)),
+        title: const Text('Personal Details',
+            style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFFE64B37),
         elevation: 0,
       ),
@@ -145,26 +89,25 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                   _buildSectionTitle("Marital Status*"),
 
                   Container(
-
                     child: TypingDropdown<String>(
-                      items:  _maritalStatusOptions,
-                      selectedItem:  _selectedMaritalStatus,
+                      items: _maritalStatusOptions,
+                      selectedItem: _selectedMaritalStatus,
                       itemLabel: (item) => item,
                       hint: "Select Marital",
                       onChanged: (value) {
                         setState(() {
                           _selectedMaritalStatus = value!;
                         });
-                      }, title: 'Marital Status', showError: submitted,
+                      },
+                      title: 'Marital Status',
+                      showError: submitted,
                     ),
                   ),
 
-
-
-
-
                   const SizedBox(height: 10),
-                  if (_selectedMaritalStatus == 'Divorced' || _selectedMaritalStatus == 'Widowed' || _selectedMaritalStatus == 'Waiting Divorce') ...[
+                  if (_selectedMaritalStatus == 'Divorced' ||
+                      _selectedMaritalStatus == 'Widowed' ||
+                      _selectedMaritalStatus == 'Waiting Divorce') ...[
                     //   _buildSectionTitle("Children Status?"),
                     const SizedBox(height: 8),
                     _buildSectionTitle("Children Status"),
@@ -174,16 +117,18 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                         Expanded(
                           child: _buildRadioOptionn(
                             value: "No Child",
-                            groupValue:_ChildStatus,
+                            groupValue: _ChildStatus,
                             label: "No Child",
                             onChanged: (value) {
                               setState(() {
-                                _ChildStatus = value! ;
+                                _ChildStatus = value!;
                               });
                             },
                           ),
                         ),
-                        SizedBox(width: 15,),
+                        SizedBox(
+                          width: 15,
+                        ),
                         Expanded(
                           child: _buildRadioOptionn(
                             value: 'One',
@@ -196,7 +141,9 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                             },
                           ),
                         ),
-                        SizedBox(width: 15,),
+                        SizedBox(
+                          width: 15,
+                        ),
                         Expanded(
                           child: _buildRadioOptionn(
                             value: 'Two +',
@@ -224,16 +171,18 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                         Expanded(
                           child: _buildRadioOptionn(
                             value: "With Me",
-                            groupValue:_Childlivewith,
+                            groupValue: _Childlivewith,
                             label: "With Me",
                             onChanged: (value) {
                               setState(() {
-                                _Childlivewith = value! ;
+                                _Childlivewith = value!;
                               });
                             },
                           ),
                         ),
-                        SizedBox(width: 15,),
+                        SizedBox(
+                          width: 15,
+                        ),
                         Expanded(
                           child: _buildRadioOptionn(
                             value: 'With Ex Husband',
@@ -246,7 +195,6 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                             },
                           ),
                         ),
-
                       ],
                     ),
                     const SizedBox(height: 10),
@@ -254,7 +202,6 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
 
                   if (_ChildStatus == 'One' || _ChildStatus == 'Two +') ...[
                     Row(
-
                       children: [
                         Expanded(
                           child: _buildRadioOptionn(
@@ -281,19 +228,19 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _buildSectionTitle("Height (In Cm)*"),
-
                             Container(
-
                               child: TypingDropdown<String>(
-                                items:  _heightOptions,
-                                selectedItem:  _SelectedHeight,
+                                items: kHeightOptions,
+                                selectedItem: _SelectedHeight,
                                 itemLabel: (item) => item,
                                 hint: "Select height",
                                 onChanged: (value) {
                                   setState(() {
                                     _SelectedHeight = value!;
                                   });
-                                }, title: 'height', showError: submitted,
+                                },
+                                title: 'height',
+                                showError: submitted,
                               ),
                             ),
                           ],
@@ -306,17 +253,18 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                           children: [
                             _buildSectionTitle("Weight (In Kg)*"),
                             Container(
-
                               child: TypingDropdown<String>(
-                                items:  _weightOptions,
-                                selectedItem:  _selectedWeight,
+                                items: _weightOptions,
+                                selectedItem: _selectedWeight,
                                 itemLabel: (item) => item,
                                 hint: "Select weight",
                                 onChanged: (value) {
                                   setState(() {
                                     _selectedWeight = value!;
                                   });
-                                }, title: 'weight', showError: submitted,
+                                },
+                                title: 'weight',
+                                showError: submitted,
                               ),
                             ),
                           ],
@@ -344,7 +292,9 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                           },
                         ),
                       ),
-                      SizedBox(width: 15,),
+                      SizedBox(
+                        width: 15,
+                      ),
                       Expanded(
                         child: _buildRadioOption(
                           value: false,
@@ -380,7 +330,9 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                           },
                         ),
                       ),
-                      SizedBox(width: 15,),
+                      SizedBox(
+                        width: 15,
+                      ),
                       Expanded(
                         child: _buildRadioOption(
                           value: false,
@@ -417,19 +369,19 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                   // Blood Group
                   _buildSectionTitle("Blood Group*"),
 
-
                   Container(
-
                     child: TypingDropdown<String>(
-                      items:  _bloodGroupOptions,
-                      selectedItem:   _selectedBloodGroup,
+                      items: kBloodGroupOptions,
+                      selectedItem: _selectedBloodGroup,
                       itemLabel: (item) => item,
                       hint: "Select blood group",
                       onChanged: (value) {
                         setState(() {
                           _selectedBloodGroup = value!;
                         });
-                      }, title: 'Blood group', showError: submitted,
+                      },
+                      title: 'Blood group',
+                      showError: submitted,
                     ),
                   ),
 
@@ -438,45 +390,42 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
                   // Complexion
                   _buildSectionTitle("Complexion*"),
 
-
                   Container(
-
                     child: TypingDropdown<String>(
-                      items:  _complexionOptions,
-                      selectedItem:   _selectedComplexion,
+                      items: kComplexionOptions,
+                      selectedItem: _selectedComplexion,
                       itemLabel: (item) => item,
                       hint: "Select Complexion",
                       onChanged: (value) {
                         setState(() {
                           _selectedComplexion = value!;
                         });
-                      }, title: 'Complexion', showError: submitted,
+                      },
+                      title: 'Complexion',
+                      showError: submitted,
                     ),
                   ),
-
-
 
                   const SizedBox(height: 20),
 
                   // Body Type
                   _buildSectionTitle("Body Type*"),
 
-
                   Container(
-
                     child: TypingDropdown<String>(
-                      items: _bodyTypeOptions,
-                      selectedItem:  _selectedBodyType,
+                      items: kBodyTypeOptions,
+                      selectedItem: _selectedBodyType,
                       itemLabel: (item) => item,
                       hint: "Select Complexion",
                       onChanged: (value) {
                         setState(() {
                           _selectedBodyType = value!;
                         });
-                      }, title: 'Complexion', showError: submitted,
+                      },
+                      title: 'Complexion',
+                      showError: submitted,
                     ),
                   ),
-
 
                   const SizedBox(height: 20),
 
@@ -566,7 +515,8 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
     );
   }
 
-  Widget _buildTextField(TextEditingController controller, String hintText, {int maxLines = 1}) {
+  Widget _buildTextField(TextEditingController controller, String hintText,
+      {int maxLines = 1}) {
     return Container(
       height: maxLines == 1 ? 55 : null,
       padding: const EdgeInsets.symmetric(horizontal: 15),
@@ -589,8 +539,6 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
       ),
     );
   }
-
-
 
   Widget _buildRadioOption({
     required bool value,
@@ -622,7 +570,6 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
     );
   }
 
-
   Widget _buildRadioOptionn({
     required String value,
     required String groupValue,
@@ -631,7 +578,7 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
   }) {
     return InkWell(
       borderRadius: BorderRadius.circular(10),
-      onTap: () => onChanged(value),   // FULL CONTAINER CLICK
+      onTap: () => onChanged(value), // FULL CONTAINER CLICK
       child: Container(
         height: 50,
         width: 200,
@@ -650,10 +597,9 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
               groupValue: groupValue,
               visualDensity: VisualDensity.compact,
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              onChanged: onChanged,     // radio click
+              onChanged: onChanged, // radio click
               activeColor: const Color(0xFFE64B37),
             ),
-
             Expanded(
               child: Text(
                 label,
@@ -668,9 +614,6 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
     );
   }
 
-
-
-
   Widget _buildButton({
     required String text,
     required bool isPrimary,
@@ -681,17 +624,17 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
       decoration: BoxDecoration(
         gradient: isPrimary
             ? const LinearGradient(
-          colors: [
-            Color(0xFFE64B37),
-            Color(0xFFE62255),
-          ],
-        )
+                colors: [
+                  Color(0xFFE64B37),
+                  Color(0xFFE62255),
+                ],
+              )
             : const LinearGradient(
-          colors: [
-            Color(0xFFEEA2A4),
-            Color(0xFFF3C0C4),
-          ],
-        ),
+                colors: [
+                  Color(0xFFEEA2A4),
+                  Color(0xFFF3C0C4),
+                ],
+              ),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Material(
@@ -807,16 +750,25 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
 
       final result = await service.saveUserPersonalDetail(
         userId: userId!, // replace with actual logged-in user id
-        maritalStatusId: _maritalStatusOptions.indexOf(_selectedMaritalStatus!) + 1,
+        maritalStatusId: int.parse(kMaritalStatusIdEntries
+            .firstWhere((e) => e['label'] == _selectedMaritalStatus,
+                orElse: () => {'value': '1'})
+            .entries
+            .firstWhere((e) => e.key == 'value')
+            .value),
         heightName: _SelectedHeight,
         weightName: _selectedWeight,
         haveSpecs: _hasSpecs ? 1 : 0,
         anyDisability: _hasDisability ? 1 : 0,
-        disability: _disabilityController.text.isNotEmpty ? _disabilityController.text : null,
+        disability: _disabilityController.text.isNotEmpty
+            ? _disabilityController.text
+            : null,
         bloodGroup: _selectedBloodGroup,
         complexion: _selectedComplexion,
         bodyType: _selectedBodyType,
-        aboutMe: _aboutYourselfController.text.isNotEmpty ? _aboutYourselfController.text : null,
+        aboutMe: _aboutYourselfController.text.isNotEmpty
+            ? _aboutYourselfController.text
+            : null,
         childStatus: _ChildStatus.isNotEmpty ? _ChildStatus : null,
         childLiveWith: _Childlivewith.isNotEmpty ? _Childlivewith : null,
       );
@@ -832,7 +784,7 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
           ),
         );
         // Navigate to next page
-     Navigator.pop(context);
+        Navigator.pop(context);
       } else {
         _showError(result['message'] ?? "Something went wrong");
       }
@@ -841,7 +793,6 @@ class _PersonalDetailsPageEditState extends State<PersonalDetailsPageEdit> {
       _showError(e.toString());
     }
   }
-
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(

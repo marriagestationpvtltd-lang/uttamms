@@ -19,6 +19,7 @@ try {
     );
 
     require_once __DIR__ . '/activity_helper.php';
+    require_once __DIR__ . '/deletion_guard.php';
 
     /* ================= INPUT ================= */
     $sender_id   = isset($_REQUEST['sender_id']) ? intval($_REQUEST['sender_id']) : 0;
@@ -30,6 +31,11 @@ try {
             "success" => false,
             "message" => "Invalid sender_id or receiver_id"
         ]);
+        exit;
+    }
+
+    if (isUserPendingDeletionPdo($pdo, $sender_id) || isUserPendingDeletionPdo($pdo, $receiver_id)) {
+        echo json_encode(deletionPendingResponse('Like actions are unavailable while account deletion is pending'));
         exit;
     }
 

@@ -103,6 +103,30 @@ while ($user = $result->fetch_assoc()) {
     }
     $stmtPhoto->close();
 
+    /* -------- CHAT REQUEST -------- */
+    $chat_request = "not sent";
+
+    $stmtChat = $conn->prepare("
+        SELECT status
+        FROM proposals
+        WHERE request_type = 'Chat'
+        AND (
+            (sender_id = ? AND receiver_id = ?)
+            OR
+            (sender_id = ? AND receiver_id = ?)
+        )
+        ORDER BY id DESC
+        LIMIT 1
+    ");
+    $stmtChat->bind_param("iiii", $user_id, $uid, $uid, $user_id);
+    $stmtChat->execute();
+    $resChat = $stmtChat->get_result();
+
+    if ($row = $resChat->fetch_assoc()) {
+        $chat_request = ($row['status'] === 'accepted') ? 'accepted' : 'pending';
+    }
+    $stmtChat->close();
+
     /* -------- CITY -------- */
     $stmtAddr = $conn->prepare("SELECT city FROM permanent_address WHERE userid = ?");
     $stmtAddr->bind_param("i", $uid);
@@ -127,7 +151,8 @@ while ($user = $result->fetch_assoc()) {
         "profile_picture" => $imageurl . ($user['profile_picture'] ?? 'default.jpg'),
         "city" => $addr['city'] ?? null,
         "designation" => $edu['designation'] ?? null,
-        "photo_request" => $photo_request            // ✅ ADDED
+        "photo_request" => $photo_request,           // ✅ ADDED
+        "chat_request" => $chat_request              // ✅ ADDED
     ];
 }
 

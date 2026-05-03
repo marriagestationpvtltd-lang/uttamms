@@ -181,6 +181,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   bool _scrollLocked = true;
   bool _initialScrollDone = false;
 
+  // Track if user is actively scrolling to debounce message updates
+  bool _isUserScrolling = false;
+  Timer? _scrollIdleTimer;
+
   // Cached messages to prevent blinking
   List<Map<String, dynamic>> _cachedMessages = [];
   bool _isFirstLoad = true;
@@ -400,6 +404,23 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   }
 
   void _onScroll() {
+    // Mark that user is actively scrolling
+    if (!_isUserScrolling) {
+      _isUserScrolling = true;
+    }
+
+    // Reset idle timer to detect when scrolling stops
+    _scrollIdleTimer?.cancel();
+    _scrollIdleTimer = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) {
+        _isUserScrolling = false;
+        // Flush any pending messages when scroll completes
+        if (_pendingIncomingMessages.isNotEmpty) {
+          _flushPendingMessages();
+        }
+      }
+    });
+
     if (_scrollController.position.pixels <=
             _scrollController.position.minScrollExtent + 200 &&
         !_isLoadingMore &&
@@ -620,6 +641,14 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   void _flushPendingMessages() {
     if (!mounted || _pendingIncomingMessages.isEmpty) return;
 
+    // If user is actively scrolling, delay flushing messages to prevent rebuild jank
+    if (_isUserScrolling) {
+      _incomingMessageDebounce?.cancel();
+      _incomingMessageDebounce =
+          Timer(const Duration(milliseconds: 500), _flushPendingMessages);
+      return;
+    }
+
     // Determine scroll intent before setState so we don't read scroll position
     // inside the setState callback (which should only mutate state variables).
     bool shouldScroll = false;
@@ -839,6 +868,10 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
 
   // Play a short message-received notification sound and vibrate
   void _playReceiveSound() async {
+    // Do not play receive tone while the user is actively viewing this chat.
+    // Other screens / background are handled by global notification tone logic.
+    if (ScreenStateManager().isChattingWith(widget.receiverId)) return;
+
     if (SoundSettingsService.instance.messageSoundEnabled) {
       try {
         final canPlay = await DeviceSoundPolicyService.canPlayInAppSound();
@@ -1073,6 +1106,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
     _typingStopSubscription?.cancel();
     _typingAudioPlayer.dispose();
     _receiveAudioPlayer.dispose();
+    _scrollIdleTimer?.cancel();
     _incomingMessageDebounce?.cancel();
     _messageEditedSubscription?.cancel();
     _messageDeletedSubscription?.cancel();
@@ -1091,6 +1125,9 @@ class _ChatDetailScreenState extends State<ChatDetailScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+
+    // Keep global screen-state foreground/background flag accurate.
+    ScreenStateManager().updateAppLifecycleState(state);
 
     // Handle app lifecycle changes
     switch (state) {

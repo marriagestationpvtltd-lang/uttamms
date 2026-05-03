@@ -5,19 +5,23 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "redis:local": "node scripts/start-local-redis.js"
   },
   "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "multer": "^2.1.1",
     "mysql2": "^3.9.7",
+    "redis": "^4.7.0",
     "socket.io": "^4.7.5",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.0"
+    "nodemon": "^3.1.0",
+    "redis-memory-server": "^0.16.1"
   },
   "engines": {
     "node": ">=18.0.0"

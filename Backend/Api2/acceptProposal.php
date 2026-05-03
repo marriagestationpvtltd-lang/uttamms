@@ -3,6 +3,7 @@
 // Use accept_proposal.php instead — it uses PDO, supports JSON request bodies,
 // and has cleaner error handling.
 header("Content-Type: application/json");
+require_once __DIR__ . '/deletion_guard.php';
 
 // DB CONNECTION
 $conn = new mysqli("localhost", "root", "", "ms");
@@ -36,6 +37,21 @@ try {
     $proposal = $checkResult->fetch_assoc();
     if ($proposal['receiver_id'] != $userId) {
         echo json_encode(["success" => false, "message" => "You are not authorized to accept this proposal"]);
+        exit;
+    }
+
+    // Load sender to enforce pending-deletion guard for both participants.
+    $participantsStmt = $conn->prepare("SELECT sender_id, receiver_id FROM proposals WHERE id = ? LIMIT 1");
+    $participantsStmt->bind_param("i", $proposalId);
+    $participantsStmt->execute();
+    $participants = $participantsStmt->get_result()->fetch_assoc();
+    $participantsStmt->close();
+
+    if ($participants && (
+        isUserPendingDeletionMysqli($conn, (int)$participants['sender_id']) ||
+        isUserPendingDeletionMysqli($conn, (int)$participants['receiver_id'])
+    )) {
+        echo json_encode(deletionPendingResponse('Proposal actions are unavailable while account deletion is pending'));
         exit;
     }
 

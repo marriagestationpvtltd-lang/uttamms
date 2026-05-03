@@ -180,8 +180,8 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       await _ringtonePlayer.setReleaseMode(ReleaseMode.loop);
       bool defaultStarted = false;
       try {
-        await _ringtonePlayer.play(
-            AssetSource(CallToneSettings.defaultAssetPath));
+        await _ringtonePlayer
+            .play(AssetSource(CallToneSettings.defaultAssetPath));
         defaultStarted = true;
         debugPrint('🎵 Started default video calling tone immediately');
       } catch (e) {
@@ -209,8 +209,7 @@ class _VideoCallScreenState extends State<VideoCallScreen>
               '🎵 Switched to configured video calling tone: ${source.value}');
           return;
         } catch (e) {
-          debugPrint(
-              '⚠️ Failed playing video tone source ${source.value}: $e');
+          debugPrint('⚠️ Failed playing video tone source ${source.value}: $e');
         }
       }
 
@@ -729,16 +728,15 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       await _engine.enableVideo();
       await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
-      // Configure video encoder with adaptive bitrate support
+      // Configure video encoder: Full HD 1280×720 @ 30fps
       await _engine.setVideoEncoderConfiguration(
         const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 640, height: 480),
-          frameRate: 15,
-          bitrate: 0, // 0 = let SDK determine based on resolution
-          minBitrate: -1, // -1 = SDK default minimum
+          dimensions: VideoDimensions(width: 1280, height: 720),
+          frameRate: 30,
+          bitrate: 1500, // 1500 kbps for 720p 30fps
+          minBitrate: 600,
           orientationMode: OrientationMode.orientationModeAdaptive,
-          degradationPreference: DegradationPreference
-              .maintainBalanced, // Balance quality and framerate
+          degradationPreference: DegradationPreference.maintainQuality,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         ),
       );
@@ -1388,45 +1386,42 @@ class _VideoCallScreenState extends State<VideoCallScreen>
       VideoEncoderConfiguration config;
 
       if (quality <= 2) {
-        // Excellent or Good - HD quality
+        // Excellent or Good – Full HD 1280×720 @ 30fps
         config = const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 640, height: 480),
-          frameRate: 15,
-          bitrate: 0, // SDK determines optimal
-          minBitrate: -1,
+          dimensions: VideoDimensions(width: 1280, height: 720),
+          frameRate: 30,
+          bitrate: 1500,
+          minBitrate: 600,
           orientationMode: OrientationMode.orientationModeAdaptive,
-          degradationPreference: DegradationPreference.maintainBalanced,
+          degradationPreference: DegradationPreference.maintainQuality,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         );
         debugPrint(
-            '📶 Network quality $quality: Maintaining HD video (640x480@15fps)');
+            '📶 Network quality $quality: Full HD video (1280×720@30fps)');
       } else if (quality == 3) {
-        // Poor - Reduce to standard quality
+        // Poor – Drop to SD 854×480 @ 24fps
         config = const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 480, height: 360),
-          frameRate: 12,
-          bitrate: 0,
-          minBitrate: -1,
+          dimensions: VideoDimensions(width: 854, height: 480),
+          frameRate: 24,
+          bitrate: 800,
+          minBitrate: 400,
           orientationMode: OrientationMode.orientationModeAdaptive,
           degradationPreference: DegradationPreference.maintainBalanced,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         );
-        debugPrint(
-            '📶 Network quality $quality: Reducing to standard video (480x360@12fps)');
+        debugPrint('📶 Network quality $quality: SD video (854×480@24fps)');
       } else if (quality >= 4) {
-        // Bad or Very Bad - Reduce to low quality
+        // Bad or Very Bad – Low quality 640×360 @ 15fps
         config = const VideoEncoderConfiguration(
-          dimensions: VideoDimensions(width: 320, height: 240),
-          frameRate: 10,
-          bitrate: 0,
-          minBitrate: -1,
+          dimensions: VideoDimensions(width: 640, height: 360),
+          frameRate: 15,
+          bitrate: 400,
+          minBitrate: 200,
           orientationMode: OrientationMode.orientationModeAdaptive,
-          degradationPreference: DegradationPreference
-              .maintainFramerate, // Prioritize smooth video
+          degradationPreference: DegradationPreference.maintainFramerate,
           mirrorMode: VideoMirrorModeType.videoMirrorModeAuto,
         );
-        debugPrint(
-            '📶 Network quality $quality: Reducing to low video (320x240@10fps)');
+        debugPrint('📶 Network quality $quality: Low video (640×360@15fps)');
       } else {
         return; // Unknown quality
       }

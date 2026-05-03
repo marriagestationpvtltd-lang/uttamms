@@ -1,3 +1,5 @@
+import 'package:adminmrz/config/app_endpoints.dart';
+
 class Document {
   final int userId;
   final String email;
@@ -45,7 +47,36 @@ class Document {
   }
 
   String get fullName => '$firstName $lastName';
-  String get fullPhotoUrl => photo;
+
+  String get fullPhotoUrl {
+    final raw = photo.trim();
+    if (raw.isEmpty) return raw;
+
+    if (raw.startsWith('http://') || raw.startsWith('https://')) {
+      final uri = Uri.tryParse(raw);
+      if (uri != null && uri.path.contains('/Api2/')) {
+        final api2 = Uri.parse(kAdminApi2BaseUrl);
+        final suffix = uri.path.split('/Api2/').last;
+        final normalizedBase = api2.toString().replaceFirst(RegExp(r'/$'), '');
+        final normalizedPath = suffix.startsWith('/')
+            ? suffix.substring(1)
+            : suffix;
+        if (uri.host != api2.host || !uri.path.startsWith(api2.path)) {
+          return '$normalizedBase/$normalizedPath';
+        }
+      }
+      return raw;
+    }
+
+    final normalizedBase = kAdminApi2BaseUrl.replaceFirst(RegExp(r'/$'), '');
+    final normalizedPath = raw.startsWith('Api2/')
+        ? raw.substring('Api2/'.length)
+        : raw.startsWith('/')
+        ? raw.substring(1)
+        : raw;
+    return '$normalizedBase/$normalizedPath';
+  }
+
   bool get isPending => status == 'pending';
   bool get isApproved => status == 'approved';
   bool get isRejected => status == 'rejected';

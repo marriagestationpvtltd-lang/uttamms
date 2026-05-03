@@ -63,6 +63,10 @@ $fieldMap = [
         'lastName'      => 'users',
         'privacy'       => 'users',
         'gender'        => 'users',
+        // permanent_address table
+        'country'        => 'permanent_address',
+        'state'          => 'permanent_address',
+        'city'           => 'permanent_address',
         // userpersonaldetail table
         'height_name'      => 'userpersonaldetail',
         'maritalStatusId'  => 'userpersonaldetail',
@@ -189,6 +193,7 @@ if (!$check->fetch()) {
 // user input), but we construct the SQL here to make that provenance explicit.
 $allowedTableColumns = [
     'users'               => ['firstName','lastName','privacy','gender'],
+    'permanent_address'   => ['country','state','city'],
     'userpersonaldetail'  => ['height_name','maritalStatusId','motherTongue','aboutMe','birthDate','Disability','bloodGroup','complexion','bodyType','childStatus'],
     'educationcareer'     => ['educationtype','educationmedium','faculty','degree','areyouworking','occupationtype','companyname','designation','workingwith','annualincome','businessname'],
     'user_astrologic'     => ['manglik','birthtime','birthcity'],

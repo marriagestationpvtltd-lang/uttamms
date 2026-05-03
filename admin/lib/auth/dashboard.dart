@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:js' as js;
 import 'dart:js_interop';
 import 'package:adminmrz/auth/service.dart';
@@ -23,12 +23,16 @@ import '../payment/paymentscreen.dart';
 import '../requests/request_provider.dart';
 import '../requests/request_screen.dart';
 import '../settings/call_settings_screen.dart';
+import '../settings/profile_dropdown_settings_screen.dart';
+import '../shorts/shorts_manage_screen.dart';
 import '../users/userscreen.dart';
+import '../deleteRequests/delete_request_provider.dart';
+import '../deleteRequests/delete_requests_page.dart';
 
-// ─── Breakpoints ─────────────────────────────────────────────────────────────
+// â”€â”€â”€ Breakpoints â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _kMobileBreakpoint = 768.0;
 
-// ─── Design tokens ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Design tokens â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const _kSidebarBg = Color(0xFF0F172A);
 const _kSidebarBorder = Color(0xFF1E293B);
 const _kAccent = Color(0xFF6366F1);
@@ -40,14 +44,14 @@ const _kContentBg = Color(0xFFF1F5F9);
 const _kTopBarBg = Colors.white;
 const _kTopBarBorder = Color(0xFFE2E8F0);
 
-// ─── Nav item model ───────────────────────────────────────────────────────────
+// â”€â”€â”€ Nav item model â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class _NavItem {
   final IconData icon;
   final String label;
   const _NavItem({required this.icon, required this.label});
 }
 
-// ─── Page ────────────────────────────────────────────────────────────────────
+// â”€â”€â”€ Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -62,7 +66,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   late final List<Widget> _pages;
 
-  // ── Global chat notification listener ────────────────────────────────────
+  // â”€â”€ Global chat notification listener â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static const int _adminSenderId = 1;
   final AdminSocketService _socketService = AdminSocketService();
   StreamSubscription<Map<String, dynamic>>? _globalMessageSub;
@@ -88,6 +92,12 @@ class _DashboardPageState extends State<DashboardPage> {
       const CallSettingsScreen(),
       const ActivityFeedScreen(),
       const MessageMonitorScreen(),
+      ChangeNotifierProvider(
+        create: (_) => DeleteRequestProvider(),
+        child: const DeleteRequestsPage(),
+      ),
+      const ProfileDropdownSettingsScreen(),
+      const ShortsManageScreen(),
     ];
     _onChatNotifEvent = ((JSAny? event) => _handleChatNotifJsEvent(event)).toJS;
     js.context.callMethod('addEventListener', [
@@ -173,7 +183,7 @@ class _DashboardPageState extends State<DashboardPage> {
       _globalUserNames[userId] = senderName;
     }
 
-    final String displayMessage = message.isEmpty ? '📷 Photo' : message;
+    final String displayMessage = message.isEmpty ? 'ðŸ“· Photo' : message;
 
     // Play sound only when the browser tab is in the background.
     if (WebNotificationService.isAppInBackground()) {
@@ -192,19 +202,19 @@ class _DashboardPageState extends State<DashboardPage> {
     final type = data['messageType']?.toString() ?? 'text';
     switch (type) {
       case 'image':
-        return '📷 Photo';
+        return 'ðŸ“· Photo';
       case 'profile_card':
-        return '👤 Match Profile';
+        return 'ðŸ‘¤ Match Profile';
       case 'call':
-        return '📞 Call';
+        return 'ðŸ“ž Call';
       default:
         final text = data['message']?.toString() ?? '';
-        return text.isEmpty ? '📷 Photo' : text;
+        return text.isEmpty ? 'ðŸ“· Photo' : text;
     }
   }
 
   /// Navigate to the Chat tab and pre-select [userId] so the conversation
-  /// opens immediately — mirroring how the chat sidebar selects a user.
+  /// opens immediately â€” mirroring how the chat sidebar selects a user.
   void _openChatForUser(int userId) {
     // Update the ChatProvider to select this user (same as chat sidebar does)
     final chatProvider = context.read<ChatProvider>();
@@ -247,13 +257,16 @@ class _DashboardPageState extends State<DashboardPage> {
     _NavItem(icon: Icons.tune_rounded, label: 'Call Settings'),
     _NavItem(icon: Icons.timeline_rounded, label: 'Activities'),
     _NavItem(icon: Icons.monitor_heart_rounded, label: 'Messages'),
+    _NavItem(icon: Icons.person_remove_rounded, label: 'Delete Requests'),
+    _NavItem(icon: Icons.list_alt_rounded, label: 'Profile Dropdowns'),
+    _NavItem(icon: Icons.smart_display_rounded, label: 'Reels & Stories'),
   ];
 
   void _onItemTapped(int index) => setState(() => _selectedIndex = index);
   void _toggleSidebar() =>
       setState(() => _isSidebarExpanded = !_isSidebarExpanded);
 
-  // ─── Build ──────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Build â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
@@ -277,7 +290,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ─── Mobile layout ──────────────────────────────────────────────────────────
+  // â”€â”€â”€ Mobile layout â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _buildMobileLayout(
     Map<String, dynamic>? adminData,
     AuthProvider authProvider,
@@ -441,6 +454,9 @@ class _DashboardPageState extends State<DashboardPage> {
                   7: permissions.canManageSettings,
                   8: permissions.canViewActivities,
                   9: permissions.canMonitorMessages,
+                  10: true,
+                  11: true,
+                  12: true,
                 };
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -589,7 +605,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ─── Sidebar ────────────────────────────────────────────────────────────────
+  // â”€â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _buildSidebar(
     Map<String, dynamic>? adminData,
     AuthProvider authProvider,
@@ -690,7 +706,7 @@ class _DashboardPageState extends State<DashboardPage> {
 
   Widget _buildNavList() {
     final permissions = context.read<AuthProvider>().permissions;
-    // Map nav-item index → permission check (null means always visible).
+    // Map nav-item index â†’ permission check (null means always visible).
     final Map<int, bool> visible = {
       0: true, // Dashboard
       1: permissions.canManageUsers, // Members
@@ -702,6 +718,9 @@ class _DashboardPageState extends State<DashboardPage> {
       7: permissions.canManageSettings, // Call Settings
       8: permissions.canViewActivities, // Activities
       9: permissions.canMonitorMessages, // Messages
+      10: true, // Delete Requests (always visible)
+      11: true, // Profile Dropdowns
+      12: true, // Reels and Stories
     };
     return ListView.builder(
       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -881,7 +900,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
 
-  // ─── Main content area ──────────────────────────────────────────────────────
+  // â”€â”€â”€ Main content area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   Widget _buildMainContent() {
     final bool isChatPage = _selectedIndex == 5;
     // Members page (index 1) has its own "Member Directory" header, so the

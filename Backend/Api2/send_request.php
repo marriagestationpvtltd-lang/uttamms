@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/db_config.php';
 require_once __DIR__ . '/activity_helper.php';
+require_once __DIR__ . '/deletion_guard.php';
 
 // Marital status IDs (must match the maritalstatus table)
 define('MARITAL_STATUS_WIDOWED',         2);
@@ -43,6 +44,11 @@ try {
             "success" => false,
             "message" => "Invalid input. sender_id, receiver_id, and valid request_type required."
         ]);
+        exit;
+    }
+
+    if (isUserPendingDeletionPdo($pdo, $sender_id) || isUserPendingDeletionPdo($pdo, $receiver_id)) {
+        echo json_encode(deletionPendingResponse('Requests are unavailable while account deletion is pending'));
         exit;
     }
 

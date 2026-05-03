@@ -4,6 +4,7 @@ header("Access-Control-Allow-Origin: *");
 
 require_once __DIR__ . '/db_config.php';
 require_once __DIR__ . '/activity_helper.php';
+require_once __DIR__ . '/deletion_guard.php';
 
 $myid         = isset($_POST['myid'])         ? intval($_POST['myid'])         : 0;
 $sender_id    = isset($_POST['sender_id'])    ? intval($_POST['sender_id'])    : 0;
@@ -11,6 +12,11 @@ $request_type = isset($_POST['request_type']) ? $_POST['request_type']         :
 
 if ($myid <= 0 || $sender_id <= 0 || empty($request_type)) {
     echo json_encode(["status" => "error", "message" => "Invalid params"]);
+    exit;
+}
+
+if (isUserPendingDeletionPdo($pdo, $myid) || isUserPendingDeletionPdo($pdo, $sender_id)) {
+    echo json_encode(deletionPendingResponse('Request actions are unavailable while account deletion is pending'));
     exit;
 }
 

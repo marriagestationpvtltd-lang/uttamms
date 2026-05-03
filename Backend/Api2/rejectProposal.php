@@ -3,6 +3,7 @@
 // Use reject_proposal.php instead — it uses PDO, supports JSON request bodies,
 // and has cleaner error handling.
 header("Content-Type: application/json");
+require_once __DIR__ . '/deletion_guard.php';
 
 // ---------------- DB CONNECTION ----------------
 $conn = new mysqli("localhost", "root", "", "ms");
@@ -55,6 +56,11 @@ try {
             "success" => false,
             "message" => "You are not authorized to reject this proposal"
         ]);
+        exit;
+    }
+
+    if (isUserPendingDeletionMysqli($conn, (int)$proposal['sender_id']) || isUserPendingDeletionMysqli($conn, (int)$proposal['receiver_id'])) {
+        echo json_encode(deletionPendingResponse('Proposal actions are unavailable while account deletion is pending'));
         exit;
     }
 

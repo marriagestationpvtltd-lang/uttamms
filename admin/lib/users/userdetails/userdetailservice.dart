@@ -1,9 +1,24 @@
 import 'dart:convert';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'detailmodel.dart';
 import 'package:adminmrz/config/app_endpoints.dart';
+
+class ProfileFieldOption {
+  final String value;
+  final String label;
+
+  const ProfileFieldOption({required this.value, required this.label});
+
+  factory ProfileFieldOption.fromJson(Map<String, dynamic> json) {
+    return ProfileFieldOption(
+      value: (json['value'] ?? '').toString(),
+      label: (json['label'] ?? '').toString(),
+    );
+  }
+}
 
 class UserDetailsService {
   static final String _baseUrl = '$kAdminApiBaseUrl/Api2';
@@ -14,10 +29,30 @@ class UserDetailsService {
     return prefs.getString('token');
   }
 
+  Future<http.MultipartFile?> _multipartFromPlatformFile(
+    String field,
+    PlatformFile file,
+  ) async {
+    if (file.bytes != null) {
+      return http.MultipartFile.fromBytes(
+        field,
+        file.bytes!,
+        filename: file.name,
+      );
+    }
+    final path = file.path;
+    if (path != null && path.isNotEmpty) {
+      return http.MultipartFile.fromPath(field, path, filename: file.name);
+    }
+    return null;
+  }
+
   Future<UserDetailsResponse> getUserDetails(int userId, int myId) async {
     try {
       final response = await http.get(
-        Uri.parse('$_baseUrl/other_profile.php?userid=$userId&myid=$myId'),
+        Uri.parse(
+          '$_baseUrl/other_profile.php?userid=$userId&myid=$myId&include_all_gallery=1',
+        ),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -70,6 +105,44 @@ class UserDetailsService {
       return false;
     } catch (e) {
       debugPrint('updateUserDetail error: $e');
+      return false;
+    }
+  }
+
+  /// Update multiple fields for a section in one request.
+  Future<bool> updateUserDetailSection({
+    required int userId,
+    required String section,
+    required Map<String, String> fields,
+  }) async {
+    if (fields.isEmpty) return true;
+    try {
+      final token = await _getToken();
+      final response = await http.post(
+        Uri.parse('$_adminBaseUrl/update_user_profile_section.php'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'userid': userId,
+          'section': section,
+          'fields': fields,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['success'] == true || data['status'] == 'success';
+      }
+
+      debugPrint(
+        'updateUserDetailSection failed: ${response.statusCode} ${response.body}',
+      );
+      return false;
+    } catch (e) {
+      debugPrint('updateUserDetailSection error: $e');
       return false;
     }
   }
@@ -133,6 +206,40 @@ class UserDetailsService {
     }
   }
 
+  /// Approve or reject one pending gallery photo by [galleryId].
+  Future<bool> handleGalleryPhotoRequest({
+    required int userId,
+    required int galleryId,
+    required String action,
+    String? reason,
+  }) async {
+    try {
+      final token = await _getToken();
+      final response = await http.post(
+        Uri.parse('$_adminBaseUrl/approve_profile_photo.php'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode({
+          'userid': userId,
+          'gallery_id': galleryId,
+          'action': action,
+          if (reason != null && reason.isNotEmpty) 'reason': reason,
+        }),
+      );
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        return data['success'] == true || data['status'] == 'success';
+      }
+      return false;
+    } catch (e) {
+      debugPrint('handleGalleryPhotoRequest error: $e');
+      return false;
+    }
+  }
+
   /// Send an admin notification directly to a user.
   Future<bool> sendAdminNotification({
     required int userId,
@@ -162,6 +269,249 @@ class UserDetailsService {
     } catch (e) {
       debugPrint('sendAdminNotification error: $e');
       return false;
+    }
+  }
+
+  Future<List<ProfileFieldOption>> getProfileFieldOptions({
+    required String field,
+    int? religionId,
+    int? communityId,
+  }) async {
+    try {
+      final query = <String, String>{'field': field};
+      if (religionId != null && religionId > 0) {
+        query['religion_id'] = religionId.toString();
+      }
+      if (communityId != null && communityId > 0) {
+        query['community_id'] = communityId.toString();
+      }
+
+      final uri = Uri.parse(
+        '$_adminBaseUrl/get_profile_field_options.php',
+      ).replace(queryParameters: query);
+
+      final token = await _getToken();
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          if (!kIsWeb && token != null) 'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode != 200) return const [];
+      final decoded = json.decode(response.body);
+      final list = decoded['data'];
+      if (list is! List) return const [];
+      return list
+          .whereType<Map>()
+          .map((e) => ProfileFieldOption.fromJson(Map<String, dynamic>.from(e)))
+          .where((e) => e.value.isNotEmpty && e.label.isNotEmpty)
+          .toList();
+    } catch (e) {
+      debugPrint('getProfileFieldOptions error: $e');
+      return const [];
+    }
+  }
+
+  Future<bool> uploadProfilePhoto({
+    required int userId,
+    required PlatformFile file,
+  }) async {
+    try {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/profile_picture.php'),
+      );
+      req.fields['userid'] = userId.toString();
+
+      final part = await _multipartFromPlatformFile('profile_picture', file);
+      if (part == null) return false;
+      req.files.add(part);
+
+      final res = await req.send();
+      final body = await res.stream.bytesToString();
+      if (res.statusCode != 200) return false;
+      final data = json.decode(body);
+      return data['success'] == true || data['status'] == 'success';
+    } catch (e) {
+      debugPrint('uploadProfilePhoto error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> uploadGalleryPhotos({
+    required int userId,
+    required List<PlatformFile> files,
+  }) async {
+    if (files.isEmpty) return false;
+    try {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/upload_gallery_photo.php'),
+      );
+      req.fields['userid'] = userId.toString();
+
+      for (final file in files) {
+        final part = await _multipartFromPlatformFile('gallery_photos[]', file);
+        if (part != null) req.files.add(part);
+      }
+
+      if (req.files.isEmpty) return false;
+
+      final res = await req.send();
+      final body = await res.stream.bytesToString();
+      if (res.statusCode != 200) return false;
+      final data = json.decode(body);
+      return data['success'] == true || data['status'] == 'success';
+    } catch (e) {
+      debugPrint('uploadGalleryPhotos error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> replaceGalleryPhoto({
+    required int userId,
+    required int galleryId,
+    required PlatformFile file,
+  }) async {
+    try {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/replace_gallery_photo.php'),
+      );
+      req.fields['userid'] = userId.toString();
+      req.fields['gallery_id'] = galleryId.toString();
+
+      final part = await _multipartFromPlatformFile('gallery_photo', file);
+      if (part == null) return false;
+      req.files.add(part);
+
+      final res = await req.send();
+      final body = await res.stream.bytesToString();
+      if (res.statusCode != 200) return false;
+      final data = json.decode(body);
+      return data['success'] == true || data['status'] == 'success';
+    } catch (e) {
+      debugPrint('replaceGalleryPhoto error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> deleteGalleryPhoto({
+    required int userId,
+    required int galleryId,
+  }) async {
+    try {
+      final token = await _getToken();
+      final response = await http.post(
+        Uri.parse('$_baseUrl/delete_gallery_photo.php'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
+        body: json.encode({'userid': userId, 'gallery_id': galleryId}),
+      );
+
+      if (response.statusCode != 200) return false;
+      final data = json.decode(response.body);
+      return data['success'] == true || data['status'] == 'success';
+    } catch (e) {
+      debugPrint('deleteGalleryPhoto error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> uploadDocument({
+    required int userId,
+    required String documentType,
+    String? documentIdNumber,
+    required PlatformFile file,
+  }) async {
+    try {
+      final req = http.MultipartRequest(
+        'POST',
+        Uri.parse('$_baseUrl/upload_document.php'),
+      );
+      req.fields['userid'] = userId.toString();
+      req.fields['documenttype'] = documentType;
+      if (documentIdNumber != null && documentIdNumber.trim().isNotEmpty) {
+        req.fields['documentidnumber'] = documentIdNumber.trim();
+      }
+
+      final part = await _multipartFromPlatformFile('photo', file);
+      if (part == null) return false;
+      req.files.add(part);
+
+      final res = await req.send();
+      final body = await res.stream.bytesToString();
+      if (res.statusCode != 200) return false;
+      final data = json.decode(body);
+      return data['success'] == true || data['status'] == 'success';
+    } catch (e) {
+      debugPrint('uploadDocument error: $e');
+      return false;
+    }
+  }
+
+  // ── Location helpers ─────────────────────────────────────────────────────────
+  static final String _locationBase = '$kAdminApiBaseUrl/Api3';
+
+  Future<List<Map<String, dynamic>>> fetchCountries() async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_locationBase/countries.php'),
+        headers: {'Accept': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final body = json.decode(response.body) as Map<String, dynamic>;
+        if (body['status'] == 'success' && body['data'] is List) {
+          return List<Map<String, dynamic>>.from(body['data'] as List);
+        }
+      }
+      return const [];
+    } catch (e) {
+      debugPrint('fetchCountries error: $e');
+      return const [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchStates(int countryId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_locationBase/states.php?country_id=$countryId'),
+        headers: {'Accept': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final body = json.decode(response.body) as Map<String, dynamic>;
+        if (body['status'] == 'success' && body['data'] is List) {
+          return List<Map<String, dynamic>>.from(body['data'] as List);
+        }
+      }
+      return const [];
+    } catch (e) {
+      debugPrint('fetchStates error: $e');
+      return const [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fetchCities(int stateId) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_locationBase/cities.php?state_id=$stateId'),
+        headers: {'Accept': 'application/json'},
+      );
+      if (response.statusCode == 200) {
+        final body = json.decode(response.body) as Map<String, dynamic>;
+        if (body['status'] == 'success' && body['data'] is List) {
+          return List<Map<String, dynamic>>.from(body['data'] as List);
+        }
+      }
+      return const [];
+    } catch (e) {
+      debugPrint('fetchCities error: $e');
+      return const [];
     }
   }
 }

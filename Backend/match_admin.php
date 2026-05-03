@@ -8,24 +8,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
 
-include 'db_connect.php';
 
-date_default_timezone_set('Asia/Kathmandu');
-$conn->query("SET time_zone = '+05:45'");
-
-$base_url = "https://digitallami.com/Api2/";
-
-/* ----------------------------------------------------------
-   STEP 0: Parse POST body
----------------------------------------------------------- */
-$postData = json_decode(file_get_contents("php://input"), true);
-if (!is_array($postData)) {
-    $postData = [];
+function respond(array $payload, int $status = 200): void
+{
+    http_response_code($status);
+    echo json_encode($payload, JSON_PRETTY_PRINT);
+    exit;
 }
 
-if (!isset($postData['user_id'])) {
-    // Compatibility path for clients/tools that still send query parameters.
-    if (isset($_GET['user_id'])) {
+function parseInput(): array
+{
+    $postData = json_decode(file_get_contents('php://input'), true);
+    if (!is_array($postData)) {
+        $postData = [];
+    }
+
+    if (!isset($postData['user_id']) && isset($_GET['user_id'])) {
         $postData['user_id'] = $_GET['user_id'];
         if (isset($_GET['page'])) {
             $postData['page'] = $_GET['page'];
@@ -42,62 +40,135 @@ if (!isset($postData['user_id'])) {
             $postData['filter_type'] = $_GET['filter_type'];
         }
     }
+
+    return $postData;
 }
 
-if (!isset($postData['user_id'])) {
-    echo json_encode(["status" => "error", "message" => "user_id is required"]);
-    exit;
-}
+function fetchUnifiedMatches(int $userId): array
+{
+    $scheme = ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http');
+    $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    $url = $scheme . '://' . $host . '/uttamms/Backend/Api2/match.php?userid=' . $userId;
 
-$user_id    = intval($postData['user_id']);
-$page       = max(1, intval($postData['page']     ?? 1));
-$per_page   = max(1, min(100, intval($postData['per_page'] ?? 20)));
-$offset     = ($page - 1) * $per_page;
-$search     = trim($postData['search']      ?? '');
-$filterType = trim($postData['filter_type'] ?? 'all'); // 'matched' | 'all'
+    $raw = false;
 
-/* ----------------------------------------------------------
-   STEP 1: Get current user details and gender
----------------------------------------------------------- */
-$userQuery = $conn->prepare("
-    SELECT u.id, u.gender,
-           upd.birthDate, upd.maritalStatusId, upd.religionId,
-           upd.communityId, upd.educationId, upd.annualIncomeId,
-           upd.heightId, upd.occupationId
-    FROM   users u
-    JOIN   userpersonaldetail upd ON u.id = upd.userId
-    WHERE  u.id = ?
-");
-$userQuery->bind_param("i", $user_id);
-$userQuery->execute();
-$userResult = $userQuery->get_result();
-
-if ($userResult->num_rows === 0) {
-    // Try without personal detail join (user might not have preferences yet)
-    $userQuery2 = $conn->prepare("SELECT id, gender FROM users WHERE id = ?");
-    $userQuery2->bind_param("i", $user_id);
-    $userQuery2->execute();
-    $userResult2 = $userQuery2->get_result();
-    if ($userResult2->num_rows === 0) {
-        echo json_encode(["status" => "error", "message" => "User not found"]);
-        exit;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_CONNECTTIMEOUT => 5,
+        ]);
+        $raw = curl_exec($ch);
+        curl_close($ch);
     }
-    $user = $userResult2->fetch_assoc();
-    $user['birthDate']        = null;
-    $user['maritalStatusId']  = null;
-    $user['religionId']       = null;
-    $user['communityId']      = null;
-    $user['educationId']      = null;
-    $user['annualIncomeId']   = null;
-    $user['heightId']         = null;
-    $user['occupationId']     = null;
-} else {
-    $user = $userResult->fetch_assoc();
+
+    if ($raw === false) {
+        $raw = @file_get_contents($url);
+    }
+
+    if ($raw === false || $raw === '') {
+        throw new RuntimeException('Failed to reach unified match endpoint');
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded) || ($decoded['success'] ?? false) !== true) {
+        $message = is_array($decoded) ? ($decoded['message'] ?? 'Unified match request failed') : 'Unified match request failed';
+        throw new RuntimeException($message);
+    }
+
+    return $decoded['matched_users'] ?? [];
 }
 
-$normalizedGender = strtolower(trim((string)($user['gender'] ?? '')));
-$hasBinaryGender = in_array($normalizedGender, ['male', 'female'], true);
-$oppositeGender = ($normalizedGender === 'male') ? 'Female' : 'Male';
+function normalizeBool($value): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+    if (is_numeric($value)) {
+        return intval($value) !== 0;
+    }
+    $normalized = strtolower(trim((string)$value));
+    return in_array($normalized, ['1', 'true', 'yes'], true);
+}
+
+function normalizeAdminRow(array $row): array
+{
+    return [
+        'id' => intval($row['userid'] ?? $row['id'] ?? 0),
+        'member_id' => (string)($row['memberid'] ?? $row['member_id'] ?? ''),
+        'first_name' => (string)($row['firstName'] ?? $row['first_name'] ?? ''),
+        'last_name' => (string)($row['lastName'] ?? $row['last_name'] ?? ''),
+        'full_name' => trim(((string)($row['firstName'] ?? $row['first_name'] ?? '')) . ' ' . ((string)($row['lastName'] ?? $row['last_name'] ?? ''))),
+        'gender' => (string)($row['gender'] ?? ''),
+        'age' => intval($row['age'] ?? 0),
+        'profile_picture' => (string)($row['profile_picture'] ?? ''),
+        'occupation' => (string)($row['occupation'] ?? $row['designation'] ?? ''),
+        'education' => (string)($row['education'] ?? ''),
+        'marital_status' => (string)($row['marital_status'] ?? ''),
+        'country' => (string)($row['country'] ?? ''),
+        'matching_percentage' => intval($row['matchPercent'] ?? $row['matching_percentage'] ?? 0),
+        'is_paid' => normalizeBool($row['is_paid'] ?? false),
+        'is_online' => normalizeBool($row['is_online'] ?? false),
+        'has_preference' => true,
+    ];
+}
+
+$input = parseInput();
+if (!isset($input['user_id'])) {
+    respond(['status' => 'error', 'message' => 'user_id is required'], 400);
+}
+
+$userId = intval($input['user_id']);
+if ($userId <= 0) {
+    respond(['status' => 'error', 'message' => 'Invalid user_id'], 400);
+}
+
+$page = max(1, intval($input['page'] ?? 1));
+$perPage = max(1, min(100, intval($input['per_page'] ?? 20)));
+$search = strtolower(trim((string)($input['search'] ?? '')));
+
+try {
+    $matches = array_map('normalizeAdminRow', fetchUnifiedMatches($userId));
+
+    if ($search !== '') {
+        $matches = array_values(array_filter($matches, function (array $row) use ($search): bool {
+            $fullName = strtolower(trim(($row['first_name'] ?? '') . ' ' . ($row['last_name'] ?? '')));
+            $memberId = strtolower((string)($row['member_id'] ?? ''));
+            return strpos($fullName, $search) !== false || strpos($memberId, $search) !== false;
+        }));
+    }
+
+    usort($matches, function (array $a, array $b): int {
+        $matchOrder = intval($b['matching_percentage'] ?? 0) <=> intval($a['matching_percentage'] ?? 0);
+        if ($matchOrder !== 0) {
+            return $matchOrder;
+        }
+        return intval($b['id'] ?? 0) <=> intval($a['id'] ?? 0);
+    });
+
+    $total = count($matches);
+    $offset = ($page - 1) * $perPage;
+    $paged = array_slice($matches, $offset, $perPage);
+
+    respond([
+        'status' => 'success',
+        'message' => 'Matched profiles fetched successfully',
+        'data' => $paged,
+        'total' => $total,
+        'page' => $page,
+        'per_page' => $perPage,
+    ]);
+} catch (Throwable $e) {
+    respond([
+        'status' => 'error',
+        'message' => $e->getMessage(),
+        'data' => [],
+        'total' => 0,
+        'page' => $page,
+        'per_page' => $perPage,
+    ], 500);
+}
 
 /* ----------------------------------------------------------
    STEP 2: Get partner preferences

@@ -656,21 +656,35 @@ class AccessControl {
   final bool canViewPhoto;
   final bool canChat;
   final bool canSendRequests;
+  final bool photoAccessActive;
+  final String photoAccessExpiresAt;
+  final int photoAccessRemainingSeconds;
 
   AccessControl({
     required this.currentUserPlan,
     required this.canViewPhoto,
     required this.canChat,
     required this.canSendRequests,
+    required this.photoAccessActive,
+    required this.photoAccessExpiresAt,
+    required this.photoAccessRemainingSeconds,
   });
 
   factory AccessControl.fromJson(Map<String, dynamic> json) {
     final plan = json['current_user_plan'] ?? '';
+    final photoAccessRaw = json['photo_access_active'];
     return AccessControl(
       currentUserPlan: plan,
       canViewPhoto: json['can_view_photo'] ?? false,
       canChat: json['can_chat'] ?? false,
       canSendRequests: json['can_send_requests'] ?? false,
+      photoAccessActive: photoAccessRaw == true ||
+          photoAccessRaw == 1 ||
+          photoAccessRaw == '1',
+      photoAccessExpiresAt: json['photo_access_expires_at']?.toString() ?? '',
+      photoAccessRemainingSeconds: int.tryParse(
+              json['photo_access_remaining_seconds']?.toString() ?? '') ??
+          0,
     );
   }
 
@@ -680,6 +694,9 @@ class AccessControl {
       'can_view_photo': canViewPhoto,
       'can_chat': canChat,
       'can_send_requests': canSendRequests,
+      'photo_access_active': photoAccessActive,
+      'photo_access_expires_at': photoAccessExpiresAt,
+      'photo_access_remaining_seconds': photoAccessRemainingSeconds,
     };
   }
 }
@@ -793,7 +810,9 @@ class UserProfile extends ChangeNotifier {
 // The backend considers: target's privacy setting, photo request status,
 // viewer's plan (paid/free), and viewer's verification status.
   bool get shouldBlurPhotos {
-    return !canViewPhoto;
+    // Strict privacy rule: reveal photos only when backend allows viewing
+    // and the photo request is explicitly accepted.
+    return !(canViewPhoto && isPhotoRequestAccepted);
   }
 
 // Check if user can view photos (for UI logic)
@@ -877,6 +896,14 @@ class UserProfile extends ChangeNotifier {
 
   bool get canViewPhoto => profileResponse?.accessControl.canViewPhoto ?? false;
 
+  bool get photoAccessActive =>
+      profileResponse?.accessControl.photoAccessActive ?? false;
+
+  String get photoAccessExpiresAt =>
+      profileResponse?.accessControl.photoAccessExpiresAt ?? '';
+
+  bool get isPhotoAccessExpired => isPhotoRequestAccepted && !photoAccessActive;
+
   bool get canSendRequests =>
       profileResponse?.accessControl.canSendRequests ?? false;
 
@@ -922,6 +949,37 @@ class UserProfile extends ChangeNotifier {
       profileResponse?.data.personalDetail.birthDate != "Not available"
           ? profileResponse?.data.personalDetail.birthDate ?? "Not specified"
           : "Not specified";
+
+  /// Calculate age from birth date (private field, not shown publicly)
+  String get age {
+    final rawBirthDate = birthDate;
+    if (rawBirthDate.isEmpty ||
+        rawBirthDate == 'Not specified' ||
+        rawBirthDate == 'Not available') {
+      return 'Not available';
+    }
+    try {
+      DateTime? dob = DateTime.tryParse(rawBirthDate);
+      if (dob == null) {
+        final match =
+            RegExp(r'^(\d{2})-(\d{2})-(\d{4})$').firstMatch(rawBirthDate);
+        if (match != null) {
+          dob = DateTime.tryParse(
+              '${match.group(3)}-${match.group(2)}-${match.group(1)}');
+        }
+      }
+      if (dob == null) return 'Not available';
+      final now = DateTime.now();
+      int ageYears = now.year - dob.year;
+      if (now.month < dob.month ||
+          (now.month == dob.month && now.day < dob.day)) {
+        ageYears--;
+      }
+      return '$ageYears years';
+    } catch (_) {
+      return 'Not available';
+    }
+  }
 
   String get birthTime =>
       profileResponse?.data.personalDetail.birthtime.isNotEmpty == true
@@ -1062,6 +1120,36 @@ class UserProfile extends ChangeNotifier {
     final partnerMatch = response.partnerMatch;
     final accessControl = response.accessControl;
 
+    // Helper function to calculate age from birth date
+    String calculateAge(String birthDate) {
+      if (birthDate.isEmpty ||
+          birthDate == 'Not available' ||
+          birthDate == 'Not specified') {
+        return 'Not available';
+      }
+      try {
+        DateTime? dob = DateTime.tryParse(birthDate);
+        if (dob == null) {
+          final match =
+              RegExp(r'^(\d{2})-(\d{2})-(\d{4})$').firstMatch(birthDate);
+          if (match != null) {
+            dob = DateTime.tryParse(
+                '${match.group(3)}-${match.group(2)}-${match.group(1)}');
+          }
+        }
+        if (dob == null) return 'Not available';
+        final now = DateTime.now();
+        int ageYears = now.year - dob.year;
+        if (now.month < dob.month ||
+            (now.month == dob.month && now.day < dob.day)) {
+          ageYears--;
+        }
+        return '$ageYears years';
+      } catch (_) {
+        return 'Not available';
+      }
+    }
+
     String normalize(dynamic value) {
       if (value == null) return '';
       return value
@@ -1197,10 +1285,8 @@ class UserProfile extends ChangeNotifier {
       ),
       PersonalDetailItem(
         icon: Icons.cake,
-        title: "Birth Date",
-        value: personalDetail.birthDate.isNotEmpty
-            ? personalDetail.birthDate
-            : "Not available",
+        title: "Age",
+        value: calculateAge(personalDetail.birthDate),
       ),
       PersonalDetailItem(
         icon: Icons.restaurant,

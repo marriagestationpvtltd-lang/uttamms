@@ -12,6 +12,7 @@ import '../../ReUsable/smart_scroll_behavior.dart';
 import '../../service/personal_details_api.dart';
 import '../../service/updatepage.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import 'package:ms2026/config/profile_constants.dart';
 
 class PersonalDetailsPage extends StatefulWidget {
   const PersonalDetailsPage({
@@ -51,41 +52,17 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
 
   // Animation
 
-  // Dropdown options
-  final List<String> _maritalStatusOptions = [
-    'Still Unmarried',
-    'Widowed',
-    'Divorced',
-    'Waiting Divorce',
-  ];
+  // Dropdown options — use centralised constants (no inline duplicates)
+  static final List<String> _maritalStatusOptions =
+      kMaritalStatusIdEntries.map((e) => e['label']!).toList();
 
-  final List<String> _bloodGroupOptions = [
-    'A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'
-  ];
-
-  final List<String> _complexionOptions = [
-    'Very Fair', 'Fair', 'Wheatish', 'Olive', 'Brown', 'Dark'
-  ];
-
-  final List<String> _bodyTypeOptions = [
-    'Slim', 'Athletic', 'Average', 'Heavy', 'Muscular'
-  ];
-
-  late final List<String> _heightOptions;
   late final List<String> _weightOptions;
 
   @override
   void initState() {
     super.initState();
 
-    // Cache large lists once to avoid repeated generation during build
-    _heightOptions = List.generate(121, (index) {
-      int cm = 100 + index;
-      double totalInches = cm / 2.54;
-      int feet = totalInches ~/ 12;
-      int inches = (totalInches % 12).round();
-      return "$cm cm ($feet' $inches\")";
-    });
+    // Cache weight list once; height uses kHeightOptions constant
     _weightOptions = List.generate(121, (index) {
       int kg = 30 + index;
       return "$kg kg";
@@ -107,14 +84,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
     }
     _selectedMaritalStatus ??= data['maritalStatusName']?.toString();
 
-    // Height
+    // Height — match against kHeightOptions
     final heightName = data['height_name']?.toString();
     if (heightName != null && heightName.isNotEmpty) {
-      if (_heightOptions.contains(heightName)) {
+      if (kHeightOptions.contains(heightName)) {
         _selectedHeight = heightName;
       } else {
         try {
-          _selectedHeight = _heightOptions.firstWhere(
+          _selectedHeight = kHeightOptions.firstWhere(
             (h) => h.startsWith(heightName),
           );
         } catch (_) {
@@ -156,12 +133,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
     }
 
     // Blood Group
-    if (data['bloodGroup'] != null && data['bloodGroup'].toString().isNotEmpty) {
+    if (data['bloodGroup'] != null &&
+        data['bloodGroup'].toString().isNotEmpty) {
       _selectedBloodGroup = data['bloodGroup'].toString();
     }
 
     // Complexion
-    if (data['complexion'] != null && data['complexion'].toString().isNotEmpty) {
+    if (data['complexion'] != null &&
+        data['complexion'].toString().isNotEmpty) {
       _selectedComplexion = data['complexion'].toString();
     }
 
@@ -171,12 +150,14 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
     }
 
     // Child Status
-    if (data['childStatus'] != null && data['childStatus'].toString().isNotEmpty) {
+    if (data['childStatus'] != null &&
+        data['childStatus'].toString().isNotEmpty) {
       _childStatus = data['childStatus'].toString();
     }
 
     // Child Live With
-    if (data['childLiveWith'] != null && data['childLiveWith'].toString().isNotEmpty) {
+    if (data['childLiveWith'] != null &&
+        data['childLiveWith'].toString().isNotEmpty) {
       _childLiveWith = data['childLiveWith'].toString();
     }
   }
@@ -191,16 +172,27 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
   bool _validateForm() {
     setState(() {
       _fieldErrors = {
-        'maritalStatus': _selectedMaritalStatus == null ? 'Please select marital status' : null,
+        'maritalStatus': _selectedMaritalStatus == null
+            ? 'Please select marital status'
+            : null,
         'height': _selectedHeight == null ? 'Please select height' : null,
         'weight': _selectedWeight == null ? 'Please select weight' : null,
-        'bloodGroup': _selectedBloodGroup == null ? 'Please select blood group' : null,
-        'complexion': _selectedComplexion == null ? 'Please select complexion' : null,
-        'bodyType': _selectedBodyType == null ? 'Please select body type' : null,
-        'childStatus': (_selectedMaritalStatus == 'Divorced' || _selectedMaritalStatus == 'Widowed' || _selectedMaritalStatus == 'Waiting Divorce')
-            && _childStatus.isEmpty ? 'Please select children status' : null,
-        'childLiveWith': (_childStatus == 'One' || _childStatus == 'Two +')
-            && _childLiveWith.isEmpty ? 'Please select where children live' : null,
+        'bloodGroup':
+            _selectedBloodGroup == null ? 'Please select blood group' : null,
+        'complexion':
+            _selectedComplexion == null ? 'Please select complexion' : null,
+        'bodyType':
+            _selectedBodyType == null ? 'Please select body type' : null,
+        'childStatus': (_selectedMaritalStatus == 'Divorced' ||
+                    _selectedMaritalStatus == 'Widowed' ||
+                    _selectedMaritalStatus == 'Waiting Divorce') &&
+                _childStatus.isEmpty
+            ? 'Please select children status'
+            : null,
+        'childLiveWith': (_childStatus == 'One' || _childStatus == 'Two +') &&
+                _childLiveWith.isEmpty
+            ? 'Please select where children live'
+            : null,
       };
       _hasValidationErrors = _fieldErrors.values.any((error) => error != null);
     });
@@ -252,12 +244,19 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
 
       final result = await service.saveUserPersonalDetail(
         userId: userId,
-        maritalStatusId: _maritalStatusOptions.indexOf(_selectedMaritalStatus!) + 1,
+        maritalStatusId: int.parse(kMaritalStatusIdEntries
+            .firstWhere((e) => e['label'] == _selectedMaritalStatus,
+                orElse: () => {'value': '1'})
+            .entries
+            .firstWhere((e) => e.key == 'value')
+            .value),
         heightName: _selectedHeight,
         weightName: _selectedWeight,
         haveSpecs: _hasSpecs ? 1 : 0,
         anyDisability: _hasDisability ? 1 : 0,
-        disability: _disabilityController.text.isNotEmpty ? _disabilityController.text : null,
+        disability: _disabilityController.text.isNotEmpty
+            ? _disabilityController.text
+            : null,
         bloodGroup: _selectedBloodGroup,
         complexion: _selectedComplexion,
         bodyType: _selectedBodyType,
@@ -277,7 +276,8 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
         }
 
         // Persist the selected marital status so the document step can read it
-        await prefs.setString('selected_marital_status', _selectedMaritalStatus!);
+        await prefs.setString(
+            'selected_marital_status', _selectedMaritalStatus!);
 
         _showSnackBar('Personal details saved successfully!');
 
@@ -286,11 +286,13 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
         } else {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => const CommunityDetailsPage()),
+            MaterialPageRoute(
+                builder: (context) => const CommunityDetailsPage()),
           );
         }
       } else {
-        _showSnackBar(result['message'] ?? "Something went wrong", isError: true);
+        _showSnackBar(result['message'] ?? "Something went wrong",
+            isError: true);
       }
     } catch (e) {
       setState(() => _isSubmitting = false);
@@ -305,601 +307,609 @@ class _PersonalDetailsPageState extends State<PersonalDetailsPage>
       resizeToAvoidBottomInset: true,
       body: SafeArea(
         child: RegistrationStepContainer(
-            scrollController: scrollController,
-            onContinue: _isSubmitting ? null : _validateAndSubmit,
-            onBack: () => Navigator.pop(context),
-            onStepBack: () => Navigator.pop(context), // Allow step-by-step back navigation
-            continueText: 'Continue',
-            canContinue: !_isSubmitting,
-            isLoading: _isSubmitting,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header
-                RegistrationStepHeader(
-                  title: 'Personal Details',
-                  subtitle: 'Share your personal information to help us find the perfect match for you.',
-                  currentStep: 3,
-                  totalSteps: 11,
-                  onBack: () => Navigator.pop(context),
-                  onStepBack: () => Navigator.pop(context), // Allow step-by-step back navigation
-                ),
+          scrollController: scrollController,
+          onContinue: _isSubmitting ? null : _validateAndSubmit,
+          onBack: () => Navigator.pop(context),
+          onStepBack: () =>
+              Navigator.pop(context), // Allow step-by-step back navigation
+          continueText: 'Continue',
+          canContinue: !_isSubmitting,
+          isLoading: _isSubmitting,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header
+              RegistrationStepHeader(
+                title: 'Personal Details',
+                subtitle:
+                    'Share your personal information to help us find the perfect match for you.',
+                currentStep: 3,
+                totalSteps: 11,
+                onBack: () => Navigator.pop(context),
+                onStepBack: () => Navigator.pop(
+                    context), // Allow step-by-step back navigation
+              ),
 
-                const SizedBox(height: 32),
+              const SizedBox(height: 32),
 
-                // Marital Status Section
-                SectionHeader(
-                  title: 'Marital Status',
-                  subtitle: 'Your current relationship status',
-                  icon: Icons.favorite_outline,
-                ),
+              // Marital Status Section
+              SectionHeader(
+                title: 'Marital Status',
+                subtitle: 'Your current relationship status',
+                icon: Icons.favorite_outline,
+              ),
 
-                const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-                EnhancedDropdown<String>(
-                  label: 'Marital Status',
-                  value: _selectedMaritalStatus,
-                  items: _maritalStatusOptions,
-                  itemLabel: (status) => status,
-                  hint: 'Select marital status',
-                  prefixIcon: Icons.favorite_border,
-                  hasError: _fieldErrors['maritalStatus'] != null,
-                  errorText: _fieldErrors['maritalStatus'],
-                  isRequired: true,
-                  onChanged: (widget.isEditMode && widget.isVerified) ? null : (value) {
-                    setState(() {
-                      _selectedMaritalStatus = value;
-                      if (_hasValidationErrors) {
-                        _fieldErrors['maritalStatus'] = null;
-                      }
-                      // Reset child status if not divorced/widowed/waiting divorce
-                      if (value != 'Divorced' && value != 'Widowed' && value != 'Waiting Divorce') {
-                        _childStatus = '';
-                        _childLiveWith = '';
-                      }
-                    });
-                  },
-                ),
-                if (widget.isEditMode && widget.isVerified) ...[
-                  const SizedBox(height: 4),
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4),
-                    child: Row(
-                      children: const [
-                        Icon(Icons.lock, size: 14, color: Color(0xFF2E7D32)),
-                        SizedBox(width: 4),
-                        Text(
-                          'Verified – Cannot be changed',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                // Children Status (only for Divorced/Widowed/Waiting Divorce)
-                if (_selectedMaritalStatus == 'Divorced' || _selectedMaritalStatus == 'Widowed' || _selectedMaritalStatus == 'Waiting Divorce') ...[
-                  const SizedBox(height: 24),
-
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8, left: 4),
-                        child: Row(
-                          children: [
-                            Text(
-                              'Children Status',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              '*',
-                              style: TextStyle(
-                                color: AppColors.error,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
+              EnhancedDropdown<String>(
+                label: 'Marital Status',
+                value: _selectedMaritalStatus,
+                items: _maritalStatusOptions,
+                itemLabel: (status) => status,
+                hint: 'Select marital status',
+                prefixIcon: Icons.favorite_border,
+                hasError: _fieldErrors['maritalStatus'] != null,
+                errorText: _fieldErrors['maritalStatus'],
+                isRequired: true,
+                onChanged: (widget.isEditMode && widget.isVerified)
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _selectedMaritalStatus = value;
+                          if (_hasValidationErrors) {
+                            _fieldErrors['maritalStatus'] = null;
+                          }
+                          // Reset child status if not divorced/widowed/waiting divorce
+                          if (value != 'Divorced' &&
+                              value != 'Widowed' &&
+                              value != 'Waiting Divorce') {
+                            _childStatus = '';
+                            _childLiveWith = '';
+                          }
+                        });
+                      },
+              ),
+              if (widget.isEditMode && widget.isVerified) ...[
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.only(left: 4),
+                  child: Row(
+                    children: const [
+                      Icon(Icons.lock, size: 14, color: Color(0xFF2E7D32)),
+                      SizedBox(width: 4),
+                      Text(
+                        'Verified – Cannot be changed',
+                        style:
+                            TextStyle(fontSize: 12, color: Color(0xFF2E7D32)),
                       ),
-                      Row(
+                    ],
+                  ),
+                ),
+              ],
+
+              // Children Status (only for Divorced/Widowed/Waiting Divorce)
+              if (_selectedMaritalStatus == 'Divorced' ||
+                  _selectedMaritalStatus == 'Widowed' ||
+                  _selectedMaritalStatus == 'Waiting Divorce') ...[
+                const SizedBox(height: 24),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8, left: 4),
+                      child: Row(
                         children: [
-                          Expanded(
-                            child: EnhancedRadioOption<String>(
-                              label: 'No Child',
-                              value: 'No Child',
-                              groupValue: _childStatus,
-                              onChanged: (value) {
-                                setState(() {
-                                  _childStatus = value ?? '';
-                                  _childLiveWith = '';
-                                  if (_hasValidationErrors) {
-                                    _fieldErrors['childStatus'] = null;
-                                    _fieldErrors['childLiveWith'] = null;
-                                  }
-                                });
-                              },
+                          Text(
+                            'Children Status',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: EnhancedRadioOption<String>(
-                              label: 'One Child',
-                              value: 'One',
-                              groupValue: _childStatus,
-                              onChanged: (value) {
-                                setState(() {
-                                  _childStatus = value ?? '';
-                                  if (_hasValidationErrors) {
-                                    _fieldErrors['childStatus'] = null;
-                                  }
-                                });
-                              },
+                          SizedBox(width: 4),
+                          Text(
+                            '*',
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      EnhancedRadioOption<String>(
-                        label: 'Two or More Children',
-                        value: 'Two +',
-                        groupValue: _childStatus,
-                        onChanged: (value) {
-                          setState(() {
-                            _childStatus = value ?? '';
-                            if (_hasValidationErrors) {
-                              _fieldErrors['childStatus'] = null;
-                            }
-                          });
-                        },
-                      ),
-                      if (_fieldErrors['childStatus'] != null) ...[
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                size: 14,
-                                color: AppColors.error,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _fieldErrors['childStatus']!,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.error,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-
-                // Where children live (only if has children)
-                if (_childStatus == 'One' || _childStatus == 'Two +') ...[
-                  const SizedBox(height: 24),
-
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(bottom: 8, left: 4),
-                        child: Row(
-                          children: [
-                            Text(
-                              'Children Live With',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
-                              ),
-                            ),
-                            SizedBox(width: 4),
-                            Text(
-                              '*',
-                              style: TextStyle(
-                                color: AppColors.error,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: EnhancedRadioOption<String>(
-                                  label: 'With Me',
-                                  value: 'With Me',
-                                  groupValue: _childLiveWith,
-                                  icon: Icons.home,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _childLiveWith = value ?? '';
-                                      if (_hasValidationErrors) {
-                                        _fieldErrors['childLiveWith'] = null;
-                                      }
-                                    });
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: EnhancedRadioOption<String>(
-                                  label: 'With Ex',
-                                  value: 'With Ex Husband',
-                                  groupValue: _childLiveWith,
-                                  icon: Icons.person_outline,
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _childLiveWith = value ?? '';
-                                      if (_hasValidationErrors) {
-                                        _fieldErrors['childLiveWith'] = null;
-                                      }
-                                    });
-                                  },
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          EnhancedRadioOption<String>(
-                            label: 'Others',
-                            value: 'Others',
-                            groupValue: _childLiveWith,
-                            icon: Icons.people_outline,
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: EnhancedRadioOption<String>(
+                            label: 'No Child',
+                            value: 'No Child',
+                            groupValue: _childStatus,
                             onChanged: (value) {
                               setState(() {
-                                _childLiveWith = value ?? '';
+                                _childStatus = value ?? '';
+                                _childLiveWith = '';
                                 if (_hasValidationErrors) {
+                                  _fieldErrors['childStatus'] = null;
                                   _fieldErrors['childLiveWith'] = null;
                                 }
                               });
                             },
                           ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: EnhancedRadioOption<String>(
+                            label: 'One Child',
+                            value: 'One',
+                            groupValue: _childStatus,
+                            onChanged: (value) {
+                              setState(() {
+                                _childStatus = value ?? '';
+                                if (_hasValidationErrors) {
+                                  _fieldErrors['childStatus'] = null;
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    EnhancedRadioOption<String>(
+                      label: 'Two or More Children',
+                      value: 'Two +',
+                      groupValue: _childStatus,
+                      onChanged: (value) {
+                        setState(() {
+                          _childStatus = value ?? '';
+                          if (_hasValidationErrors) {
+                            _fieldErrors['childStatus'] = null;
+                          }
+                        });
+                      },
+                    ),
+                    if (_fieldErrors['childStatus'] != null) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              size: 14,
+                              color: AppColors.error,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _fieldErrors['childStatus']!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppColors.error,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ],
+
+              // Where children live (only if has children)
+              if (_childStatus == 'One' || _childStatus == 'Two +') ...[
+                const SizedBox(height: 24),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(bottom: 8, left: 4),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Children Live With',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            '*',
+                            style: TextStyle(
+                              color: AppColors.error,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
-                      if (_fieldErrors['childLiveWith'] != null) ...[
-                        const SizedBox(height: 8),
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                size: 14,
+                    ),
+                    Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: EnhancedRadioOption<String>(
+                                label: 'With Me',
+                                value: 'With Me',
+                                groupValue: _childLiveWith,
+                                icon: Icons.home,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _childLiveWith = value ?? '';
+                                    if (_hasValidationErrors) {
+                                      _fieldErrors['childLiveWith'] = null;
+                                    }
+                                  });
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: EnhancedRadioOption<String>(
+                                label: 'With Ex',
+                                value: 'With Ex Husband',
+                                groupValue: _childLiveWith,
+                                icon: Icons.person_outline,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _childLiveWith = value ?? '';
+                                    if (_hasValidationErrors) {
+                                      _fieldErrors['childLiveWith'] = null;
+                                    }
+                                  });
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        EnhancedRadioOption<String>(
+                          label: 'Others',
+                          value: 'Others',
+                          groupValue: _childLiveWith,
+                          icon: Icons.people_outline,
+                          onChanged: (value) {
+                            setState(() {
+                              _childLiveWith = value ?? '';
+                              if (_hasValidationErrors) {
+                                _fieldErrors['childLiveWith'] = null;
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                    if (_fieldErrors['childLiveWith'] != null) ...[
+                      const SizedBox(height: 8),
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline,
+                              size: 14,
+                              color: AppColors.error,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _fieldErrors['childLiveWith']!,
+                              style: const TextStyle(
+                                fontSize: 12,
                                 color: AppColors.error,
+                                fontWeight: FontWeight.w500,
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _fieldErrors['childLiveWith']!,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: AppColors.error,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
                     ],
+                  ],
+                ),
+              ],
+
+              const SizedBox(height: 32),
+
+              // Physical Attributes Section
+              SectionHeader(
+                title: 'Physical Attributes',
+                subtitle: 'Your physical characteristics',
+                icon: Icons.accessibility_new,
+              ),
+
+              const SizedBox(height: 16),
+
+              // Height and Weight
+              Row(
+                children: [
+                  Expanded(
+                    child: TypingDropdown<String>(
+                      title: 'Height',
+                      items: kHeightOptions,
+                      itemLabel: (height) => height,
+                      hint: 'Select height',
+                      selectedItem: _selectedHeight,
+                      showError: _fieldErrors['height'] != null,
+                      errorText: _fieldErrors['height'],
+                      prefixIcon: Icons.height,
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedHeight = value;
+                          if (_hasValidationErrors) {
+                            _fieldErrors['height'] = null;
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TypingDropdown<String>(
+                      title: 'Weight',
+                      items: _weightOptions,
+                      itemLabel: (weight) => weight,
+                      hint: 'Select weight',
+                      selectedItem: _selectedWeight,
+                      showError: _fieldErrors['weight'] != null,
+                      errorText: _fieldErrors['weight'],
+                      prefixIcon: Icons.monitor_weight_outlined,
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedWeight = value;
+                          if (_hasValidationErrors) {
+                            _fieldErrors['weight'] = null;
+                          }
+                        });
+                      },
+                    ),
                   ),
                 ],
+              ),
 
-                const SizedBox(height: 32),
+              const SizedBox(height: 16),
 
-                // Physical Attributes Section
-                SectionHeader(
-                  title: 'Physical Attributes',
-                  subtitle: 'Your physical characteristics',
-                  icon: Icons.accessibility_new,
-                ),
+              // Blood Group
+              EnhancedDropdown<String>(
+                label: 'Blood Group',
+                value: _selectedBloodGroup,
+                items: kBloodGroupOptions,
+                itemLabel: (group) => group,
+                hint: 'Select blood group',
+                prefixIcon: Icons.bloodtype,
+                hasError: _fieldErrors['bloodGroup'] != null,
+                errorText: _fieldErrors['bloodGroup'],
+                isRequired: true,
+                onChanged: (value) {
+                  setState(() {
+                    _selectedBloodGroup = value;
+                    if (_hasValidationErrors) {
+                      _fieldErrors['bloodGroup'] = null;
+                    }
+                  });
+                },
+              ),
 
-                const SizedBox(height: 16),
+              const SizedBox(height: 16),
 
-                // Height and Weight
-                Row(
-                  children: [
-                    Expanded(
-                      child: TypingDropdown<String>(
-                        title: 'Height',
-                        items: _heightOptions,
-                        itemLabel: (height) => height,
-                        hint: 'Select height',
-                        selectedItem: _selectedHeight,
-                        showError: _fieldErrors['height'] != null,
-                        errorText: _fieldErrors['height'],
-                        prefixIcon: Icons.height,
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedHeight = value;
-                            if (_hasValidationErrors) {
-                              _fieldErrors['height'] = null;
-                            }
-                          });
-                        },
+              // Complexion
+              EnhancedDropdown<String>(
+                label: 'Complexion',
+                value: _selectedComplexion,
+                items: kComplexionOptions,
+                itemLabel: (complexion) => complexion,
+                hint: 'Select complexion',
+                prefixIcon: Icons.face,
+                hasError: _fieldErrors['complexion'] != null,
+                errorText: _fieldErrors['complexion'],
+                isRequired: true,
+                onChanged: (value) {
+                  setState(() {
+                    _selectedComplexion = value;
+                    if (_hasValidationErrors) {
+                      _fieldErrors['complexion'] = null;
+                    }
+                  });
+                },
+              ),
+
+              const SizedBox(height: 16),
+
+              // Body Type
+              EnhancedDropdown<String>(
+                label: 'Body Type',
+                value: _selectedBodyType,
+                items: kBodyTypeOptions,
+                itemLabel: (bodyType) => bodyType,
+                hint: 'Select body type',
+                prefixIcon: Icons.fitness_center,
+                hasError: _fieldErrors['bodyType'] != null,
+                errorText: _fieldErrors['bodyType'],
+                isRequired: true,
+                onChanged: (value) {
+                  setState(() {
+                    _selectedBodyType = value;
+                    if (_hasValidationErrors) {
+                      _fieldErrors['bodyType'] = null;
+                    }
+                  });
+                },
+              ),
+
+              const SizedBox(height: 32),
+
+              // Additional Information Section
+              SectionHeader(
+                title: 'Additional Information',
+                subtitle: 'Specs and health information',
+                icon: Icons.medical_information_outlined,
+              ),
+
+              const SizedBox(height: 16),
+
+              // Specs/Lenses
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8, left: 4),
+                    child: Text(
+                      'Do you wear specs/lenses?',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
                       ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TypingDropdown<String>(
-                        title: 'Weight',
-                        items: _weightOptions,
-                        itemLabel: (weight) => weight,
-                        hint: 'Select weight',
-                        selectedItem: _selectedWeight,
-                        showError: _fieldErrors['weight'] != null,
-                        errorText: _fieldErrors['weight'],
-                        prefixIcon: Icons.monitor_weight_outlined,
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedWeight = value;
-                            if (_hasValidationErrors) {
-                              _fieldErrors['weight'] = null;
-                            }
-                          });
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Blood Group
-                EnhancedDropdown<String>(
-                  label: 'Blood Group',
-                  value: _selectedBloodGroup,
-                  items: _bloodGroupOptions,
-                  itemLabel: (group) => group,
-                  hint: 'Select blood group',
-                  prefixIcon: Icons.bloodtype,
-                  hasError: _fieldErrors['bloodGroup'] != null,
-                  errorText: _fieldErrors['bloodGroup'],
-                  isRequired: true,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedBloodGroup = value;
-                      if (_hasValidationErrors) {
-                        _fieldErrors['bloodGroup'] = null;
-                      }
-                    });
-                  },
-                ),
-
-                const SizedBox(height: 16),
-
-                // Complexion
-                EnhancedDropdown<String>(
-                  label: 'Complexion',
-                  value: _selectedComplexion,
-                  items: _complexionOptions,
-                  itemLabel: (complexion) => complexion,
-                  hint: 'Select complexion',
-                  prefixIcon: Icons.face,
-                  hasError: _fieldErrors['complexion'] != null,
-                  errorText: _fieldErrors['complexion'],
-                  isRequired: true,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedComplexion = value;
-                      if (_hasValidationErrors) {
-                        _fieldErrors['complexion'] = null;
-                      }
-                    });
-                  },
-                ),
-
-                const SizedBox(height: 16),
-
-                // Body Type
-                EnhancedDropdown<String>(
-                  label: 'Body Type',
-                  value: _selectedBodyType,
-                  items: _bodyTypeOptions,
-                  itemLabel: (bodyType) => bodyType,
-                  hint: 'Select body type',
-                  prefixIcon: Icons.fitness_center,
-                  hasError: _fieldErrors['bodyType'] != null,
-                  errorText: _fieldErrors['bodyType'],
-                  isRequired: true,
-                  onChanged: (value) {
-                    setState(() {
-                      _selectedBodyType = value;
-                      if (_hasValidationErrors) {
-                        _fieldErrors['bodyType'] = null;
-                      }
-                    });
-                  },
-                ),
-
-                const SizedBox(height: 32),
-
-                // Additional Information Section
-                SectionHeader(
-                  title: 'Additional Information',
-                  subtitle: 'Specs and health information',
-                  icon: Icons.medical_information_outlined,
-                ),
-
-                const SizedBox(height: 16),
-
-                // Specs/Lenses
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8, left: 4),
-                      child: Text(
-                        'Do you wear specs/lenses?',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: EnhancedRadioOption<bool>(
-                            label: 'Yes',
-                            value: true,
-                            groupValue: _hasSpecs,
-                            icon: Icons.visibility,
-                            onChanged: (value) {
-                              setState(() => _hasSpecs = value ?? false);
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: EnhancedRadioOption<bool>(
-                            label: 'No',
-                            value: false,
-                            groupValue: _hasSpecs,
-                            icon: Icons.visibility_off,
-                            onChanged: (value) {
-                              setState(() => _hasSpecs = value ?? false);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 24),
-
-                // Disability
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 8, left: 4),
-                      child: Text(
-                        'Do you have any disability?',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: EnhancedRadioOption<bool>(
-                            label: 'Yes',
-                            value: true,
-                            groupValue: _hasDisability,
-                            icon: Icons.accessible,
-                            onChanged: (value) {
-                              FocusScope.of(context).unfocus();
-                              setState(() => _hasDisability = value ?? false);
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: EnhancedRadioOption<bool>(
-                            label: 'No',
-                            value: false,
-                            groupValue: _hasDisability,
-                            icon: Icons.accessibility_new,
-                            onChanged: (value) {
-                              FocusScope.of(context).unfocus();
-                              setState(() => _hasDisability = value ?? false);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-
-                // Disability description
-                if (_hasDisability) ...[
-                  const SizedBox(height: 16),
-                  EnhancedTextField(
-                    label: 'Disability Description',
-                    hint: 'Please describe your disability',
-                    controller: _disabilityController,
-                    prefixIcon: Icons.info_outline,
-                    maxLines: 3,
-                    textInputAction: TextInputAction.done,
-                    onSubmitted: (_) => FocusScope.of(context).unfocus(),
-                    onChanged: (value) {},
-                  ),
-                ],
-
-                const SizedBox(height: 32),
-
-                // Info Card
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        AppColors.secondary.withOpacity(0.1),
-                        AppColors.secondaryLight.withOpacity(0.05),
-                      ],
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.secondary.withOpacity(0.2),
-                      width: 1,
                     ),
                   ),
-                  child: Row(
+                  Row(
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppColors.secondary.withOpacity(0.2),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(
-                          Icons.privacy_tip_outlined,
-                          color: AppColors.secondary,
-                          size: 24,
+                      Expanded(
+                        child: EnhancedRadioOption<bool>(
+                          label: 'Yes',
+                          value: true,
+                          groupValue: _hasSpecs,
+                          icon: Icons.visibility,
+                          onChanged: (value) {
+                            setState(() => _hasSpecs = value ?? false);
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          'Your personal information is confidential and only visible to compatible matches.',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppColors.textSecondary,
-                            height: 1.4,
-                          ),
+                      Expanded(
+                        child: EnhancedRadioOption<bool>(
+                          label: 'No',
+                          value: false,
+                          groupValue: _hasSpecs,
+                          icon: Icons.visibility_off,
+                          onChanged: (value) {
+                            setState(() => _hasSpecs = value ?? false);
+                          },
                         ),
                       ),
                     ],
                   ),
-                ),
+                ],
+              ),
 
-                const SizedBox(height: 24),
+              const SizedBox(height: 24),
+
+              // Disability
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8, left: 4),
+                    child: Text(
+                      'Do you have any disability?',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: EnhancedRadioOption<bool>(
+                          label: 'Yes',
+                          value: true,
+                          groupValue: _hasDisability,
+                          icon: Icons.accessible,
+                          onChanged: (value) {
+                            FocusScope.of(context).unfocus();
+                            setState(() => _hasDisability = value ?? false);
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: EnhancedRadioOption<bool>(
+                          label: 'No',
+                          value: false,
+                          groupValue: _hasDisability,
+                          icon: Icons.accessibility_new,
+                          onChanged: (value) {
+                            FocusScope.of(context).unfocus();
+                            setState(() => _hasDisability = value ?? false);
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+
+              // Disability description
+              if (_hasDisability) ...[
+                const SizedBox(height: 16),
+                EnhancedTextField(
+                  label: 'Disability Description',
+                  hint: 'Please describe your disability',
+                  controller: _disabilityController,
+                  prefixIcon: Icons.info_outline,
+                  maxLines: 3,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                  onChanged: (value) {},
+                ),
               ],
-            ),
+
+              const SizedBox(height: 32),
+
+              // Info Card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      AppColors.secondary.withOpacity(0.1),
+                      AppColors.secondaryLight.withOpacity(0.05),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppColors.secondary.withOpacity(0.2),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: AppColors.secondary.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.privacy_tip_outlined,
+                        color: AppColors.secondary,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Text(
+                        'Your personal information is confidential and only visible to compatible matches.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: AppColors.textSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 24),
+            ],
           ),
+        ),
       ),
     );
   }

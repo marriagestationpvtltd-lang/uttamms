@@ -16,6 +16,7 @@ class MatchedProfileProvider with ChangeNotifier {
   static const int _perPage = 20;
   int? _currentUserId;
   String _memberid = '';
+  List<MatchedProfile> _allMatchedProfiles = [];
 
   // Search & filter state
   String _searchQuery = '';
@@ -102,13 +103,106 @@ class MatchedProfileProvider with ChangeNotifier {
     }).toList();
   }
 
+  String _normalizeProfilePicture(String rawPath) {
+    final trimmed = rawPath.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('http')) return trimmed;
+    final root = kAdminApiBaseUrl.endsWith('/Backend')
+        ? kAdminApiBaseUrl.substring(
+            0,
+            kAdminApiBaseUrl.length - '/Backend'.length,
+          )
+        : kAdminApiBaseUrl;
+    return '$root/${trimmed.startsWith('/') ? trimmed.substring(1) : trimmed}';
+  }
+
+  List<MatchedProfile> _normalizeProfiles(List<MatchedProfile> profiles) {
+    return profiles
+        .map(
+          (profile) => MatchedProfile(
+            id: profile.id,
+            firstName: profile.firstName,
+            lastName: profile.lastName,
+            memberid: profile.memberid,
+            matchingPercentage: profile.matchingPercentage,
+            isPaid: profile.isPaid,
+            isOnline: profile.isOnline,
+            occupation: profile.occupation,
+            education: profile.education,
+            country: profile.country,
+            marit: profile.marit,
+            gender: profile.gender,
+            age: profile.age,
+            profilePicture: _normalizeProfilePicture(profile.profilePicture),
+          ),
+        )
+        .toList();
+  }
+
+  void _syncVisibleProfiles({bool resetPage = true}) {
+    final filtered = _applyLocalSearchFilter(_allMatchedProfiles, _searchQuery);
+    _totalCount = filtered.length;
+
+    if (resetPage) {
+      _currentPage = 1;
+      _matchedProfiles = filtered.take(_perPage).toList();
+    }
+
+    _hasMore = _matchedProfiles.length < filtered.length;
+    if (_hasMore && _currentPage < 2) {
+      _currentPage = 2;
+    }
+
+    if (_matchedProfiles.isNotEmpty) {
+      _name = _matchedProfiles.first.firstName;
+      _memberid = _matchedProfiles.first.memberid;
+    } else {
+      _name = '';
+      _memberid = '';
+    }
+  }
+
+  Future<List<MatchedProfile>> _fetchFromUnifiedMatch(int userId) async {
+    final url = '$kAdminApi2BaseUrl/match.php?userid=$userId';
+    debugPrint('[MatchedProfile] Fetching: $url');
+    final response = await http.get(Uri.parse(url));
+
+    debugPrint('[MatchedProfile] Response status: ${response.statusCode}');
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load unified matches: ${response.statusCode}');
+    }
+
+    final data = json.decode(response.body);
+    debugPrint(
+      '[MatchedProfile] success=${data['success']} type=${data['success'].runtimeType}',
+    );
+    if (data is! Map || data['success'] != true) {
+      throw Exception(
+        data is Map
+            ? (data['message'] ?? 'Unified match request failed')
+            : 'Unified match request failed',
+      );
+    }
+
+    final rawList = data['matched_users'];
+    debugPrint('[MatchedProfile] matched_users count=${rawList?.length ?? 0}');
+    final parsed = _normalizeProfiles(_parseProfileList(rawList));
+    debugPrint('[MatchedProfile] parsed profiles: ${parsed.length}');
+    final dedupedById = <int, MatchedProfile>{
+      for (final profile in parsed) profile.id: profile,
+    };
+    final list = dedupedById.values.toList()
+      ..sort((a, b) => b.matchingPercentage.compareTo(a.matchingPercentage));
+    debugPrint('[MatchedProfile] deduped+sorted: ${list.length}');
+    return list;
+  }
+
   Future<(List<MatchedProfile>, int)> _fetchFromMatchAdmin(
     int userId, {
     int page = 1,
     String? filterTypeOverride,
   }) async {
     final response = await http.post(
-      Uri.parse('${kAdminApiBaseUrl}/match_admin.php'),
+      Uri.parse('$kAdminApiBaseUrl/match_admin.php'),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({
         'user_id': userId,
@@ -136,7 +230,7 @@ class MatchedProfileProvider with ChangeNotifier {
 
   Future<List<MatchedProfile>> _fetchFromLegacyMatched(int userId) async {
     final response = await http.post(
-      Uri.parse('${kAdminApiBaseUrl}/matched.php'),
+      Uri.parse('$kAdminApiBaseUrl/matched.php'),
       headers: {'Content-Type': 'application/json'},
       body: json.encode({'user_id': userId}),
     );
@@ -164,10 +258,28 @@ class MatchedProfileProvider with ChangeNotifier {
     _currentPage = 1;
     _hasMore = false;
     _isloading = true;
+    _allMatchedProfiles = [];
     _matchedProfiles = [];
     notifyListeners();
 
+    debugPrint('[MatchedProfile] fetchMatchedProfiles start userId=$userId');
     try {
+      try {
+        _allMatchedProfiles = await _fetchFromUnifiedMatch(userId);
+        debugPrint(
+          '[MatchedProfile] _allMatchedProfiles.length=${_allMatchedProfiles.length}',
+        );
+        _syncVisibleProfiles(resetPage: true);
+        debugPrint(
+          '[MatchedProfile] _matchedProfiles.length=${_matchedProfiles.length} _totalCount=$_totalCount',
+        );
+        return;
+      } catch (e) {
+        debugPrint(
+          '[MatchedProfile] Unified Api2/match.php request failed: $e',
+        );
+      }
+
       List<MatchedProfile> pageProfiles = const <MatchedProfile>[];
       int resolvedTotalCount = 0;
 
@@ -204,16 +316,13 @@ class MatchedProfileProvider with ChangeNotifier {
         }
       }
 
-      _matchedProfiles = pageProfiles;
-
+      _allMatchedProfiles = _normalizeProfiles(pageProfiles);
+      _matchedProfiles = List<MatchedProfile>.from(_allMatchedProfiles);
       _totalCount = resolvedTotalCount > 0
           ? resolvedTotalCount
-          : pageProfiles.length;
-
-      _hasMore =
-          pageProfiles.length >= _perPage &&
-          _matchedProfiles.length < _totalCount;
-      _currentPage = 2;
+          : _matchedProfiles.length;
+      _hasMore = false;
+      _currentPage = 1;
 
       if (_matchedProfiles.isNotEmpty) {
         _name = _matchedProfiles.first.firstName;
@@ -237,25 +346,20 @@ class MatchedProfileProvider with ChangeNotifier {
     notifyListeners();
 
     try {
-      final (pageProfiles, total) = await _fetchFromMatchAdmin(
-        _currentUserId!,
-        page: _currentPage,
+      final filtered = _applyLocalSearchFilter(
+        _allMatchedProfiles,
+        _searchQuery,
       );
-
-      // Deduplicate by id before appending
-      final existingIds = _matchedProfiles.map((p) => p.id).toSet();
-      final newProfiles = pageProfiles
-          .where((p) => !existingIds.contains(p.id))
+      final nextPage = filtered
+          .skip(_matchedProfiles.length)
+          .take(_perPage)
           .toList();
-
-      _matchedProfiles.addAll(newProfiles);
-      _currentPage++;
-
-      _totalCount = total > 0 ? total : _matchedProfiles.length;
-
-      _hasMore =
-          pageProfiles.length >= _perPage &&
-          _matchedProfiles.length < _totalCount;
+      if (nextPage.isNotEmpty) {
+        _matchedProfiles.addAll(nextPage);
+        _currentPage++;
+      }
+      _totalCount = filtered.length;
+      _hasMore = _matchedProfiles.length < filtered.length;
     } catch (e) {
       debugPrint('Error fetching more profiles: $e');
     } finally {
@@ -269,18 +373,16 @@ class MatchedProfileProvider with ChangeNotifier {
     final trimmed = query.trim();
     if (trimmed == _searchQuery) return;
     _searchQuery = trimmed;
-    if (_currentUserId != null) {
-      await fetchMatchedProfiles(_currentUserId!);
-    }
+    _syncVisibleProfiles(resetPage: true);
+    notifyListeners();
   }
 
   // Change filter type ('matched' | 'all') and reset pagination.
   Future<void> updateFilterType(String type) async {
     if (type == _filterType) return;
     _filterType = type;
-    if (_currentUserId != null) {
-      await fetchMatchedProfiles(_currentUserId!);
-    }
+    _syncVisibleProfiles(resetPage: true);
+    notifyListeners();
   }
 
   // Helper methods
@@ -306,34 +408,27 @@ class MatchedProfileProvider with ChangeNotifier {
 
   // Lightweight refresh: re-fetch current profiles and update only isOnline field
   Future<void> refreshOnlineStatuses() async {
-    if (_currentUserId == null || _matchedProfiles.isEmpty) return;
+    if (_currentUserId == null || _allMatchedProfiles.isEmpty) return;
 
     try {
-      final response = await http.post(
-        Uri.parse('${kAdminApiBaseUrl}/match_admin.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'user_id': _currentUserId,
-          'page': 1,
-          'per_page': _matchedProfiles.length.clamp(_perPage, 100),
-        }),
+      final response = await http.get(
+        Uri.parse('$kAdminApi2BaseUrl/match.php?userid=${_currentUserId!}'),
       );
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final list = data['data'] as List? ?? [];
+        final list = data['matched_users'] as List? ?? [];
 
         // Build a lookup map: id -> isOnline
         final Map<int, bool> onlineMap = {
           for (var item in list)
-            int.tryParse(item['id']?.toString() ?? '') ?? 0: _asBool(
-              item['is_online'],
-            ),
+            int.tryParse((item['userid'] ?? item['id'])?.toString() ?? '') ?? 0:
+                _asBool(item['is_online']),
         };
 
         // Update only isOnline without disturbing order or other fields
         bool changed = false;
-        final updated = _matchedProfiles.map((profile) {
+        final updatedAll = _allMatchedProfiles.map((profile) {
           final newStatus = onlineMap[profile.id];
           if (newStatus != null && newStatus != profile.isOnline) {
             changed = true;
@@ -343,7 +438,8 @@ class MatchedProfileProvider with ChangeNotifier {
         }).toList();
 
         if (changed) {
-          _matchedProfiles = updated;
+          _allMatchedProfiles = updatedAll;
+          _syncVisibleProfiles(resetPage: true);
           notifyListeners();
         }
       }
@@ -353,6 +449,7 @@ class MatchedProfileProvider with ChangeNotifier {
   }
 
   void clearData() {
+    _allMatchedProfiles.clear();
     _matchedProfiles.clear();
     _name = '';
     _memberid = '';

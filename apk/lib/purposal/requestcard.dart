@@ -1,4 +1,4 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -10,6 +10,7 @@ import 'package:ms2026/Notification/notification_inbox_service.dart';
 import 'package:ms2026/Package/PackageScreen.dart';
 import 'package:ms2026/core/user_state.dart';
 import 'package:ms2026/otherenew/othernew.dart';
+import 'package:ms2026/otherenew/service.dart';
 import 'package:ms2026/pushnotification/pushservice.dart';
 import 'package:ms2026/purposal/purposalservice.dart';
 import 'package:ms2026/utils/image_utils.dart';
@@ -86,7 +87,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
           userimage = user.profilePicture;
           pageno = user.pageno;
         });
-        // Keep UserState in sync with the data already fetched above –
+        // Keep UserState in sync with the data already fetched above â€“
         // avoids a separate masterdata.php call just for verification/usertype.
         context.read<UserState>().updateFromMasterData(
             user.docStatus, user.isVerified, user.usertype);
@@ -102,43 +103,113 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
   // Determine if request is pending
   bool get _isPending => widget.data.status?.toLowerCase() == 'pending';
 
+  /// Navigate to full profile screen of the other user.
+  void _openProfile() {
+    final otherId = _isReceiver
+        ? widget.data.senderId ?? widget.data.memberid ?? ''
+        : widget.data.receiverId ?? widget.data.memberid ?? '';
+    if (otherId.isEmpty) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ProfileScreen(userId: otherId),
+      ),
+    );
+  }
+
+  /// Fetch gallery photos and open fullscreen viewer starting at [startIndex].
+  Future<void> _openPhotoViewer({int startIndex = 0}) async {
+    final profilePicUrl = widget.data.profilePicture ?? '';
+    // Show profile photo immediately while fetching gallery
+    List<String> photos = profilePicUrl.isNotEmpty ? [profilePicUrl] : [];
+
+
+    // Try to fetch gallery from API
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final userDataString = prefs.getString('user_data');
+      if (userDataString != null) {
+        final userData = jsonDecode(userDataString);
+        final myId = userData['id']?.toString() ?? '';
+        final otherId = _isReceiver
+            ? widget.data.senderId ?? widget.data.memberid ?? ''
+            : widget.data.receiverId ?? widget.data.memberid ?? '';
+        if (myId.isNotEmpty && otherId.isNotEmpty) {
+          final service = ProfileService();
+          final profileResp =
+              await service.fetchProfile(myId: myId, userId: otherId);
+              // gallery is List<GalleryImage>; extract imageurl strings
+              final galleryUrls =
+                profileResp.gallery.map((g) => g.imageurl).toList();
+          // Merge: profile pic first, then additional gallery images
+          final allUrls = <String>[];
+          if (profilePicUrl.isNotEmpty) allUrls.add(profilePicUrl);
+          for (final url in galleryUrls) {
+            if (url.isNotEmpty && url != profilePicUrl) allUrls.add(url);
+          }
+          if (allUrls.isNotEmpty) photos = allUrls;
+        }
+      }
+    } catch (_) {
+      // silently fall back to profile photo only
+    }
+
+    if (!mounted || photos.isEmpty) return;
+
+    final safeIndex = startIndex.clamp(0, photos.length - 1);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _FullscreenPhotoViewer(
+          photos: photos,
+          initialIndex: safeIndex,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.07),
-            blurRadius: 18,
-            offset: const Offset(0, 4),
-            spreadRadius: 0,
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Colored header strip: request type + status chip
-          _buildCardHeader(),
-
-          // Main content row
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 14, 16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildProfileImage(),
-                const SizedBox(width: 14),
-                Expanded(child: _buildUserDetails()),
-                const SizedBox(width: 8),
-                _buildActionButtons(),
-              ],
+    return GestureDetector(
+      onTap: _openProfile,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.07),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+              spreadRadius: 0,
             ),
-          ),
-        ],
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Colored header strip: request type + status chip
+            _buildCardHeader(),
+
+            // Main content row
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 14, 16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildProfileImage(),
+                  const SizedBox(width: 14),
+                  Expanded(child: _buildUserDetails()),
+                  const SizedBox(width: 8),
+                  _buildActionButtons(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -503,7 +574,9 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
       );
     }
 
-    return Container(
+    final photoTapEnabled = shouldShowClear;
+
+    final circleAvatar = Container(
       width: 72,
       height: 72,
       decoration: BoxDecoration(
@@ -526,6 +599,34 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
         child: ClipOval(child: profileImg),
       ),
     );
+
+    if (photoTapEnabled) {
+      return GestureDetector(
+        onTap: () => _openPhotoViewer(startIndex: 0),
+        child: Stack(
+          children: [
+            circleAvatar,
+            // small camera icon hint
+            Positioned(
+              bottom: 2,
+              right: 2,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: typeColor,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.5),
+                ),
+                child: const Icon(Icons.photo_library_outlined,
+                    color: Colors.white, size: 10),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return circleAvatar;
   }
 
   // Action Handlers
@@ -557,7 +658,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
 
     if (!confirm) return;
 
-    // Step 3: Optimistic UI update — remove card immediately (no loader wait)
+    // Step 3: Optimistic UI update â€” remove card immediately (no loader wait)
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text("Request accepted successfully"),
@@ -642,7 +743,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
               senderId: acceptingUserId,
               receiverId: senderId,
               message:
-                  'Hello! I have accepted your request. Looking forward to getting to know you! 😊',
+                  'Hello! I have accepted your request. Looking forward to getting to know you! ðŸ˜Š',
               messageType: 'text',
               messageId: messageId,
               user1Name: acceptingUserName,
@@ -655,7 +756,7 @@ class _RequestCardDynamicState extends State<RequestCardDynamic> {
           print('Error sending welcome message: $e');
         }
       } else {
-        // API failed — inform user but don't re-add the card (they can refresh)
+        // API failed â€” inform user but don't re-add the card (they can refresh)
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -1168,4 +1269,127 @@ void showUpgradeDialog(BuildContext context) {
       );
     },
   );
+}
+
+/// Full-screen swipeable photo viewer used when photo request is accepted.
+class _FullscreenPhotoViewer extends StatefulWidget {
+  final List<String> photos;
+  final int initialIndex;
+
+  const _FullscreenPhotoViewer({
+    super.key,
+    required this.photos,
+    this.initialIndex = 0,
+  });
+
+  @override
+  State<_FullscreenPhotoViewer> createState() => _FullscreenPhotoViewerState();
+}
+
+class _FullscreenPhotoViewerState extends State<_FullscreenPhotoViewer> {
+  late final PageController _pageController;
+  late int _currentIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentIndex = widget.initialIndex;
+    _pageController = PageController(initialPage: widget.initialIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          onPressed: () => Navigator.pop(context),
+          icon: Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.5),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.close_rounded, color: Colors.white, size: 20),
+          ),
+        ),
+        title: Text(
+          '${_currentIndex + 1} / ${widget.photos.length}',
+          style: const TextStyle(
+              color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+        ),
+        centerTitle: true,
+      ),
+      body: PageView.builder(
+        controller: _pageController,
+        itemCount: widget.photos.length,
+        onPageChanged: (i) => setState(() => _currentIndex = i),
+        itemBuilder: (context, index) {
+          return InteractiveViewer(
+            minScale: 0.8,
+            maxScale: 4.0,
+            child: Center(
+              child: Image.network(
+                widget.photos[index],
+                fit: BoxFit.contain,
+                loadingBuilder: (_, child, progress) {
+                  if (progress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: progress.expectedTotalBytes != null
+                          ? progress.cumulativeBytesLoaded /
+                              progress.expectedTotalBytes!
+                          : null,
+                      color: Colors.white,
+                      strokeWidth: 2,
+                    ),
+                  );
+                },
+                errorBuilder: (_, __, ___) => const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.broken_image_outlined,
+                        color: Colors.white54, size: 64),
+                    SizedBox(height: 12),
+                    Text('Could not load photo',
+                        style: TextStyle(color: Colors.white54)),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+      bottomNavigationBar: widget.photos.length > 1
+          ? Container(
+              color: Colors.black,
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(widget.photos.length, (i) {
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    width: i == _currentIndex ? 18 : 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: i == _currentIndex ? Colors.white : Colors.white38,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  );
+                }),
+              ),
+            )
+          : null,
+    );
+  }
 }

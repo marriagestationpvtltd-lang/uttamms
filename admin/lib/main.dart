@@ -10,6 +10,7 @@ import 'adminchat/services/callmanager.dart';
 import 'adminchat/services/web_notification_service.dart';
 import 'auth/dashboard.dart';
 import 'requests/request_provider.dart';
+import 'deleteRequests/delete_request_provider.dart';
 import 'settings/call_settings_provider.dart';
 import 'auth/login.dart';
 import 'auth/service.dart';
@@ -40,8 +41,6 @@ Future<void> main() async {
   runApp(const MyApp());
 }
 
-
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -60,6 +59,7 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => CallManager()),
         ChangeNotifierProvider(create: (_) => CallSettingsProvider()),
         ChangeNotifierProvider(create: (_) => RequestProvider()),
+        ChangeNotifierProvider(create: (_) => DeleteRequestProvider()),
       ],
       child: Consumer<ThemeProvider>(
         builder: (context, themeProvider, _) => MaterialApp(
@@ -96,18 +96,11 @@ class ErrorApp extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(
-                  Icons.error_outline,
-                  color: Colors.red,
-                  size: 64,
-                ),
+                const Icon(Icons.error_outline, color: Colors.red, size: 64),
                 const SizedBox(height: 16),
                 const Text(
                   'Firebase Initialization Failed',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -119,7 +112,10 @@ class ErrorApp extends StatelessWidget {
                 ElevatedButton(
                   onPressed: () {
                     if (kIsWeb) {
-                      (js.context['location'] as js.JsObject).callMethod('reload', [false]);
+                      (js.context['location'] as js.JsObject).callMethod(
+                        'reload',
+                        [false],
+                      );
                     }
                   },
                   child: const Text('Refresh Page'),

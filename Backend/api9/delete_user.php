@@ -2,13 +2,15 @@
 /**
  * delete_user.php
  *
- * Admin endpoint to soft-delete one or more users (sets isDelete = 1).
+ * Admin endpoint to create pending delete requests for one or more users.
+ * Accounts are not removed immediately; final deletion must be completed from
+ * the Delete Requests section via resolve_delete_request.php.
  *
  * POST body (JSON):
- *   user_ids (int[]) – required – array of user IDs to delete
+ *   user_ids (int[]) – required – array of user IDs
  *
  * Response:
- *   { "success": true,  "message": "N user(s) deleted successfully" }
+ *   { "success": true,  "message": "N user(s) sent to Delete Requests" }
  *   { "success": false, "message": "<reason>" }
  */
 
@@ -75,22 +77,100 @@ try {
     exit;
 }
 
-// ── Perform soft-delete ────────────────────────────────────────────────────────
+// ── Create pending delete requests ─────────────────────────────────────────────
 try {
-    $placeholders = implode(',', array_fill(0, count($cleanIds), '?'));
-    $stmt = $pdo->prepare(
-        "UPDATE users SET isDelete = 1 WHERE id IN ($placeholders) AND isDelete = 0"
+    $pdo->beginTransaction();
+
+    // Accept any user that still exists in the table, regardless of isDelete flag.
+    // isDelete=1 means soft-deleted but not yet fully cleaned up — we still want
+    // to send them through the Delete Requests flow for permanent cleanup.
+    $checkUserStmt = $pdo->prepare("SELECT id FROM users WHERE id = ?");
+    $pendingStmt = $pdo->prepare("SELECT id FROM delete_request WHERE userid = ? AND status = 'pending' LIMIT 1");
+    $insertStmt = $pdo->prepare(
+        "INSERT INTO delete_request (userid, delete_reason, feedback, status, created_at)
+         VALUES (?, ?, ?, 'pending', NOW())"
     );
-    $stmt->execute($cleanIds);
-    $affected = $stmt->rowCount();
+    $deleteTokenStmt = $pdo->prepare("DELETE FROM user_tokens WHERE userid = ?");
+
+    $hasRefreshTable = false;
+    try {
+        $hasRefreshTable = (bool)$pdo->query("SHOW TABLES LIKE 'userrefreshtoken'")->fetchColumn();
+    } catch (Throwable $ignored) {
+        $hasRefreshTable = false;
+    }
+    $deleteRefreshStmt = $hasRefreshTable
+        ? $pdo->prepare("DELETE FROM userrefreshtoken WHERE userId = ?")
+        : null;
+
+    $createdCount = 0;
+    $alreadyPendingCount = 0;
+    $missingCount = 0;
+
+    foreach ($cleanIds as $userId) {
+        $checkUserStmt->execute([$userId]);
+        if (!$checkUserStmt->fetch()) {
+            $missingCount++;
+            continue;
+        }
+
+        $pendingStmt->execute([$userId]);
+        if ($pendingStmt->fetch()) {
+            $alreadyPendingCount++;
+            $deleteTokenStmt->execute([$userId]);
+            if ($deleteRefreshStmt !== null) {
+                $deleteRefreshStmt->execute([$userId]);
+            }
+            continue;
+        }
+
+        $insertStmt->execute([
+            $userId,
+            'Requested by admin from Members section',
+            'Admin initiated this deletion flow. Complete review from Delete Requests section.',
+        ]);
+        $deleteTokenStmt->execute([$userId]);
+        if ($deleteRefreshStmt !== null) {
+            $deleteRefreshStmt->execute([$userId]);
+        }
+        $createdCount++;
+    }
+
+    $pdo->commit();
+
+    if ($createdCount === 0 && $alreadyPendingCount === 0) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'No valid users were sent to Delete Requests',
+            'created' => 0,
+            'already_pending' => 0,
+            'missing' => $missingCount,
+        ]);
+        exit;
+    }
+
+    $messageParts = [];
+    if ($createdCount > 0) {
+        $messageParts[] = "$createdCount user(s) sent to Delete Requests";
+    }
+    if ($alreadyPendingCount > 0) {
+        $messageParts[] = "$alreadyPendingCount already pending";
+    }
+    if ($missingCount > 0) {
+        $messageParts[] = "$missingCount skipped";
+    }
 
     echo json_encode([
         'success'  => true,
-        'message'  => "$affected user(s) deleted successfully",
-        'affected' => $affected,
+        'message'  => implode(', ', $messageParts) . '. Complete the process from Delete Requests.',
+        'created'  => $createdCount,
+        'already_pending' => $alreadyPendingCount,
+        'missing' => $missingCount,
     ]);
 
 } catch (PDOException $e) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
     error_log('delete_user error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(['success' => false, 'message' => 'Server error']);

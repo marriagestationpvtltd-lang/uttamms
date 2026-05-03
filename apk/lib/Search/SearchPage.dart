@@ -32,6 +32,7 @@ class _SearchPageState extends State<SearchPage>
 
   // ── Recommended profiles (Quick Search tab background) ──
   List<dynamic> _recommendedProfiles = [];
+  Map<int, int> _matchPercentCache = {};
   bool _isLoading = true;
   String _errorMessage = '';
   int _currentUserId = 0;
@@ -67,34 +68,80 @@ class _SearchPageState extends State<SearchPage>
 
   // Dropdown option lists
   static const List<String> _religionOptions = [
-    "Any", "Hindu", "Buddhist", "Muslim", "Christian", "Sikh", "Jain", "Other"
+    "Any",
+    "Hindu",
+    "Buddhist",
+    "Muslim",
+    "Christian",
+    "Sikh",
+    "Jain",
+    "Other"
   ];
   static const List<String> _maritalOptions = [
-    "Any", "Never Married", "Divorced", "Widowed", "Awaiting Divorce"
+    "Any",
+    "Never Married",
+    "Divorced",
+    "Widowed",
+    "Awaiting Divorce"
   ];
   static const List<String> _educationOptions = [
-    "Any", "High School", "Intermediate", "Bachelor", "Master", "PhD", "Diploma", "Other"
+    "Any",
+    "High School",
+    "Intermediate",
+    "Bachelor",
+    "Master",
+    "PhD",
+    "Diploma",
+    "Other"
   ];
   static const List<String> _incomeOptions = [
-    "Any", "Below 2 Lakh", "2 To 5 Lakh", "5 To 10 Lakh",
-    "10 To 20 Lakh", "20 To 30 Lakh", "Above 30 Lakh"
+    "Any",
+    "Below 2 Lakh",
+    "2 To 5 Lakh",
+    "5 To 10 Lakh",
+    "10 To 20 Lakh",
+    "20 To 30 Lakh",
+    "Above 30 Lakh"
   ];
   static const List<String> _occupationOptions = [
-    "Any", "Government Job", "Private Job", "Self Employed / Business",
-    "Doctor", "Engineer", "Teacher / Professor", "Lawyer", "Army / Police",
-    "IT Professional", "Accountant", "Not Working", "Other"
+    "Any",
+    "Government Job",
+    "Private Job",
+    "Self Employed / Business",
+    "Doctor",
+    "Engineer",
+    "Teacher / Professor",
+    "Lawyer",
+    "Army / Police",
+    "IT Professional",
+    "Accountant",
+    "Not Working",
+    "Other"
   ];
   static const List<String> _familyTypeOptions = [
-    "Any", "Nuclear", "Joint", "Extended"
+    "Any",
+    "Nuclear",
+    "Joint",
+    "Extended"
   ];
   static const List<String> _dietOptions = [
-    "Any", "Vegetarian", "Non-Vegetarian", "Vegan", "Eggetarian"
+    "Any",
+    "Vegetarian",
+    "Non-Vegetarian",
+    "Vegan",
+    "Eggetarian"
   ];
   static const List<String> _smokeOptions = [
-    "Any", "No", "Yes", "Occasionally"
+    "Any",
+    "No",
+    "Yes",
+    "Occasionally"
   ];
   static const List<String> _drinkOptions = [
-    "Any", "No", "Yes", "Occasionally"
+    "Any",
+    "No",
+    "Yes",
+    "Occasionally"
   ];
 
   @override
@@ -121,12 +168,17 @@ class _SearchPageState extends State<SearchPage>
       final prefs = await SharedPreferences.getInstance();
       final userDataString = prefs.getString('user_data');
       if (userDataString == null) {
-        setState(() { _errorMessage = 'User data not found'; _isLoading = false; });
+        setState(() {
+          _errorMessage = 'User data not found';
+          _isLoading = false;
+        });
         return;
       }
       final userData = jsonDecode(userDataString);
       final userId = int.tryParse(userData["id"].toString()) ?? 0;
-      setState(() { _currentUserId = userId; });
+      setState(() {
+        _currentUserId = userId;
+      });
 
       if (userId > 0) {
         await _fetchBlockedUsers();
@@ -135,10 +187,16 @@ class _SearchPageState extends State<SearchPage>
           _fetchInitialTotalCount(),
         ]);
       } else {
-        setState(() { _errorMessage = 'Invalid user ID'; _isLoading = false; });
+        setState(() {
+          _errorMessage = 'Invalid user ID';
+          _isLoading = false;
+        });
       }
     } catch (e) {
-      setState(() { _errorMessage = 'Failed to load user data: $e'; _isLoading = false; });
+      setState(() {
+        _errorMessage = 'Failed to load user data: $e';
+        _isLoading = false;
+      });
     }
   }
 
@@ -157,7 +215,8 @@ class _SearchPageState extends State<SearchPage>
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         if (data['status'] == 'success') {
-          final blockedUsers = List<Map<String, dynamic>>.from(data['users'] ?? []);
+          final blockedUsers =
+              List<Map<String, dynamic>>.from(data['users'] ?? []);
           setState(() {
             _blockedUserIds = blockedUsers
                 .map((user) => int.tryParse(user['id'].toString()) ?? 0)
@@ -173,7 +232,10 @@ class _SearchPageState extends State<SearchPage>
 
   Future<void> _fetchRecommendedProfiles(int userId) async {
     try {
-      setState(() { _isLoading = true; _errorMessage = ''; });
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
       final url = Uri.parse('${kApiBaseUrl}/Api2/match.php?userid=$userId');
       final response = await http.get(url);
       if (response.statusCode == 200) {
@@ -181,18 +243,33 @@ class _SearchPageState extends State<SearchPage>
         if (result['success'] == true) {
           final allProfiles = result['matched_users'] ?? [];
           final filteredProfiles = allProfiles.where((profile) {
-            final profileId = int.tryParse(profile['userid']?.toString() ?? '0') ?? 0;
+            final profileId =
+                int.tryParse(profile['userid']?.toString() ?? '0') ?? 0;
             return !_blockedUserIds.contains(profileId);
           }).toList();
-          setState(() { _recommendedProfiles = filteredProfiles; _isLoading = false; });
+          final Map<int, int> cache = {};
+          for (final p in allProfiles) {
+            final id = int.tryParse(p['userid']?.toString() ?? '0') ?? 0;
+            final pct = int.tryParse(p['matchPercent']?.toString() ?? '0') ?? 0;
+            if (id > 0) cache[id] = pct;
+          }
+          setState(() {
+            _recommendedProfiles = filteredProfiles;
+            _matchPercentCache = cache;
+            _isLoading = false;
+          });
         } else {
-          throw Exception(result['message'] ?? 'Failed to load recommended profiles');
+          throw Exception(
+              result['message'] ?? 'Failed to load recommended profiles');
         }
       } else {
         throw Exception('Failed to load data: ${response.statusCode}');
       }
     } catch (e) {
-      setState(() { _errorMessage = e.toString(); _isLoading = false; });
+      setState(() {
+        _errorMessage = e.toString();
+        _isLoading = false;
+      });
       debugPrint('Error fetching recommended profiles: $e');
     }
   }
@@ -203,12 +280,14 @@ class _SearchPageState extends State<SearchPage>
       return profile['can_view_photo'] == true;
     }
     // Only accept when photo request is accepted - ignore privacy
-    final photoRequest = profile['photo_request']?.toString().toLowerCase() ?? '';
+    final photoRequest =
+        profile['photo_request']?.toString().toLowerCase() ?? '';
     return photoRequest == 'accepted';
   }
 
   String _getPhotoRequestStatus(Map<String, dynamic> profile) {
-    final photoRequest = profile['photo_request']?.toString().toLowerCase() ?? '';
+    final photoRequest =
+        profile['photo_request']?.toString().toLowerCase() ?? '';
     if (photoRequest.isEmpty || photoRequest == 'null') return 'not_sent';
     return photoRequest;
   }
@@ -227,7 +306,10 @@ class _SearchPageState extends State<SearchPage>
     }
     if (msg.isNotEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(msg), backgroundColor: color, duration: const Duration(seconds: 3)),
+        SnackBar(
+            content: Text(msg),
+            backgroundColor: color,
+            duration: const Duration(seconds: 3)),
       );
     }
   }
@@ -241,7 +323,11 @@ class _SearchPageState extends State<SearchPage>
 
   Future<void> _fetchInitialTotalCount() async {
     if (_currentUserId == 0) {
-      setState(() { _isLoadingCount = false; _matchesCount = 0; _initialTotalCount = 0; });
+      setState(() {
+        _isLoadingCount = false;
+        _matchesCount = 0;
+        _initialTotalCount = 0;
+      });
       return;
     }
     try {
@@ -258,25 +344,41 @@ class _SearchPageState extends State<SearchPage>
             _isInitialLoad = false;
           });
         } else {
-          setState(() { _isLoadingCount = false; _isInitialLoad = false; });
+          setState(() {
+            _isLoadingCount = false;
+            _isInitialLoad = false;
+          });
         }
       } else {
-        setState(() { _isLoadingCount = false; _isInitialLoad = false; });
+        setState(() {
+          _isLoadingCount = false;
+          _isInitialLoad = false;
+        });
       }
     } catch (e) {
-      setState(() { _isLoadingCount = false; _isInitialLoad = false; });
+      setState(() {
+        _isLoadingCount = false;
+        _isInitialLoad = false;
+      });
     }
   }
 
   int? _getReligionId(String religion) {
     switch (religion) {
-      case "Hindu":     return 1;
-      case "Buddhist":  return 4;
-      case "Muslim":    return 3;
-      case "Christian": return 2;
-      case "Sikh":      return 5;
-      case "Jain":      return 6;
-      default:          return null;
+      case "Hindu":
+        return 1;
+      case "Buddhist":
+        return 4;
+      case "Muslim":
+        return 3;
+      case "Christian":
+        return 2;
+      case "Sikh":
+        return 5;
+      case "Jain":
+        return 6;
+      default:
+        return null;
     }
   }
 
@@ -317,22 +419,26 @@ class _SearchPageState extends State<SearchPage>
       if (id != null) params['religion'] = id;
     }
     if (_maritalStatus != "Any") params['marital_status'] = _maritalStatus;
-    if (_education != "Any")     params['education']      = _education;
-    if (_annualIncome != "Any")  params['annual_income']  = _annualIncome;
-    if (_occupation != "Any")    params['occupation']     = _occupation;
-    if (_familyType != "Any")    params['family_type']    = _familyType;
-    if (_diet != "Any")          params['diet']           = _diet;
-    if (_smoking != "Any")       params['smoking']        = _smoking;
-    if (_drinking != "Any")      params['drinking']       = _drinking;
-    if (_cityFilter.isNotEmpty)  params['city']           = _cityFilter;
+    if (_education != "Any") params['education'] = _education;
+    if (_annualIncome != "Any") params['annual_income'] = _annualIncome;
+    if (_occupation != "Any") params['occupation'] = _occupation;
+    if (_familyType != "Any") params['family_type'] = _familyType;
+    if (_diet != "Any") params['diet'] = _diet;
+    if (_smoking != "Any") params['smoking'] = _smoking;
+    if (_drinking != "Any") params['drinking'] = _drinking;
+    if (_cityFilter.isNotEmpty) params['city'] = _cityFilter;
 
-    if (_hasPhotoOnly)           params['has_photo']      = '1';
-    if (_membershipType != "All") params['usertype']      = _membershipType.toLowerCase();
-    if (_verifiedOnly)           params['is_verified']    = '1';
+    if (_hasPhotoOnly) params['has_photo'] = '1';
+    if (_membershipType != "All")
+      params['usertype'] = _membershipType.toLowerCase();
+    if (_verifiedOnly) params['is_verified'] = '1';
     if (_newlyRegistered != "All") {
-      if (_newlyRegistered.contains("7"))       params['days_since_registration'] = '7';
-      else if (_newlyRegistered.contains("15")) params['days_since_registration'] = '15';
-      else if (_newlyRegistered.contains("30")) params['days_since_registration'] = '30';
+      if (_newlyRegistered.contains("7"))
+        params['days_since_registration'] = '7';
+      else if (_newlyRegistered.contains("15"))
+        params['days_since_registration'] = '15';
+      else if (_newlyRegistered.contains("30"))
+        params['days_since_registration'] = '30';
     }
 
     return params;
@@ -346,30 +452,42 @@ class _SearchPageState extends State<SearchPage>
       try {
         _filterParams = _buildFilterParams();
         if (_filterParams.isEmpty) {
-          setState(() { _matchesCount = _initialTotalCount; _isLoadingCount = false; });
+          setState(() {
+            _matchesCount = _initialTotalCount;
+            _isLoadingCount = false;
+          });
           return;
         }
         final filteredParams = Map<String, dynamic>.from(_filterParams)
           ..removeWhere((key, value) => value == null);
         final queryParams = {
           'user_id': _currentUserId.toString(),
-          ...filteredParams.map((key, value) => MapEntry(key, value.toString())),
+          ...filteredParams
+              .map((key, value) => MapEntry(key, value.toString())),
         };
         final queryString = Uri(queryParameters: queryParams).query;
-        final url = Uri.parse('${kApiBaseUrl}/Api2/search_opposite_gender.php?$queryString');
+        final url = Uri.parse(
+            '${kApiBaseUrl}/Api2/search_opposite_gender.php?$queryString');
         final response = await http.get(url);
         if (response.statusCode == 200) {
           final result = jsonDecode(response.body);
           if (result['success'] == true) {
             if (mounted) {
-              setState(() { _matchesCount = result['total_count'] ?? 0; _isLoadingCount = false; });
+              setState(() {
+                _matchesCount = result['total_count'] ?? 0;
+                _isLoadingCount = false;
+              });
             }
           }
         } else {
           if (mounted) setState(() => _isLoadingCount = false);
         }
       } catch (e) {
-        if (mounted) setState(() { _matchesCount = 0; _isLoadingCount = false; });
+        if (mounted)
+          setState(() {
+            _matchesCount = 0;
+            _isLoadingCount = false;
+          });
       }
     });
   }
@@ -529,7 +647,8 @@ class _SearchPageState extends State<SearchPage>
         indicatorColor: const Color(0xffFF1500),
         indicatorWeight: 3,
         labelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        unselectedLabelStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
+        unselectedLabelStyle:
+            const TextStyle(fontSize: 15, fontWeight: FontWeight.w500),
         tabs: const [
           Tab(icon: Icon(Icons.search, size: 20), text: 'Quick Search'),
           Tab(icon: Icon(Icons.tune, size: 20), text: 'Advanced Search'),
@@ -581,19 +700,23 @@ class _SearchPageState extends State<SearchPage>
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   hintText: 'Search by name…',
-                  hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                  prefixIcon: Icon(Icons.search, color: Colors.grey.shade400, size: 22),
+                  hintStyle:
+                      TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                  prefixIcon:
+                      Icon(Icons.search, color: Colors.grey.shade400, size: 22),
                   suffixIcon: _quickSearchController.text.isNotEmpty
                       ? GestureDetector(
                           onTap: () {
                             _quickSearchController.clear();
                             setState(() {});
                           },
-                          child: Icon(Icons.clear, color: Colors.grey.shade400, size: 20),
+                          child: Icon(Icons.clear,
+                              color: Colors.grey.shade400, size: 20),
                         )
                       : null,
                   border: InputBorder.none,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
                 ),
               ),
             ),
@@ -638,11 +761,17 @@ class _SearchPageState extends State<SearchPage>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Recent Searches',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87)),
               GestureDetector(
                 onTap: () => setState(() => recentSearches.clear()),
                 child: const Text('Clear all',
-                    style: TextStyle(fontSize: 13, color: Color(0xffFF1500), fontWeight: FontWeight.w500)),
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xffFF1500),
+                        fontWeight: FontWeight.w500)),
               ),
             ],
           ),
@@ -650,28 +779,34 @@ class _SearchPageState extends State<SearchPage>
           Wrap(
             spacing: 8,
             runSpacing: 8,
-            children: recentSearches.map((term) => GestureDetector(
-              onTap: () {
-                _quickSearchController.text = term;
-                _performQuickSearch();
-              },
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3F3F3),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.history, size: 14, color: Colors.grey),
-                    const SizedBox(width: 6),
-                    Text(term, style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                  ],
-                ),
-              ),
-            )).toList(),
+            children: recentSearches
+                .map((term) => GestureDetector(
+                      onTap: () {
+                        _quickSearchController.text = term;
+                        _performQuickSearch();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF3F3F3),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.history,
+                                size: 14, color: Colors.grey),
+                            const SizedBox(width: 6),
+                            Text(term,
+                                style: const TextStyle(
+                                    fontSize: 13, color: Colors.black87)),
+                          ],
+                        ),
+                      ),
+                    ))
+                .toList(),
           ),
         ],
       ),
@@ -688,14 +823,20 @@ class _SearchPageState extends State<SearchPage>
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text('Recommended For You',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black87)),
               GestureDetector(
                 onTap: () => Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const SearchResultPage()),
                 ),
                 child: const Text('See all',
-                    style: TextStyle(fontSize: 13, color: Color(0xffFF1500), fontWeight: FontWeight.w500)),
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xffFF1500),
+                        fontWeight: FontWeight.w500)),
               ),
             ],
           ),
@@ -708,7 +849,8 @@ class _SearchPageState extends State<SearchPage>
 
   Widget _buildRecommendedGrid() {
     if (_isLoading) {
-      return const SizedBox(height: 300, child: SearchProfileGridSkeleton(count: 4));
+      return const SizedBox(
+          height: 300, child: SearchProfileGridSkeleton(count: 4));
     }
     if (_errorMessage.isNotEmpty) {
       return SizedBox(
@@ -719,12 +861,15 @@ class _SearchPageState extends State<SearchPage>
             children: [
               const Icon(Icons.error_outline, color: Colors.red, size: 40),
               const SizedBox(height: 8),
-              Text(_errorMessage, style: const TextStyle(color: Colors.grey), textAlign: TextAlign.center),
+              Text(_errorMessage,
+                  style: const TextStyle(color: Colors.grey),
+                  textAlign: TextAlign.center),
               const SizedBox(height: 12),
               TextButton.icon(
                 onPressed: _loadUserDataAndFetchProfiles,
                 icon: const Icon(Icons.refresh, color: Color(0xffFF1500)),
-                label: const Text('Retry', style: TextStyle(color: Color(0xffFF1500))),
+                label: const Text('Retry',
+                    style: TextStyle(color: Color(0xffFF1500))),
               ),
             ],
           ),
@@ -734,10 +879,13 @@ class _SearchPageState extends State<SearchPage>
     if (_recommendedProfiles.isEmpty) {
       return const SizedBox(
         height: 200,
-        child: Center(child: Text('No recommendations found', style: TextStyle(color: Colors.grey))),
+        child: Center(
+            child: Text('No recommendations found',
+                style: TextStyle(color: Colors.grey))),
       );
     }
-    final count = _recommendedProfiles.length > 4 ? 4 : _recommendedProfiles.length;
+    final count =
+        _recommendedProfiles.length > 4 ? 4 : _recommendedProfiles.length;
     return GridView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
@@ -905,8 +1053,10 @@ class _SearchPageState extends State<SearchPage>
                     keyboardType: TextInputType.text,
                     decoration: InputDecoration(
                       hintText: 'Enter city or location…',
-                      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
-                      prefixIcon: Icon(Icons.location_on_outlined, color: Colors.grey.shade500, size: 20),
+                      hintStyle:
+                          TextStyle(color: Colors.grey.shade400, fontSize: 14),
+                      prefixIcon: Icon(Icons.location_on_outlined,
+                          color: Colors.grey.shade500, size: 20),
                       suffixIcon: _cityFilter.isNotEmpty
                           ? GestureDetector(
                               onTap: () {
@@ -914,11 +1064,13 @@ class _SearchPageState extends State<SearchPage>
                                 setState(() => _cityFilter = "");
                                 _handleFilterChange();
                               },
-                              child: Icon(Icons.clear, color: Colors.grey.shade400, size: 18),
+                              child: Icon(Icons.clear,
+                                  color: Colors.grey.shade400, size: 18),
                             )
                           : null,
                       border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
                     ),
                     onChanged: (val) {
                       setState(() => _cityFilter = val.trim());
@@ -942,12 +1094,16 @@ class _SearchPageState extends State<SearchPage>
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         const Text('Filter Options',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
+            style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.black87)),
         Row(
           children: [
             GestureDetector(
               onTap: _clearAllFilters,
-              child: const Text('Clear all', style: TextStyle(fontSize: 14, color: Colors.grey)),
+              child: const Text('Clear all',
+                  style: TextStyle(fontSize: 14, color: Colors.grey)),
             ),
             const SizedBox(width: 10),
             Container(
@@ -961,10 +1117,15 @@ class _SearchPageState extends State<SearchPage>
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white)),
                     )
                   : Text('$_matchesCount',
-                      style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold)),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -985,10 +1146,12 @@ class _SearchPageState extends State<SearchPage>
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: const [
                     SizedBox(
-                      width: 14, height: 14,
+                      width: 14,
+                      height: 14,
                       child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Color(0xffFF1500))),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Color(0xffFF1500))),
                     ),
                     SizedBox(width: 8),
                     Text('Calculating matches…',
@@ -1009,7 +1172,8 @@ class _SearchPageState extends State<SearchPage>
                     context,
                     MaterialPageRoute(
                       builder: (_) => SearchResultPage(
-                          filterParams: filtersApplied ? _buildFilterParams() : null),
+                          filterParams:
+                              filtersApplied ? _buildFilterParams() : null),
                     ),
                   );
                 }
@@ -1026,7 +1190,11 @@ class _SearchPageState extends State<SearchPage>
             ),
             child: const Center(
               child: Text('Search Matches',
-                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5)),
             ),
           ),
         ),
@@ -1040,21 +1208,30 @@ class _SearchPageState extends State<SearchPage>
     return Row(
       children: [
         Text(title,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.black87)),
+            style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: Colors.black87)),
         const SizedBox(width: 8),
         Container(height: 2, width: 30, color: const Color(0xffFF1500)),
       ],
     );
   }
 
-  Widget _buildDropdown(String value, List<String> list, Function(String?) onChange) {
+  Widget _buildDropdown(
+      String value, List<String> list, Function(String?) onChange) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: Colors.grey.shade200),
-        boxShadow: [BoxShadow(color: Colors.grey.shade100, blurRadius: 4, offset: const Offset(0, 2))],
+        boxShadow: [
+          BoxShadow(
+              color: Colors.grey.shade100,
+              blurRadius: 4,
+              offset: const Offset(0, 2))
+        ],
       ),
       child: ExcludeFocus(
         excluding: true,
@@ -1062,15 +1239,17 @@ class _SearchPageState extends State<SearchPage>
           value: value,
           underline: const SizedBox(),
           isExpanded: true,
-          items: list.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
+          items: list
+              .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+              .toList(),
           onChanged: onChange,
         ),
       ),
     );
   }
 
-  Widget _buildRangeSlider(
-      RangeValues range, double min, double max, Function(RangeValues) onChange) {
+  Widget _buildRangeSlider(RangeValues range, double min, double max,
+      Function(RangeValues) onChange) {
     return Column(
       children: [
         Row(
@@ -1095,8 +1274,12 @@ class _SearchPageState extends State<SearchPage>
   Widget _rangeBubble(String text) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-      decoration: BoxDecoration(color: const Color(0xffFF1500), borderRadius: BorderRadius.circular(20)),
-      child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+      decoration: BoxDecoration(
+          color: const Color(0xffFF1500),
+          borderRadius: BorderRadius.circular(20)),
+      child: Text(text,
+          style: const TextStyle(
+              color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
     );
   }
 
@@ -1125,21 +1308,32 @@ class _SearchPageState extends State<SearchPage>
                   color: Colors.red.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.flash_on, color: Color(0xffFF1500), size: 20),
+                child: const Icon(Icons.flash_on,
+                    color: Color(0xffFF1500), size: 20),
               ),
               const SizedBox(width: 10),
               const Text('Quick Filters',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xffFF1500))),
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xffFF1500))),
               const Spacer(),
-              if (_hasPhotoOnly || _verifiedOnly || _membershipType != "All" || _newlyRegistered != "All")
+              if (_hasPhotoOnly ||
+                  _verifiedOnly ||
+                  _membershipType != "All" ||
+                  _newlyRegistered != "All")
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xffFF1500),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Text('Active',
-                      style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
                 ),
             ],
           ),
@@ -1173,22 +1367,37 @@ class _SearchPageState extends State<SearchPage>
 
           // Membership Type
           const Text('Membership Type',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87)),
           const SizedBox(height: 8),
           Row(
             children: [
-              _buildChipFilter("All",  _membershipType == "All",  () { setState(() => _membershipType = "All");  _handleFilterChange(); }),
+              _buildChipFilter("All", _membershipType == "All", () {
+                setState(() => _membershipType = "All");
+                _handleFilterChange();
+              }),
               const SizedBox(width: 8),
-              _buildChipFilter("Paid", _membershipType == "Paid", () { setState(() => _membershipType = "Paid"); _handleFilterChange(); }),
+              _buildChipFilter("Paid", _membershipType == "Paid", () {
+                setState(() => _membershipType = "Paid");
+                _handleFilterChange();
+              }),
               const SizedBox(width: 8),
-              _buildChipFilter("Free", _membershipType == "Free", () { setState(() => _membershipType = "Free"); _handleFilterChange(); }),
+              _buildChipFilter("Free", _membershipType == "Free", () {
+                setState(() => _membershipType = "Free");
+                _handleFilterChange();
+              }),
             ],
           ),
           const SizedBox(height: 12),
 
           // Newly Registered
           const Text('Registration Date',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.black87)),
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87)),
           const SizedBox(height: 8),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1203,10 +1412,13 @@ class _SearchPageState extends State<SearchPage>
               isExpanded: true,
               icon: const Icon(Icons.arrow_drop_down, color: Color(0xffFF1500)),
               items: const [
-                DropdownMenuItem(value: "All",         child: Text("All Members")),
-                DropdownMenuItem(value: "Last 7 days", child: Text("Last 7 days")),
-                DropdownMenuItem(value: "Last 15 days",child: Text("Last 15 days")),
-                DropdownMenuItem(value: "Last 30 days",child: Text("Last 30 days")),
+                DropdownMenuItem(value: "All", child: Text("All Members")),
+                DropdownMenuItem(
+                    value: "Last 7 days", child: Text("Last 7 days")),
+                DropdownMenuItem(
+                    value: "Last 15 days", child: Text("Last 15 days")),
+                DropdownMenuItem(
+                    value: "Last 30 days", child: Text("Last 30 days")),
               ],
               onChanged: (val) {
                 setState(() => _newlyRegistered = val!);
@@ -1232,7 +1444,8 @@ class _SearchPageState extends State<SearchPage>
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: value ? const Color(0xffFF1500).withOpacity(0.05) : Colors.white,
+          color:
+              value ? const Color(0xffFF1500).withOpacity(0.05) : Colors.white,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
             color: value ? const Color(0xffFF1500) : Colors.black12,
@@ -1259,9 +1472,12 @@ class _SearchPageState extends State<SearchPage>
                       style: TextStyle(
                           fontSize: 14,
                           fontWeight: value ? FontWeight.w600 : FontWeight.w500,
-                          color: value ? const Color(0xffFF1500) : Colors.black87)),
+                          color: value
+                              ? const Color(0xffFF1500)
+                              : Colors.black87)),
                   Text(subtitle,
-                      style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                      style:
+                          TextStyle(fontSize: 11, color: Colors.grey.shade600)),
                 ],
               ),
             ),
@@ -1271,7 +1487,8 @@ class _SearchPageState extends State<SearchPage>
                 value: value,
                 onChanged: onChanged,
                 activeColor: const Color(0xffFF1500),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(4)),
               ),
             ),
           ],
@@ -1310,27 +1527,33 @@ class _SearchPageState extends State<SearchPage>
   // ── Profile card (shared between tabs) ───────────────────────────────────
 
   Widget _buildProfileCard(Map<String, dynamic> profile) {
-    final lastName  = profile['lastName'] ?? '';
-    final userId    = profile['userid'] ?? 0;
-    final name      = 'MS:$userId $lastName'.trim();
-    final age       = profile['age']?.toString() ?? '–';
-    final height    = profile['height_name']?.toString() ?? '–';
+    final lastName = profile['lastName'] ?? '';
+    final userId = profile['userid'] ?? 0;
+    final name = 'MS:$userId $lastName'.trim();
+    final age = profile['age']?.toString() ?? '–';
+    final height = profile['height_name']?.toString() ?? '–';
     final profession = profile['designation']?.toString() ?? '–';
-    final city      = profile['city']?.toString() ?? '';
-    final location  = city.isNotEmpty ? city : 'Nepal';
-    final baseImageUrl    = '${kApiBaseUrl}/Api2/';
-    final profilePicture  = profile['profile_picture']?.toString() ?? '';
+    final city = profile['city']?.toString() ?? '';
+    final location = city.isNotEmpty ? city : 'Nepal';
+    final baseImageUrl = '${kApiBaseUrl}/Api2/';
+    final profilePicture = profile['profile_picture']?.toString() ?? '';
     final imageUrl = profilePicture.isNotEmpty
         ? baseImageUrl + profilePicture
         : 'https://placehold.co/600x800/png';
-    final matchPercent = profile['matchPercent'] ?? 0;
+    final profileUserId = int.tryParse(userId.toString()) ?? 0;
+    final matchPercent =
+        int.tryParse(profile['matchPercent']?.toString() ?? '') ??
+            _matchPercentCache[profileUserId] ??
+            0;
     Color matchColor = Colors.grey;
-    if (matchPercent >= 80)      matchColor = Colors.green;
-    else if (matchPercent >= 50) matchColor = Colors.orange;
-    else if (matchPercent > 0)   matchColor = Colors.red;
+    if (matchPercent >= 80)
+      matchColor = Colors.green;
+    else if (matchPercent >= 50)
+      matchColor = Colors.orange;
+    else if (matchPercent > 0) matchColor = Colors.red;
 
     final shouldShowClearImage = _shouldShowClearImage(profile);
-    final photoRequestStatus   = _getPhotoRequestStatus(profile);
+    final photoRequestStatus = _getPhotoRequestStatus(profile);
 
     return GestureDetector(
       onTap: () {
@@ -1351,7 +1574,10 @@ class _SearchPageState extends State<SearchPage>
           borderRadius: BorderRadius.circular(16),
           color: Colors.white,
           boxShadow: [
-            BoxShadow(color: Colors.grey.shade200, blurRadius: 6, offset: const Offset(0, 3))
+            BoxShadow(
+                color: Colors.grey.shade200,
+                blurRadius: 6,
+                offset: const Offset(0, 3))
           ],
         ),
         child: Column(
@@ -1361,52 +1587,66 @@ class _SearchPageState extends State<SearchPage>
             Expanded(
               flex: 6,
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(16)),
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
                     _buildImageWithBlur(
-                        imageUrl: imageUrl, shouldShowClearImage: shouldShowClearImage),
+                        imageUrl: imageUrl,
+                        shouldShowClearImage: shouldShowClearImage),
                     if (!shouldShowClearImage)
                       Positioned(
-                        top: 6, left: 6,
+                        top: 6,
+                        left: 6,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                               color: Colors.black.withOpacity(0.65),
                               borderRadius: BorderRadius.circular(20)),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.lock, size: 10, color: Colors.white),
+                              const Icon(Icons.lock,
+                                  size: 10, color: Colors.white),
                               const SizedBox(width: 3),
                               Text(_getBlurIndicatorText(photoRequestStatus),
                                   style: const TextStyle(
-                                      color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                      color: Colors.white,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
                       ),
                     if (profile['isVerified'] == 1)
                       Positioned(
-                        top: 6, right: 6,
+                        top: 6,
+                        right: 6,
                         child: Container(
                           padding: const EdgeInsets.all(3),
-                          decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
-                          child: const Icon(Icons.verified, size: 12, color: Colors.white),
+                          decoration: const BoxDecoration(
+                              color: Colors.green, shape: BoxShape.circle),
+                          child: const Icon(Icons.verified,
+                              size: 12, color: Colors.white),
                         ),
                       ),
                     if (matchPercent > 0)
                       Positioned(
-                        bottom: 6, right: 6,
+                        bottom: 6,
+                        right: 6,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 3),
                           decoration: BoxDecoration(
                               color: matchColor.withOpacity(0.9),
                               borderRadius: BorderRadius.circular(10)),
                           child: Text('$matchPercent%',
                               style: const TextStyle(
-                                  color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
                   ],
@@ -1424,7 +1664,9 @@ class _SearchPageState extends State<SearchPage>
                   children: [
                     Text(name,
                         style: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w700, color: Colors.black87),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.black87),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),
                     _infoRow(Icons.person_outline, 'Age $age, $height'),
@@ -1456,14 +1698,16 @@ class _SearchPageState extends State<SearchPage>
     );
   }
 
-  Widget _buildImageWithBlur({required String imageUrl, required bool shouldShowClearImage}) {
+  Widget _buildImageWithBlur(
+      {required String imageUrl, required bool shouldShowClearImage}) {
     if (shouldShowClearImage) {
       return Image.network(
         imageUrl,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) =>
-            Container(color: Colors.grey[200],
-                child: const Center(child: Icon(Icons.person, size: 40, color: Colors.grey))),
+        errorBuilder: (_, __, ___) => Container(
+            color: Colors.grey[200],
+            child: const Center(
+                child: Icon(Icons.person, size: 40, color: Colors.grey))),
       );
     }
     return Stack(
@@ -1472,9 +1716,10 @@ class _SearchPageState extends State<SearchPage>
         Image.network(
           imageUrl,
           fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) =>
-              Container(color: Colors.grey[200],
-                  child: const Center(child: Icon(Icons.person, size: 40, color: Colors.grey))),
+          errorBuilder: (_, __, ___) => Container(
+              color: Colors.grey[200],
+              child: const Center(
+                  child: Icon(Icons.person, size: 40, color: Colors.grey))),
         ),
         BackdropFilter(
           filter: ui.ImageFilter.blur(sigmaX: 15, sigmaY: 15),
@@ -1494,10 +1739,14 @@ class _SearchPageState extends State<SearchPage>
 
   String _getBlurIndicatorText(String status) {
     switch (status) {
-      case 'pending':  return 'Pending';
-      case 'rejected': return 'Rejected';
-      case 'accepted': return 'Access';
-      default:         return 'Private';
+      case 'pending':
+        return 'Pending';
+      case 'rejected':
+        return 'Rejected';
+      case 'accepted':
+        return 'Access';
+      default:
+        return 'Private';
     }
   }
 }

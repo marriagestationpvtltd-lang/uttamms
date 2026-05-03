@@ -20,24 +20,28 @@ class CallHistoryService {
     required String recipientImage,
     required CallType callType,
     required String initiatedBy,
+    bool isGroup = false,
   }) async {
     try {
       final callId = const Uuid().v4();
-      final response = await http.post(
-        Uri.parse('$_kCallApiBase/api/calls'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'callId': callId,
-          'callerId': callerId,
-          'callerName': callerName,
-          'callerImage': callerImage,
-          'recipientId': recipientId,
-          'recipientName': recipientName,
-          'recipientImage': recipientImage,
-          'callType': callType.toString().split('.').last,
-          'initiatedBy': initiatedBy,
-        }),
-      ).timeout(const Duration(seconds: 15));
+      final response = await http
+          .post(
+            Uri.parse('$_kCallApiBase/api/calls'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'callId': callId,
+              'callerId': callerId,
+              'callerName': callerName,
+              'callerImage': callerImage,
+              'recipientId': recipientId,
+              'recipientName': recipientName,
+              'recipientImage': recipientImage,
+              'callType': callType.toString().split('.').last,
+              'initiatedBy': initiatedBy,
+              'isGroup': isGroup ? 1 : 0,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -59,14 +63,16 @@ class CallHistoryService {
   }) async {
     if (callId.isEmpty) return;
     try {
-      await http.put(
-        Uri.parse('$_kCallApiBase/api/calls/$callId'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'status': status.toString().split('.').last,
-          'duration': duration,
-        }),
-      ).timeout(const Duration(seconds: 15));
+      await http
+          .put(
+            Uri.parse('$_kCallApiBase/api/calls/$callId'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'status': status.toString().split('.').last,
+              'duration': duration,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       print('Error updating call end: $e');
     }
@@ -74,7 +80,8 @@ class CallHistoryService {
 
   // Get call history as a one-shot Stream (emits once with current data).
   // Used in ChatDetailsScreen to listen for updates via a StreamSubscription.
-  static Stream<List<CallHistory>> getCallHistory(String userId, {int limit = 100}) {
+  static Stream<List<CallHistory>> getCallHistory(String userId,
+      {int limit = 100}) {
     return Stream.fromFuture(getCallHistoryFuture(userId, limit: limit));
   }
 
@@ -87,11 +94,14 @@ class CallHistoryService {
   }
 
   // Get call history for a specific user (returns a Future for use with FutureBuilder)
-  static Future<List<CallHistory>> getCallHistoryFuture(String userId, {int limit = 100}) async {
+  static Future<List<CallHistory>> getCallHistoryFuture(String userId,
+      {int limit = 100}) async {
     try {
-      final response = await http.get(
-        Uri.parse('$_kCallApiBase/api/calls?userId=$userId&limit=$limit'),
-      ).timeout(const Duration(seconds: 15));
+      final response = await http
+          .get(
+            Uri.parse('$_kCallApiBase/api/calls?userId=$userId&limit=$limit'),
+          )
+          .timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -110,9 +120,11 @@ class CallHistoryService {
   // Delete a specific call from history
   static Future<void> deleteCall(String callId) async {
     try {
-      await http.delete(
-        Uri.parse('$_kCallApiBase/api/calls/$callId'),
-      ).timeout(const Duration(seconds: 15));
+      await http
+          .delete(
+            Uri.parse('$_kCallApiBase/api/calls/$callId'),
+          )
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       print('Error deleting call: $e');
     }
@@ -121,9 +133,11 @@ class CallHistoryService {
   // Clear all call history for a user
   static Future<void> clearCallHistory(String userId) async {
     try {
-      await http.delete(
-        Uri.parse('$_kCallApiBase/api/calls/user/$userId'),
-      ).timeout(const Duration(seconds: 15));
+      await http
+          .delete(
+            Uri.parse('$_kCallApiBase/api/calls/user/$userId'),
+          )
+          .timeout(const Duration(seconds: 15));
     } catch (e) {
       print('Error clearing call history: $e');
     }
@@ -135,7 +149,8 @@ class CallHistoryService {
   static Future<void> logCallMessageInChat({
     required String callerId,
     required String callType, // 'audio' or 'video'
-    required String callStatus, // 'completed', 'missed', 'declined', 'cancelled'
+    required String
+        callStatus, // 'completed', 'missed', 'declined', 'cancelled'
     required int duration,
     String? chatRoomId,
     bool isAdminChat = false,
@@ -196,7 +211,8 @@ class CallHistoryService {
         }
       }
     } catch (e) {
-      print('Error logging call message in chat (chatRoomId: $chatRoomId, isAdminChat: $isAdminChat): $e');
+      print(
+          'Error logging call message in chat (chatRoomId: $chatRoomId, isAdminChat: $isAdminChat): $e');
     }
   }
 

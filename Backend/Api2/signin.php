@@ -87,6 +87,25 @@ try {
     unset($user['password']); // Remove password from response
     
     // 3) Generate new token
+        // 2b) Block login if account deletion is pending
+        $pendingStmt = $mysqli->prepare(
+            "SELECT id FROM delete_request WHERE userid = ? AND status = 'pending' LIMIT 1"
+        );
+        if ($pendingStmt) {
+            $pendingStmt->bind_param('i', $user['id']);
+            $pendingStmt->execute();
+            $pendingResult = $pendingStmt->get_result();
+            $hasPending = $pendingResult->num_rows > 0;
+            $pendingStmt->close();
+            if ($hasPending) {
+                respond(403, [
+                    'success' => false,
+                    'message' => 'Your account deletion request is pending admin review. Login is disabled until the request is resolved.',
+                    'error_code' => 'ACCOUNT_DELETION_PENDING'
+                ]);
+            }
+        }
+
     $token = bin2hex(random_bytes(30));
     $createdAt = date('Y-m-d H:i:s');
     

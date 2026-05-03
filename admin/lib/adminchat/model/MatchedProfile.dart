@@ -71,15 +71,19 @@ class MatchedProfile {
 
   factory MatchedProfile.fromJson(Map<String, dynamic> json) {
     return MatchedProfile(
-      id: _asInt(json['id']),
+      id: _asInt(json['id'] ?? json['userid']),
       firstName: (json['first_name'] ?? json['firstName'])?.toString() ?? '',
       lastName: (json['last_name'] ?? json['lastName'])?.toString() ?? '',
       memberid: (json['member_id'] ?? json['memberid'])?.toString() ?? '',
-      matchingPercentage: _asDouble(json['matching_percentage']),
-      isPaid: _asBool(json['is_paid']),
+      matchingPercentage: _asDouble(
+        json['matching_percentage'] ?? json['matchPercent'],
+      ),
+      isPaid: _asBool(json['is_paid'] ?? json['isPaid']),
       isOnline: _asBool(json['is_online'] ?? json['isOnline']),
       occupation:
-          (json['occupation'] ?? json['occupation_name'])?.toString() ?? '',
+          (json['occupation'] ?? json['occupation_name'] ?? json['designation'])
+              ?.toString() ??
+          '',
       education:
           (json['education'] ?? json['education_name'])?.toString() ?? '',
       country: (json['country'] ?? json['country_name'])?.toString() ?? '',
@@ -88,7 +92,7 @@ class MatchedProfile {
           '',
       gender: json['gender']?.toString() ?? '',
       age: _asInt(json['age']),
-      profilePicture: json['profile_picture']?.toString() ?? '', // Add this
+      profilePicture: json['profile_picture']?.toString() ?? '',
     );
   }
 }

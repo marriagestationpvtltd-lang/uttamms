@@ -13,6 +13,8 @@ import '../profile/myprofile.dart';
 import '../service/socket_service.dart';
 import '../service/message_tone_service.dart';
 import '../utils/responsive_layout.dart';
+import '../features/shorts/shorts_create_entry_screen.dart';
+import '../features/shorts/reels_feed_screen.dart';
 
 class MainControllerScreen extends StatefulWidget {
   final int initialIndex;
@@ -153,6 +155,13 @@ class _MainControllerScreenState extends State<MainControllerScreen> {
                     if (index == _chatTabIndex) {
                       _chatUnreadCount = 0;
                       _unreadChatRoomIds.clear();
+                      // Refresh chat list so participant photos are up-to-date
+                      // even when re-activating an already-mounted IndexedStack tab.
+                      ChatListScreen.requestRefresh();
+                    }
+                    if (index == 0) {
+                      // Refresh recent members when home tab is re-activated.
+                      MatrimonyHomeScreen.requestRefresh();
                     }
                   });
                 },
@@ -189,13 +198,26 @@ class _MainControllerScreenState extends State<MainControllerScreen> {
           selectedIndex: _selectedIndex,
           currentUserImage: _currentUserImage,
           chatUnreadCount: _chatUnreadCount,
+          onCreateTapped: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const ReelsFeedScreen(),
+              ),
+            );
+          },
           onItemSelected: (index) {
             setState(() {
               _selectedIndex = index;
-              // Clear chat unread badge when user switches to Chat tab
               if (index == _chatTabIndex) {
                 _chatUnreadCount = 0;
                 _unreadChatRoomIds.clear();
+                // Refresh chat list so participant photos are up-to-date
+                // even when re-activating an already-mounted IndexedStack tab.
+                ChatListScreen.requestRefresh();
+              }
+              if (index == 0) {
+                // Refresh recent members when home tab is re-activated.
+                MatrimonyHomeScreen.requestRefresh();
               }
             });
           },

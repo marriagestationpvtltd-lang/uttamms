@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart'
-  if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
+    if (dart.library.html) 'package:ms2026/utils/web_ringtone_player_stub.dart';
 import 'package:permission_handler/permission_handler.dart'
     if (dart.library.html) 'package:ms2026/utils/web_permission_stub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -265,17 +265,24 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           );
         }
 
-        // Log incoming call
-        _callHistoryId = await CallHistoryService.logCall(
-          callerId: _callerId,
-          callerName: _callerName,
-          callerImage: widget.callData['callerImage'] ?? '',
-          recipientId: _currentUserId,
-          recipientName: _currentUserName,
-          recipientImage: _currentUserImage,
-          callType: CallType.audio,
-          initiatedBy: _callerId,
-        );
+        // Log call history only for group/conference calls.
+        // Regular 1-on-1 calls are logged by the caller (OutgoingCall.dart)
+        // to prevent duplicate entries in call history.
+        final isConference = widget.callData['isConferenceCall'] == true ||
+            widget.callData['isConferenceCall'] == 'true';
+        if (isConference) {
+          _callHistoryId = await CallHistoryService.logCall(
+            callerId: _callerId,
+            callerName: _callerName,
+            callerImage: widget.callData['callerImage'] ?? '',
+            recipientId: _currentUserId,
+            recipientName: _currentUserName,
+            recipientImage: _currentUserImage,
+            callType: CallType.audio,
+            initiatedBy: _callerId,
+            isGroup: true,
+          );
+        }
       }
     } catch (e) {
       debugPrint('Error loading user data for call history: $e');
@@ -578,7 +585,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
           },
           onError: (c, m) {
             debugPrint('Agora error $c $m');
-            if (_remoteUid == null && !_ending) {
+            if (_isFatalAgoraError(c, m) && !_ending) {
+              _endCall();
+            }
+          },
+          onConnectionStateChanged: (connection, state, reason) {
+            debugPrint('Incoming call state: $state, reason: $reason');
+            if (state == ConnectionStateType.connectionStateFailed &&
+                !_ending) {
               _endCall();
             }
           },
@@ -607,6 +621,18 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       });
       await _end();
     }
+  }
+
+  bool _isFatalAgoraError(ErrorCodeType code, String message) {
+    final msg = message.toLowerCase();
+    final codeText = code.toString().toLowerCase();
+    return msg.contains('token') ||
+        msg.contains('invalid') ||
+        msg.contains('expired') ||
+        codeText.contains('token') ||
+        codeText.contains('invalid') ||
+        codeText.contains('expired') ||
+        codeText.contains('rejected');
   }
 
   // ================= TIMERS =================
@@ -678,55 +704,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       senderId: _currentUserId,
     );
 
-    // Update call history as missed
-    if (_callHistoryId != null && _callHistoryId!.isNotEmpty) {
-      await CallHistoryService.updateCallEnd(
-        callId: _callHistoryId!,
-        status: CallStatus.missed,
-        duration: 0,
-      );
-    }
-
-    // Write inline call message to chat (recipient side backup)
-    if (_chatRoomId.isNotEmpty) {
-      unawaited(CallHistoryService.logCallMessageInChat(
-        callerId: _callerId,
-        callType: 'audio',
-        callStatus: 'missed',
-        duration: 0,
-        chatRoomId: _chatRoomId,
-        messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-      ));
-    }
-
+    // Call history & inline chat message are handled by the caller side.
     await _end();
   }
 
   // ================= DECLINE CALL =================
   Future<void> _declineCall() async {
     _ringTimer?.cancel();
-
-    // Update call history as declined
-    if (_callHistoryId != null && _callHistoryId!.isNotEmpty) {
-      await CallHistoryService.updateCallEnd(
-        callId: _callHistoryId!,
-        status: CallStatus.declined,
-        duration: 0,
-      );
-    }
-
-    // Write inline call message to chat (recipient side backup)
-    if (_chatRoomId.isNotEmpty) {
-      unawaited(CallHistoryService.logCallMessageInChat(
-        callerId: _callerId,
-        callType: 'audio',
-        callStatus: 'declined',
-        duration: 0,
-        chatRoomId: _chatRoomId,
-        messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-      ));
-    }
-
+    // Call history & inline chat message are handled by the caller side.
     await _end();
   }
 
@@ -770,25 +755,14 @@ class _IncomingCallScreenState extends State<IncomingCallScreen> {
       }
     }
 
-    // Update call history
+    // Update call history for group/conference calls only.
+    // Regular 1-on-1 call status is updated by the caller (OutgoingCall.dart).
     if (_callHistoryId != null && _callHistoryId!.isNotEmpty) {
       await CallHistoryService.updateCallEnd(
         callId: _callHistoryId!,
         status: CallStatus.completed,
         duration: _duration.inSeconds,
       );
-    }
-
-    // Write inline call message to chat (recipient side backup)
-    if (_chatRoomId.isNotEmpty) {
-      unawaited(CallHistoryService.logCallMessageInChat(
-        callerId: _callerId,
-        callType: 'audio',
-        callStatus: _callActive ? 'completed' : 'missed',
-        duration: _duration.inSeconds,
-        chatRoomId: _chatRoomId,
-        messageDocId: _channel.isNotEmpty ? 'call_$_channel' : null,
-      ));
     }
 
     if (_joined) {

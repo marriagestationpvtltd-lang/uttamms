@@ -4,6 +4,8 @@ require('dotenv').config();
 const express   = require('express');
 const http      = require('http');
 const { Server } = require('socket.io');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const { createClient } = require('redis');
 const mysql     = require('mysql2/promise');
 const cors      = require('cors');
 const multer    = require('multer');
@@ -62,6 +64,22 @@ const CALLS_ENABLED = (process.env.CALLS_ENABLED ?? 'true') !== 'false';
 // Set STRICT_AUTH=false in local development to bypass token validation failures.
 // Keep this true in production.
 const STRICT_AUTH = (process.env.STRICT_AUTH ?? 'true') !== 'false';
+const REDIS_ENABLED = (process.env.REDIS_ENABLED ?? 'false') === 'true';
+const REDIS_REQUIRED = (process.env.REDIS_REQUIRED ?? 'false') === 'true';
+
+function buildRedisUrl() {
+  const explicit = (process.env.REDIS_URL || '').trim();
+  if (explicit) return explicit;
+
+  const host = process.env.REDIS_HOST || '127.0.0.1';
+  const port = parseInt(process.env.REDIS_PORT || '6379', 10);
+  const password = (process.env.REDIS_PASSWORD || '').trim();
+
+  if (password) {
+    return `redis://:${encodeURIComponent(password)}@${host}:${port}`;
+  }
+  return `redis://${host}:${port}`;
+}
 
 // Log configuration on startup for debugging
 console.log(`⚙️  Loaded configuration:`);
@@ -71,12 +89,23 @@ console.log(`   PUBLIC_URL: ${PUBLIC_URL || '(not set - will use request headers
 console.log(`   API_BASE_URL: ${API_BASE_URL}`);
 console.log(`   CALLS_ENABLED: ${CALLS_ENABLED}`);
 console.log(`   STRICT_AUTH: ${STRICT_AUTH}`);
+console.log(`   REDIS_ENABLED: ${REDIS_ENABLED}`);
 
 // Ensure upload directory exists
 ['chat_images', 'voice_messages'].forEach(sub => {
   const dir = path.join(UPLOAD_DIR, sub);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
+
+const DB_CONNECTION_LIMIT = Math.max(
+  10,
+  Number.isFinite(Number(process.env.DB_CONNECTION_LIMIT))
+      ? Number(process.env.DB_CONNECTION_LIMIT)
+      : 80,
+);
+const DB_QUEUE_LIMIT = Number.isFinite(Number(process.env.DB_QUEUE_LIMIT))
+    ? Number(process.env.DB_QUEUE_LIMIT)
+    : 0;
 
 // ──────────────────────────────────────────────────────────────────────────────
 // MySQL connection pool
@@ -90,10 +119,12 @@ const pool = mysql.createPool({
   password:           process.env.DB_PASSWORD || '',
   database:           process.env.DB_NAME     || 'ms',
   waitForConnections: true,
-  connectionLimit:    50,
+  connectionLimit:    DB_CONNECTION_LIMIT,
   // 0 = unlimited connection request queuing; safe because we also cap at
   // MAX_QUEUE_SIZE in the message queue, preventing unbounded work growth.
-  queueLimit:         0,
+  queueLimit:         DB_QUEUE_LIMIT,
+  enableKeepAlive:    true,
+  keepAliveInitialDelay: 0,
   charset:            'utf8mb4',
   // Treat all DATETIME columns as UTC so JS Date objects are serialised/
   // deserialised in UTC regardless of the MySQL server's local timezone.
@@ -239,6 +270,12 @@ pool.getConnection()
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
     console.log('✅ call_history table ready');
+
+    // Add is_group column if not already present (idempotent migration).
+    try {
+      await conn.query(`ALTER TABLE \`call_history\` ADD COLUMN IF NOT EXISTS \`is_group\` TINYINT(1) NOT NULL DEFAULT 0`);
+    } catch (_) { /* column may already exist in older MySQL without IF NOT EXISTS */ }
+    console.log('✅ call_history.is_group column ready');
 
     // Create group_calls table if not present (idempotent).
     // Tracks admin-initiated group call sessions with a dynamic participant list.
@@ -515,6 +552,40 @@ const io     = new Server(server, {
   maxHttpBufferSize: 1e6,  // 1 MB — prevents large-payload DoS attacks
 });
 
+let redisAdapterReady = false;
+let redisAdapterError = null;
+
+async function initRedisAdapter() {
+  if (!REDIS_ENABLED) {
+    console.log('ℹ️  Redis adapter disabled (REDIS_ENABLED=false).');
+    return;
+  }
+
+  const redisUrl = buildRedisUrl();
+  const pubClient = createClient({
+    url: redisUrl,
+    socket: {
+      reconnectStrategy: (retries) => Math.min(retries * 100, 3000),
+    },
+  });
+  const subClient = pubClient.duplicate();
+
+  try {
+    await Promise.all([pubClient.connect(), subClient.connect()]);
+    io.adapter(createAdapter(pubClient, subClient));
+    redisAdapterReady = true;
+    redisAdapterError = null;
+    console.log('✅ Redis adapter enabled for multi-worker Socket.IO sync');
+  } catch (err) {
+    redisAdapterReady = false;
+    redisAdapterError = formatError(err);
+    if (REDIS_REQUIRED) {
+      throw new Error(`Redis adapter init failed and REDIS_REQUIRED=true: ${redisAdapterError}`);
+    }
+    console.warn(`⚠️  Redis adapter init failed; continuing without adapter: ${redisAdapterError}`);
+  }
+}
+
 app.use(cors({
   origin: _corsOrigin,
   methods: CORS_METHODS,
@@ -629,12 +700,16 @@ app.get('/health', (_req, res) => {
       publicUrl: PUBLIC_URL || 'not set',
       apiBaseUrl: API_BASE_URL,
       callsEnabled: CALLS_ENABLED,
+      redisEnabled: REDIS_ENABLED,
+      redisRequired: REDIS_REQUIRED,
+      redisAdapterReady,
     },
     memory: {
       heapUsedMB: heapMB,
       rss: (mem.rss / 1024 / 1024).toFixed(1),
     },
     uptime: process.uptime().toFixed(0),
+    ...(redisAdapterError ? { redisAdapterError } : {}),
   });
 });
 
@@ -744,7 +819,7 @@ app.post('/api/calls', async (req, res) => {
     const {
       callId, callerId, callerName = '', callerImage = '',
       recipientId, recipientName = '', recipientImage = '',
-      callType = 'audio', initiatedBy,
+      callType = 'audio', initiatedBy, isGroup = 0,
     } = req.body;
 
     if (!callId || !callerId || !recipientId || !initiatedBy) {
@@ -757,13 +832,13 @@ app.post('/api/calls', async (req, res) => {
       `INSERT INTO call_history
          (call_id, caller_id, caller_name, caller_image,
           recipient_id, recipient_name, recipient_image,
-          call_type, start_time, status, initiated_by)
-       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?)
+          call_type, start_time, status, initiated_by, is_group)
+       VALUES (?,?,?,?,?,?,?,?,UTC_TIMESTAMP(),'missed',?,?)
        ON DUPLICATE KEY UPDATE
          call_id = call_id`,
       [callId, callerId, callerName, callerImage,
        recipientId, recipientName, recipientImage,
-       callType === 'video' ? 'video' : 'audio', initiatedBy],
+       callType === 'video' ? 'video' : 'audio', initiatedBy, isGroup ? 1 : 0],
     );
 
     // Log call_made for caller, call_received for recipient
@@ -841,6 +916,7 @@ app.get('/api/calls', async (req, res) => {
       duration:       r.duration,
       status:         r.status,
       initiatedBy:    r.initiated_by,
+      isGroup:        r.is_group === 1,
     }));
 
     res.json({ success: true, calls });
@@ -1739,9 +1815,9 @@ async function getChatRooms(userId) {
     );
     for (const u of userRows) {
       const rawPicture = (u.profile_picture || '').trim();
-      const pictureUrl = rawPicture
-        ? (rawPicture.startsWith('http') ? rawPicture : `${API_BASE_URL}/Api2/${rawPicture.replace(/^\/+/, '')}`)
-        : '';
+      // Return the raw DB value so the Flutter client's resolveApiImageUrl()
+      // builds the correct full URL using its own kApiBaseUrl.  This avoids
+      // hard-coding the production domain here which breaks dev environments.
       userInfoMap[u.id.toString()] = {
         privacy:    u.privacy    || 'public',
         usertype:   u.usertype   || 'free',
@@ -1749,7 +1825,7 @@ async function getChatRooms(userId) {
         isOnline:   false,
         lastSeen:   null,
         name:       [u.firstName, u.lastName].filter(Boolean).join(' ').trim(),
-        profilePicture: pictureUrl,
+        profilePicture: rawPicture,
       };
     }
 
@@ -1854,11 +1930,13 @@ async function getChatRooms(userId) {
       const pidStr = pid.toString();
       const info = userInfoMap[pidStr];
 
-      // Use stored name/image first; fall back to live data from users table.
+      // Use live data from users table first so profile-photo updates are
+      // reflected immediately across chat list/detail UIs.
+      // Stored participant_images are only a fallback for legacy rows.
       const storedName  = (storedNames[pidStr]  || '').trim();
       const storedImage = (storedImages[pidStr] || '').trim();
-      participantNames[pidStr]  = storedName  || (info ? info.name          : '');
-      participantImages[pidStr] = storedImage || (info ? info.profilePicture : '');
+      participantNames[pidStr]  = (info && info.name ? info.name : storedName);
+      participantImages[pidStr] = (info && info.profilePicture ? info.profilePicture : storedImage);
 
       if (info) {
         participantPrivacy[pidStr]        = info.privacy;
@@ -1889,6 +1967,100 @@ async function getChatRooms(userId) {
     };
   }).filter(Boolean);
 }
+
+// Short-lived cache for chat-room list lookups to absorb bursty traffic from
+// reconnects, polling, and fan-out emits under high concurrent load.
+const CHAT_ROOMS_CACHE_TTL_MS = Number(process.env.CHAT_ROOMS_CACHE_TTL_MS || 1500);
+const CHAT_ROOMS_CACHE_SWEEP_MS = Number(process.env.CHAT_ROOMS_CACHE_SWEEP_MS || 30000);
+const chatRoomsCache = new Map();      // userId -> { data, expiresAt }
+const chatRoomsInFlight = new Map();   // userId -> Promise<rooms>
+
+function invalidateChatRoomsCache(userId) {
+  const uid = (userId || '').toString().trim();
+  if (!uid) return;
+  chatRoomsCache.delete(uid);
+}
+
+async function getChatRoomsCached(userId, { forceFresh = false } = {}) {
+  const uid = (userId || '').toString().trim();
+  if (!uid) return [];
+
+  if (forceFresh) {
+    invalidateChatRoomsCache(uid);
+  } else {
+    const cached = chatRoomsCache.get(uid);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+  }
+
+  const pending = chatRoomsInFlight.get(uid);
+  if (pending) return pending;
+
+  const fetchPromise = getChatRooms(uid)
+    .then((rooms) => {
+      chatRoomsCache.set(uid, {
+        data: rooms,
+        expiresAt: Date.now() + CHAT_ROOMS_CACHE_TTL_MS,
+      });
+      return rooms;
+    })
+    .finally(() => {
+      chatRoomsInFlight.delete(uid);
+    });
+
+  chatRoomsInFlight.set(uid, fetchPromise);
+  return fetchPromise;
+}
+
+async function pushChatRoomsUpdate(userId, {
+  forceFresh = false,
+  includeLegacy = true,
+  targetSocket = null,
+  broadcastToUserRoom = true,
+} = {}) {
+  const uid = (userId || '').toString().trim();
+  if (!uid) return [];
+
+  const chatRooms = await getChatRoomsCached(uid, { forceFresh });
+
+  if (targetSocket) {
+    targetSocket.emit('chat_rooms_update', { chatRooms });
+    if (includeLegacy) {
+      targetSocket.emit('chat_list_update', { chatRooms });
+    }
+  }
+
+  if (broadcastToUserRoom) {
+    io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms });
+    if (includeLegacy) {
+      io.to(`user:${uid}`).emit('chat_list_update', { chatRooms });
+    }
+  }
+
+  return chatRooms;
+}
+
+// Periodically sweep expired in-memory entries so cache maps do not grow
+// forever under large user cardinality (10k+ unique users over time).
+setInterval(() => {
+  const now = Date.now();
+
+  for (const [uid, entry] of chatRoomsCache.entries()) {
+    if (!entry || entry.expiresAt <= now) {
+      chatRoomsCache.delete(uid);
+    }
+  }
+
+  // Rate-limit map is normally cleaned on disconnect, but this extra sweep
+  // protects against edge cases where disconnect events are missed.
+  const rlCutoff = now - (RATE_LIMIT_WIN * 6);
+  for (const [socketId, rl] of socketRateLimits.entries()) {
+    if (!rl || rl.windowStart < rlCutoff) {
+      socketRateLimits.delete(socketId);
+    }
+  }
+}, CHAT_ROOMS_CACHE_SWEEP_MS);
 
 async function getMessages({ chatRoomId, page = 1, limit = 20 }) {
   const offset = (page - 1) * limit;
@@ -2237,9 +2409,11 @@ io.on('connection', (socket) => {
     // were emitted while the socket was offline or not yet authenticated.
     // Both 'chat_rooms_update' and its legacy alias 'chat_list_update' are
     // emitted for backward compatibility with older app versions.
-    getChatRooms(authenticatedUserId).then(rooms => {
-      socket.emit('chat_rooms_update', { chatRooms: rooms });
-      socket.emit('chat_list_update', { chatRooms: rooms });
+    pushChatRoomsUpdate(authenticatedUserId, {
+      forceFresh: true,
+      targetSocket: socket,
+      broadcastToUserRoom: false,
+      includeLegacy: true,
     }).catch(err => {
       console.error('authenticate: getChatRooms error:', formatError(err));
     });
@@ -2361,8 +2535,10 @@ io.on('connection', (socket) => {
   // ── proposal_accepted ────────────────────────────────────────────────────
   // Emitted by the acceptor after accepting a proposal.
   // Payload: { originalSenderId, acceptorId, acceptorName, requestType, proposalId }
-  // The event is forwarded to the original sender so their Sent tab refreshes.
-  socket.on('proposal_accepted', (data) => {
+  // The event is forwarded to the original sender so their Sent tab refreshes,
+  // and a chat_rooms_update is pushed to both users so their chat lists
+  // immediately reflect the new photo-request status.
+  socket.on('proposal_accepted', async (data) => {
     const { originalSenderId, acceptorId, acceptorName = '', requestType = 'Chat', proposalId = '' } = data || {};
     if (!originalSenderId || !acceptorId) return;
     console.log(`✅ proposal_accepted: acceptor=${acceptorId} → original sender=${originalSenderId} type=${requestType}`);
@@ -2375,6 +2551,16 @@ io.on('connection', (socket) => {
       proposalId:       proposalId.toString(),
       timestamp:        new Date().toISOString(),
     });
+    // Push fresh chat-rooms to both parties so the photo-request status
+    // ('accepted') is reflected in their chat list avatars immediately.
+    try {
+      await Promise.all([
+        pushChatRoomsUpdate(originalSenderId.toString(), { forceFresh: true }),
+        pushChatRoomsUpdate(acceptorId.toString(), { forceFresh: true }),
+      ]);
+    } catch (err) {
+      console.error('proposal_accepted: chat_rooms_update push failed:', formatError(err));
+    }
   });
 
   // ── payment_updated ───────────────────────────────────────────────────────
@@ -2565,7 +2751,7 @@ io.on('connection', (socket) => {
     try {
       const uid = (userId || authenticatedUserId || '').toString();
       if (!uid) { if (typeof ack === 'function') ack({ success: false, error: 'No userId' }); return; }
-      const chatRooms = await getChatRooms(uid);
+      const chatRooms = await getChatRoomsCached(uid);
       if (typeof ack === 'function') ack({ success: true, chatRooms });
     } catch (err) {
       console.error('get_chat_rooms error:', formatError(err));
@@ -2594,10 +2780,8 @@ io.on('connection', (socket) => {
       // Notify sender that their messages were read
       socket.to(chatRoomId).emit('messages_read', { chatRoomId, userId });
 
-      // Refresh chat list for this user
-      const rooms = await getChatRooms(userId);
-      socket.emit('chat_rooms_update', { chatRooms: rooms });
-      socket.emit('chat_list_update', { chatRooms: rooms });
+      // Refresh chat list for this user (all devices) with fresh data.
+      await pushChatRoomsUpdate(userId, { forceFresh: true });
     } catch (err) {
       console.error('mark_read error:', formatError(err));
     }
@@ -3417,15 +3601,15 @@ setInterval(async () => {
     affectedUsers.add(msg.senderId.toString());
     affectedUsers.add(msg.receiverId.toString());
   }
-  for (const uid of affectedUsers) {
-    try {
-      const rooms = await getChatRooms(uid);
-      io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
-      io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
-    } catch (err) {
-      console.error(`Worker getChatRooms error [userId=${uid}]:`, formatError(err));
-    }
-  }
+  await Promise.all(
+    Array.from(affectedUsers).map(async (uid) => {
+      try {
+        await pushChatRoomsUpdate(uid, { forceFresh: true });
+      } catch (err) {
+        console.error(`Worker getChatRooms error [userId=${uid}]:`, formatError(err));
+      }
+    }),
+  );
 }, BATCH_INTERVAL);
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -3478,7 +3662,7 @@ app.get('/api/chat-rooms', async (req, res) => {
   try {
     const userId = (req.query.userId || '').toString().trim();
     if (!userId) return res.status(400).json({ error: 'userId is required' });
-    const chatRooms = await getChatRooms(userId);
+    const chatRooms = await getChatRoomsCached(userId);
     res.json({ success: true, chatRooms });
   } catch (err) {
     console.error('GET /api/chat-rooms error:', err.message);
@@ -3505,9 +3689,7 @@ app.post('/api/mark-chat-read', async (req, res) => {
     io.to(chatRoomId).emit('messages_read', { chatRoomId, userId });
 
     // Push refreshed chat list to this user
-    const rooms = await getChatRooms(userId.toString());
-    io.to(`user:${userId}`).emit('chat_rooms_update', { chatRooms: rooms });
-    io.to(`user:${userId}`).emit('chat_list_update', { chatRooms: rooms });
+    await pushChatRoomsUpdate(userId.toString(), { forceFresh: true });
 
     res.json({ success: true });
   } catch (err) {
@@ -3571,15 +3753,15 @@ app.post('/api/notify-new-message', async (req, res) => {
     });
 
     // Push refreshed chat-room lists to both participants
-    for (const uid of [senderId.toString(), receiverId.toString()]) {
-      try {
-        const rooms = await getChatRooms(uid);
-        io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
-        io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
-      } catch (e) {
-        console.error(`notify-new-message: getChatRooms error [userId=${uid}]:`, e.message);
-      }
-    }
+    await Promise.all(
+      [senderId.toString(), receiverId.toString()].map(async (uid) => {
+        try {
+          await pushChatRoomsUpdate(uid, { forceFresh: true });
+        } catch (e) {
+          console.error(`notify-new-message: getChatRooms error [userId=${uid}]:`, e.message);
+        }
+      }),
+    );
 
     res.json({ success: true });
   } catch (err) {
@@ -3683,13 +3865,13 @@ app.post('/api/send-message', async (req, res) => {
     }
 
     // Update chat room lists for both participants
-    for (const uid of [safeSenderId, safeReceiverId]) {
-      try {
-        const rooms = await getChatRooms(uid);
-        io.to(`user:${uid}`).emit('chat_rooms_update', { chatRooms: rooms });
-        io.to(`user:${uid}`).emit('chat_list_update', { chatRooms: rooms });
-      } catch (_) {}
-    }
+    await Promise.all(
+      [safeSenderId, safeReceiverId].map(async (uid) => {
+        try {
+          await pushChatRoomsUpdate(uid, { forceFresh: true });
+        } catch (_) {}
+      }),
+    );
 
     res.json({ success: true, messageId, timestamp });
   } catch (err) {
@@ -3718,22 +3900,37 @@ setInterval(() => {
 }, MONITOR_INTERVAL);
 
 // ──────────────────────────────────────────────────────────────────────────────
-server.listen(PORT, () => {
-  console.log(`🚀 Socket.IO server running on port ${PORT}`);
-  console.log(`✅ CORS is ${ALLOWED_ORIGINS.includes('*') ? 'enabled for all origins' : 'restricted to: ' + ALLOWED_ORIGINS.join(', ')}`);
-  console.log(`📝 Test endpoint: http://localhost:${PORT}/health`);
-  console.log(`🧪 Test CORS: http://localhost:${PORT}/cors-test`);
-  
-  if (!PUBLIC_URL) {
-    console.warn(
-      '⚠️  WARNING: PUBLIC_URL is not set in .env. Image URLs will be derived from request ' +
-      'headers (req.protocol + req.get("host")). Set PUBLIC_URL=https://your-domain.com in ' +
-      '.env to guarantee correct HTTPS image URLs regardless of proxy configuration. ' +
-      'Missing PUBLIC_URL can cause uploaded images to return non-public URLs.'
-    );
-  } else {
-    console.log(`🌐 PUBLIC_URL: ${PUBLIC_URL}`);
+async function startServer() {
+  try {
+    await initRedisAdapter();
+  } catch (err) {
+    console.error(`❌ Startup failed: ${formatError(err)}`);
+    process.exit(1);
+    return;
   }
+
+  server.listen(PORT, () => {
+    console.log(`🚀 Socket.IO server running on port ${PORT}`);
+    console.log(`✅ CORS is ${ALLOWED_ORIGINS.includes('*') ? 'enabled for all origins' : 'restricted to: ' + ALLOWED_ORIGINS.join(', ')}`);
+    console.log(`📝 Test endpoint: http://localhost:${PORT}/health`);
+    console.log(`🧪 Test CORS: http://localhost:${PORT}/cors-test`);
+
+    if (!PUBLIC_URL) {
+      console.warn(
+        '⚠️  WARNING: PUBLIC_URL is not set in .env. Image URLs will be derived from request ' +
+        'headers (req.protocol + req.get("host")). Set PUBLIC_URL=https://your-domain.com in ' +
+        '.env to guarantee correct HTTPS image URLs regardless of proxy configuration. ' +
+        'Missing PUBLIC_URL can cause uploaded images to return non-public URLs.'
+      );
+    } else {
+      console.log(`🌐 PUBLIC_URL: ${PUBLIC_URL}`);
+    }
+  });
+}
+
+startServer().catch((err) => {
+  console.error(`❌ Unexpected startup error: ${formatError(err)}`);
+  process.exit(1);
 });
 
 // Error handling for server startup issues

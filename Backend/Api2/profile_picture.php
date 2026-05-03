@@ -71,7 +71,7 @@ if (move_uploaded_file($file['tmp_name'], $destPath)) {
     $relativePath = 'uploads/profile_pictures/' . $newFileName;
 
     try {
-        $stmt = $pdo->prepare("UPDATE users SET profile_picture = ? WHERE id = ?");
+        $stmt = $pdo->prepare("UPDATE users SET profile_picture = ?, profile_photo_status = 'pending' WHERE id = ?");
         $stmt->execute([$relativePath, $userid]);
 
         logActivity($userid, 'photo_uploaded', 'Profile picture updated');

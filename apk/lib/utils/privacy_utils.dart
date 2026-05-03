@@ -21,13 +21,18 @@ class PrivacyUtils {
   /// GATED INTERACTION: Only accepts 'accepted' photo requests.
   /// NO direct access based on privacy settings.
   static bool canViewPhotoFromJson(Map<String, dynamic> json) {
+    final photoRequest =
+        json['photo_request']?.toString().toLowerCase().trim() ?? '';
+    final isAccepted = photoRequest == 'accepted';
+
     final backendValue = json['can_view_photo'];
     if (backendValue != null) {
-      return backendValue == true || backendValue == 1;
+      final backendAllows = backendValue == true || backendValue == 1;
+      // Strict rule: backend must allow AND request must be accepted.
+      return backendAllows && isAccepted;
     }
-    final photoRequest = json['photo_request']?.toString().toLowerCase().trim() ?? '';
-    // ONLY allow access if photo request is accepted - NO direct access
-    return photoRequest == 'accepted';
+    // Fallback: ONLY allow access if photo request is accepted.
+    return isAccepted;
   }
 
   /// Checks if a profile photo should be shown clearly (not blurred)
@@ -43,13 +48,16 @@ class PrivacyUtils {
     required String? photoRequest,
     bool? canViewPhoto,
   }) {
-    // Trust backend's pre-computed result if provided
-    if (canViewPhoto != null) return canViewPhoto;
+    final photoRequestNormalized =
+        photoRequest?.toString().toLowerCase().trim() ?? '';
+    final isAccepted = photoRequestNormalized == 'accepted';
 
-    final photoRequestNormalized = photoRequest?.toString().toLowerCase().trim() ?? '';
+    // Strict rule: when backend value is present, require BOTH backend permission
+    // and explicit accepted request status.
+    if (canViewPhoto != null) return canViewPhoto && isAccepted;
 
-    // ONLY show clear photo if photo request is accepted - NO direct access
-    return photoRequestNormalized == 'accepted';
+    // ONLY show clear photo if photo request is accepted.
+    return isAccepted;
   }
 
   /// Gets the photo request status label for UI display
@@ -101,22 +109,24 @@ class PrivacyUtils {
         width: width,
         height: height,
         fit: fit,
-        placeholder: (context, url) => placeholder ??
-          Container(
-            width: width,
-            height: height,
-            color: Colors.grey[200],
-            child: const Center(
-              child: CircularProgressIndicator(strokeWidth: 2),
+        placeholder: (context, url) =>
+            placeholder ??
+            Container(
+              width: width,
+              height: height,
+              color: Colors.grey[200],
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             ),
-          ),
-        errorWidget: (context, url, error) => errorWidget ??
-          Container(
-            width: width,
-            height: height,
-            color: Colors.grey[300],
-            child: const Icon(Icons.person, color: Colors.grey),
-          ),
+        errorWidget: (context, url, error) =>
+            errorWidget ??
+            Container(
+              width: width,
+              height: height,
+              color: Colors.grey[300],
+              child: const Icon(Icons.person, color: Colors.grey),
+            ),
       );
     } else {
       // Show blurred image with lock overlay
@@ -130,22 +140,24 @@ class PrivacyUtils {
           width: width,
           height: height,
           fit: fit,
-          placeholder: (context, url) => placeholder ??
-            Container(
-              width: width,
-              height: height,
-              color: Colors.grey[200],
-              child: const Center(
-                child: CircularProgressIndicator(strokeWidth: 2),
+          placeholder: (context, url) =>
+              placeholder ??
+              Container(
+                width: width,
+                height: height,
+                color: Colors.grey[200],
+                child: const Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
-            ),
-          errorWidget: (context, url, error) => errorWidget ??
-            Container(
-              width: width,
-              height: height,
-              color: Colors.grey[300],
-              child: const Icon(Icons.person, color: Colors.grey),
-            ),
+          errorWidget: (context, url, error) =>
+              errorWidget ??
+              Container(
+                width: width,
+                height: height,
+                color: Colors.grey[300],
+                child: const Icon(Icons.person, color: Colors.grey),
+              ),
         ),
       );
     }
@@ -172,7 +184,8 @@ class PrivacyUtils {
       return CircleAvatar(
         radius: radius,
         backgroundColor: backgroundColor ?? Colors.grey[300],
-        child: child ?? Icon(Icons.person, size: radius, color: Colors.grey[600]),
+        child:
+            child ?? Icon(Icons.person, size: radius, color: Colors.grey[600]),
       );
     }
 
@@ -288,7 +301,8 @@ class PrivacyUtils {
     required String? privacy,
     required String? photoRequest,
   }) {
-    final photoRequestNormalized = photoRequest?.toString().toLowerCase().trim() ?? '';
+    final photoRequestNormalized =
+        photoRequest?.toString().toLowerCase().trim() ?? '';
 
     // Don't show banner if photo request is accepted
     if (photoRequestNormalized == 'accepted') {
@@ -308,8 +322,10 @@ class PrivacyUtils {
       color = Colors.orange;
       titleNepali = 'तपाईंको अनुरोध पेन्डिङ छ';
       titleEnglish = 'Photo Request Pending';
-      messageNepali = 'यो युजरले तपाईंको फोटो हेर्ने अनुरोध स्वीकार गर्न बाँकी छ।';
-      messageEnglish = 'This user has not yet responded to your photo access request.';
+      messageNepali =
+          'यो युजरले तपाईंको फोटो हेर्ने अनुरोध स्वीकार गर्न बाँकी छ।';
+      messageEnglish =
+          'This user has not yet responded to your photo access request.';
     } else if (photoRequestNormalized == 'rejected') {
       icon = Icons.cancel;
       color = Colors.grey.shade600;
@@ -323,7 +339,8 @@ class PrivacyUtils {
       color = Colors.red.shade600;
       titleNepali = 'यो युजरले फोटो लक गरेको छ';
       titleEnglish = 'Photo is Locked';
-      messageNepali = 'यो युजरको फोटो हेर्नको लागि तपाईंले रिक्वेस्ट पठाउनुपर्छ।';
+      messageNepali =
+          'यो युजरको फोटो हेर्नको लागि तपाईंले रिक्वेस्ट पठाउनुपर्छ।';
       messageEnglish = 'You need to send a request to view this user\'s photo.';
     }
 

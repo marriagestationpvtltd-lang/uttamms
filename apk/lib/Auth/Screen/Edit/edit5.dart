@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import '../../../ReUsable/dropdownwidget.dart';
 import 'package:ms2026/config/app_endpoints.dart';
+import '../../../service/profile_field_options_service.dart';
 
 class EducationCareerPagee extends StatefulWidget {
   const EducationCareerPagee({
@@ -41,70 +42,20 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
 
   // Business Details
   final TextEditingController _businessNameController = TextEditingController();
-  final TextEditingController _businessDesignationController = TextEditingController();
+  final TextEditingController _businessDesignationController =
+      TextEditingController();
   String? _selectedBusinessWorkingWith;
   String? _selectedBusinessAnnualIncome;
 
   // Dropdown options
-  final List<String> _educationMediumOptions = [
-    'English',
-    'Nepali',
-    'Hindi',
-    'Other'
-  ];
-
-  final List<String> _educationTypeOptions = [
-    'Regular',
-    'Distance Learning',
-    'Online',
-    'Correspondence',
-    'Other'
-  ];
-
-  final List<String> _facultyOptions = [
-    'Science',
-    'Management',
-    'Humanities',
-    'Education',
-    'Engineering',
-    'Medicine',
-    'Law',
-    'Agriculture',
-    'Forestry',
-    'Computer Science',
-    'Other'
-  ];
-
-  final List<String> _educationDegreeOptions = [
-    'SEE/SLC',
-    '+2/Intermediate',
-    'Diploma',
-    'Bachelor',
-    'Master',
-    'PhD',
-    'Post Doctoral',
-    'Other'
-  ];
-
-  final List<String> _workingWithOptions = [
-    'Private Company',
-    'Government',
-    'NGO/INGO',
-    'Self Employed',
-    'Family Business',
-    'Startup',
-    'Other'
-  ];
-
-  final List<String> _annualIncomeOptions = [
-    'Below 2 Lakhs',
-    '2-5 Lakhs',
-    '5-10 Lakhs',
-    '10-20 Lakhs',
-    '20-50 Lakhs',
-    '50 Lakhs - 1 Crore',
-    'Above 1 Crore'
-  ];
+  // Dynamic dropdown options — loaded from master API
+  List<String> _educationMediumOptions = [];
+  List<String> _educationTypeOptions = [];
+  List<String> _facultyOptions = [];
+  List<String> _educationDegreeOptions = [];
+  List<String> _workingWithOptions = [];
+  List<String> _annualIncomeOptions = [];
+  bool _optionsLoading = true;
 
   String? _selectedDesignation;
 
@@ -169,6 +120,7 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
   @override
   void initState() {
     super.initState();
+    _loadOptions();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (widget.initialData != null && widget.initialData!.isNotEmpty) {
         _applySavedData(widget.initialData!);
@@ -178,6 +130,20 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
       } else {
         _loadSavedData();
       }
+    });
+  }
+
+  Future<void> _loadOptions() async {
+    final all = await ProfileFieldOptionsService.getAllOptions();
+    if (!mounted) return;
+    setState(() {
+      _educationMediumOptions = all['educationmedium'] ?? [];
+      _educationTypeOptions = all['educationtype'] ?? [];
+      _facultyOptions = all['faculty'] ?? [];
+      _educationDegreeOptions = all['degree'] ?? [];
+      _workingWithOptions = all['workingwith'] ?? [];
+      _annualIncomeOptions = all['annualincome'] ?? [];
+      _optionsLoading = false;
     });
   }
 
@@ -200,7 +166,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
       print("Loading data for user ID: $userId");
 
       // Call GET API
-      var url = Uri.parse("${kApiBaseUrl}/Api2/get_educationcareer.php?userid=$userId");
+      var url = Uri.parse(
+          "${kApiBaseUrl}/Api2/get_educationcareer.php?userid=$userId");
       var response = await http.get(url);
 
       print("API Response Status: ${response.statusCode}");
@@ -280,8 +247,11 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
       _selectedFaculty = _getValidValue(savedData['faculty']);
       _selectedEducationDegree = _getValidValue(savedData['degree']);
 
-      final areYouWorking = savedData['areyouworking']?.toString().toLowerCase() ?? '';
-      _isWorking = areYouWorking == "yes" || areYouWorking == "1" || areYouWorking == "true";
+      final areYouWorking =
+          savedData['areyouworking']?.toString().toLowerCase() ?? '';
+      _isWorking = areYouWorking == "yes" ||
+          areYouWorking == "1" ||
+          areYouWorking == "true";
       _occupationType = _getValidValue(savedData['occupationtype']);
 
       _companyNameController.clear();
@@ -290,17 +260,20 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
       _businessDesignationController.clear();
 
       if (_occupationType == "Job" || _occupationType == null) {
-        _companyNameController.text = savedData['companyname']?.toString() ?? '';
+        _companyNameController.text =
+            savedData['companyname']?.toString() ?? '';
         _selectedDesignation = _getValidValue(savedData['designation']);
         _selectedWorkingWith = _getValidValue(savedData['workingwith']);
         _selectedAnnualIncome = _getValidValue(savedData['annualincome']);
         _selectedBusinessWorkingWith = null;
         _selectedBusinessAnnualIncome = null;
       } else if (_occupationType == "Business") {
-        _businessNameController.text = savedData['businessname']?.toString() ?? '';
+        _businessNameController.text =
+            savedData['businessname']?.toString() ?? '';
         _selectedDesignation = _getValidValue(savedData['designation']);
         _selectedBusinessWorkingWith = _getValidValue(savedData['workingwith']);
-        _selectedBusinessAnnualIncome = _getValidValue(savedData['annualincome']);
+        _selectedBusinessAnnualIncome =
+            _getValidValue(savedData['annualincome']);
         _selectedWorkingWith = null;
         _selectedAnnualIncome = null;
       } else {
@@ -323,7 +296,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text('Education & Career', style: TextStyle(color: Colors.white)),
+        title: const Text('Education & Career',
+            style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFFE64B37),
         elevation: 0,
       ),
@@ -354,7 +328,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                   const SizedBox(height: 8),
                   Container(
                     child: TypingDropdown<String>(
-                      key: ValueKey('educationmedium_$_selectedEducationMedium'), // Force rebuild
+                      key: ValueKey(
+                          'educationmedium_$_selectedEducationMedium'), // Force rebuild
                       items: _educationMediumOptions,
                       selectedItem: _selectedEducationMedium,
                       itemLabel: (item) => item,
@@ -375,7 +350,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                   const SizedBox(height: 8),
                   Container(
                     child: TypingDropdown<String>(
-                      key: ValueKey('educationtype_$_selectedEducationType'), // Force rebuild
+                      key: ValueKey(
+                          'educationtype_$_selectedEducationType'), // Force rebuild
                       items: _educationTypeOptions,
                       selectedItem: _selectedEducationType,
                       itemLabel: (item) => item,
@@ -396,7 +372,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                   const SizedBox(height: 8),
                   Container(
                     child: TypingDropdown<String>(
-                      key: ValueKey('faculty_$_selectedFaculty'), // Force rebuild
+                      key: ValueKey(
+                          'faculty_$_selectedFaculty'), // Force rebuild
                       items: _facultyOptions,
                       selectedItem: _selectedFaculty,
                       itemLabel: (item) => item,
@@ -417,7 +394,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                   const SizedBox(height: 8),
                   Container(
                     child: TypingDropdown<String>(
-                      key: ValueKey('degree_$_selectedEducationDegree'), // Force rebuild
+                      key: ValueKey(
+                          'degree_$_selectedEducationDegree'), // Force rebuild
                       items: _educationDegreeOptions,
                       selectedItem: _selectedEducationDegree,
                       itemLabel: (item) => item,
@@ -518,14 +496,13 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                         _companyNameController,
                         "Enter company name",
                       ),
-
                       const SizedBox(height: 15),
-
                       _buildSectionTitle("Designation*"),
                       const SizedBox(height: 8),
                       Container(
                         child: TypingDropdown<String>(
-                          key: ValueKey('designation_job_$_selectedDesignation'), // Force rebuild
+                          key: ValueKey(
+                              'designation_job_$_selectedDesignation'), // Force rebuild
                           items: _designationOptions,
                           selectedItem: _selectedDesignation,
                           itemLabel: (item) => item,
@@ -539,14 +516,13 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                           showError: submitted,
                         ),
                       ),
-
                       const SizedBox(height: 15),
-
                       _buildSectionTitle("Working With*"),
                       const SizedBox(height: 8),
                       Container(
                         child: TypingDropdown<String>(
-                          key: ValueKey('workingwith_job_$_selectedWorkingWith'), // Force rebuild
+                          key: ValueKey(
+                              'workingwith_job_$_selectedWorkingWith'), // Force rebuild
                           items: _workingWithOptions,
                           selectedItem: _selectedWorkingWith,
                           itemLabel: (item) => item,
@@ -560,14 +536,13 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                           showError: submitted,
                         ),
                       ),
-
                       const SizedBox(height: 15),
-
                       _buildSectionTitle("Annual Income*"),
                       const SizedBox(height: 8),
                       Container(
                         child: TypingDropdown<String>(
-                          key: ValueKey('income_job_$_selectedAnnualIncome'), // Force rebuild
+                          key: ValueKey(
+                              'income_job_$_selectedAnnualIncome'), // Force rebuild
                           items: _annualIncomeOptions,
                           selectedItem: _selectedAnnualIncome,
                           itemLabel: (item) => item,
@@ -592,14 +567,13 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                         _businessNameController,
                         "Enter business name",
                       ),
-
                       const SizedBox(height: 15),
-
                       _buildSectionTitle("Designation*"),
                       const SizedBox(height: 8),
                       Container(
                         child: TypingDropdown<String>(
-                          key: ValueKey('designation_business_$_selectedDesignation'), // Force rebuild
+                          key: ValueKey(
+                              'designation_business_$_selectedDesignation'), // Force rebuild
                           items: _designationOptions,
                           selectedItem: _selectedDesignation,
                           itemLabel: (item) => item,
@@ -613,14 +587,13 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                           showError: submitted,
                         ),
                       ),
-
                       const SizedBox(height: 15),
-
                       _buildSectionTitle("Working With*"),
                       const SizedBox(height: 8),
                       Container(
                         child: TypingDropdown<String>(
-                          key: ValueKey('workingwith_business_$_selectedBusinessWorkingWith'), // Force rebuild
+                          key: ValueKey(
+                              'workingwith_business_$_selectedBusinessWorkingWith'), // Force rebuild
                           items: _workingWithOptions,
                           selectedItem: _selectedBusinessWorkingWith,
                           itemLabel: (item) => item,
@@ -634,14 +607,13 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                           showError: submitted,
                         ),
                       ),
-
                       const SizedBox(height: 15),
-
                       _buildSectionTitle("Annual Income*"),
                       const SizedBox(height: 8),
                       Container(
                         child: TypingDropdown<String>(
-                          key: ValueKey('income_business_$_selectedBusinessAnnualIncome'), // Force rebuild
+                          key: ValueKey(
+                              'income_business_$_selectedBusinessAnnualIncome'), // Force rebuild
                           items: _annualIncomeOptions,
                           selectedItem: _selectedBusinessAnnualIncome,
                           itemLabel: (item) => item,
@@ -679,7 +651,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                 color: Colors.black.withOpacity(0.5),
                 child: const Center(
                   child: CircularProgressIndicator(
-                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFE64B37)),
+                    valueColor:
+                        AlwaysStoppedAnimation<Color>(Color(0xFFE64B37)),
                   ),
                 ),
               ),
@@ -816,7 +789,9 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
             color: const Color(0xFF48A54C),
             width: 1.2,
           ),
-          color: isSelected ? const Color(0xFFE64B37).withOpacity(0.1) : Colors.transparent,
+          color: isSelected
+              ? const Color(0xFFE64B37).withOpacity(0.1)
+              : Colors.transparent,
         ),
         child: InkWell(
           borderRadius: BorderRadius.circular(9),
@@ -836,14 +811,16 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                       color: isSelected ? const Color(0xFFE64B37) : Colors.grey,
                       width: 2,
                     ),
-                    color: isSelected ? const Color(0xFFE64B37) : Colors.transparent,
+                    color: isSelected
+                        ? const Color(0xFFE64B37)
+                        : Colors.transparent,
                   ),
                   child: isSelected
                       ? const Icon(
-                    Icons.circle,
-                    size: 10,
-                    color: Colors.white,
-                  )
+                          Icons.circle,
+                          size: 10,
+                          color: Colors.white,
+                        )
                       : null,
                 ),
                 const SizedBox(width: 12),
@@ -852,7 +829,8 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
                   style: TextStyle(
                     fontSize: 16,
                     color: Colors.black87,
-                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight:
+                        isSelected ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
               ],
@@ -873,17 +851,17 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
       decoration: BoxDecoration(
         gradient: isPrimary
             ? const LinearGradient(
-          colors: [
-            Color(0xFFE64B37),
-            Color(0xFFE62255),
-          ],
-        )
+                colors: [
+                  Color(0xFFE64B37),
+                  Color(0xFFE62255),
+                ],
+              )
             : const LinearGradient(
-          colors: [
-            Color(0xFFEEA2A4),
-            Color(0xFFF3C0C4),
-          ],
-        ),
+                colors: [
+                  Color(0xFFEEA2A4),
+                  Color(0xFFF3C0C4),
+                ],
+              ),
         borderRadius: BorderRadius.circular(30),
       ),
       child: Material(
@@ -917,7 +895,7 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
           Container(
             height: size,
             width: size,
-            decoration:  BoxDecoration(
+            decoration: BoxDecoration(
               color: Colors.red.shade100,
               shape: BoxShape.circle,
             ),
@@ -1069,7 +1047,7 @@ class _EducationCareerPageeState extends State<EducationCareerPagee> {
 
       if (data['status'] == 'success') {
         _showSuccess(data['message']);
-Navigator.pop(context);
+        Navigator.pop(context);
       } else {
         _showError(data['message'] ?? "Failed to save data");
       }

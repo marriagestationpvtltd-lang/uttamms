@@ -4,7 +4,11 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
-$base_url = "https://digitallami.com/Api2/";
+$scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+$host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+$requestPath = parse_url($_SERVER['REQUEST_URI'] ?? '/Api2/other_profile_new.php', PHP_URL_PATH);
+$apiDir = rtrim(str_replace('\\', '/', dirname($requestPath ?: '/Api2/other_profile_new.php')), '/');
+$base_url = $scheme . '://' . $host . $apiDir . '/';
 
 $host = "localhost"; 
 $db_name = "ms";
@@ -28,6 +32,18 @@ if ($userid <= 0 || $myid <= 0) {
         "status" => "error",
         "message" => "Invalid user ID"
     ]);
+    exit;
+}
+
+require_once __DIR__ . '/deletion_guard.php';
+if (isUserPendingDeletionMysqli($conn, $myid) || isUserPendingDeletionMysqli($conn, $userid)) {
+    echo json_encode([
+        "status" => "error",
+        "success" => false,
+        "message" => "Profile is unavailable while account deletion is pending",
+        "error_code" => "ACCOUNT_DELETION_PENDING"
+    ]);
+    $conn->close();
     exit;
 }
 
@@ -145,9 +161,12 @@ $planStmt->close();
 $photo_request="not_sent";
 $photo_request_type="none";
 $can_view_photo=false;
+$photo_access_active=false;
+$photo_access_expires_at=null;
+$photo_access_remaining_seconds=0;
 
 $photoStmt=$conn->prepare("
-SELECT sender_id,receiver_id,status FROM proposals
+SELECT sender_id,receiver_id,status,created_at FROM proposals
 WHERE request_type='Photo'
 AND ((sender_id=? AND receiver_id=?)
 OR (sender_id=? AND receiver_id=?))
@@ -166,13 +185,22 @@ if($photoRes->num_rows>0){
     }else{
         $photo_request_type="received";
     }
-}
 
-// Photo access is ONLY granted when photo request is accepted.
-// Users cannot view photos based on their plan (paid/free) or verification status.
-// This ensures photos are protected until explicit approval is granted.
-if($photo_request=="accepted"){
-    $can_view_photo=true;
+    // Photo visibility is valid for 24 hours from accepted timestamp.
+    if ($photo_request === "accepted") {
+        $accepted_at_raw = $photoRow['created_at'] ?? null;
+        $accepted_ts = $accepted_at_raw ? strtotime($accepted_at_raw) : false;
+        if ($accepted_ts !== false) {
+            $expires_ts = $accepted_ts + (24 * 60 * 60);
+            $now_ts = time();
+            if ($now_ts <= $expires_ts) {
+                $photo_access_active = true;
+                $can_view_photo = true;
+                $photo_access_remaining_seconds = max(0, $expires_ts - $now_ts);
+            }
+            $photo_access_expires_at = gmdate('c', $expires_ts);
+        }
+    }
 }
 $photoStmt->close();
 
@@ -220,7 +248,7 @@ $chatStmt->close();
 ============================= */
 
 $sql = "SELECT 
-u.firstName,u.lastName,u.profile_picture,u.usertype,u.isVerified,u.privacy,
+u.firstName,u.lastName,u.profile_picture,u.profile_photo_status,u.usertype,u.isVerified,u.privacy,
 pa.city,pa.country,
 ec.educationmedium AS ec_educationmedium,
 ec.educationtype,ec.faculty,ec.degree,
@@ -228,6 +256,7 @@ ec.areyouworking,ec.occupationtype,ec.companyname,
 ec.designation AS ec_designation,
 ec.workingwith AS ec_workingwith,ec.annualincome AS ec_annualincome,ec.businessname,
 up.memberid,up.height_name,up.maritalStatusId,ms.name AS maritalStatusName,
+up.religionId,up.communityId,up.subCommunityId,
 up.motherTongue,up.aboutMe,up.birthDate,up.Disability,up.bloodGroup,
 r.name AS religionName,
 c.name AS communityName,
@@ -238,6 +267,7 @@ uf.fatherstatus,uf.fathername,uf.fathereducation,uf.fatheroccupation,
 uf.motherstatus,uf.mothercaste,uf.mothereducation,uf.motheroccupation,uf.familyorigin,
 ul.id AS lifestyleId,ul.smoketype,ul.diet,ul.drinks,ul.drinktype,ul.smoke,
 upa.minage,upa.maxage,upa.maritalstatus,upa.profilewithchild,
+upa.minheight,upa.maxheight,
 upa.familytype AS partnerFamilyType,
 upa.religion AS partnerReligion,
 upa.caste AS partnerCaste,
@@ -283,8 +313,15 @@ if($res->num_rows==0){
 
 $row=$res->fetch_assoc();
 
-$profile_picture=!empty($row['profile_picture'])
-?$base_url.$row['profile_picture']:"";
+$raw_profile_picture = (string)($row['profile_picture'] ?? '');
+$resolved_profile_picture = $raw_profile_picture !== ''
+    ? (preg_match('#^https?://#i', $raw_profile_picture) ? $raw_profile_picture : $base_url . ltrim($raw_profile_picture, '/'))
+    : '';
+
+// Mandatory photo-request gating: profile photo is revealed only after
+// photo request is accepted AND admin has approved the photo.
+$profile_photo_status = (string)($row['profile_photo_status'] ?? 'pending');
+$profile_picture = ($can_view_photo && $profile_photo_status === 'approved') ? $resolved_profile_picture : "";
 
 $default="Not available";
 
@@ -293,12 +330,22 @@ $default="Not available";
 ============================= */
 
 $currentUser=$conn->query("
-SELECT up.birthDate,r.name religion,pa.country,pa.city,ul.diet,ul.smoke,ul.drinks
+SELECT up.birthDate, up.height_name, up.motherTongue, up.Disability,
+       r.name AS religion, c.name AS community,
+       ms.name AS maritalStatus,
+       pa.country, pa.state, pa.city,
+       ul.diet, ul.smoke, ul.drinks,
+       uf.familytype,
+       ec.degree, ec.occupationtype
 FROM users u
 LEFT JOIN userpersonaldetail up ON u.id=up.userid
 LEFT JOIN religion r ON up.religionId=r.id
+LEFT JOIN community c ON up.communityId=c.id
+LEFT JOIN maritalstatus ms ON up.maritalStatusId=ms.id
 LEFT JOIN permanent_address pa ON u.id=pa.userid
 LEFT JOIN user_lifestyle ul ON u.id=ul.userid
+LEFT JOIN user_family uf ON u.id=uf.userid
+LEFT JOIN educationcareer ec ON u.id=ec.userid
 WHERE u.id=$myid
 ")->fetch_assoc();
 
@@ -307,39 +354,74 @@ function age($dob){
  return (new DateTime())->diff(new DateTime($dob))->y;
 }
 
-$current_age=age($currentUser['birthDate']);
+// Helper: check if viewer's value satisfies a preference field (comma-separated or single, "Any" = always match)
+function prefMatch($pref, $value) {
+    $p = trim($pref ?? '');
+    if ($p === '' || $p === 'Not available' || $p === '0') return true; // unset = all accepted
+    $items = array_map('trim', explode(',', $p));
+    if (in_array('Any', $items)) return true;
+    return in_array(trim($value ?? ''), $items);
+}
+
+// Helper: extract numeric cm from height string like "170 cm" or "170"
+function extractCm($h) {
+    if (preg_match('/(\d+)/', (string)($h ?? ''), $m)) return (int)$m[1];
+    return 0;
+}
+
+$current_age = age($currentUser['birthDate'] ?? '');
+$viewer_h    = extractCm($currentUser['height_name'] ?? '');
+$min_h       = extractCm($row['minheight'] ?? '');
+$max_h       = extractCm($row['maxheight'] ?? '');
+
+$minage = (int)($row['minage'] ?? 0);
+$maxage = (int)($row['maxage'] ?? 0);
 
 $partner_match=[
- "age"=>($current_age>=$row['minage'] && $current_age<=$row['maxage']),
- "religion"=>($row['partnerReligion']=="Any" || $row['partnerReligion']==$currentUser['religion']),
- "country"=>($row['partnerCountry']=="Any" || $row['partnerCountry']==$currentUser['country']),
- "city"=>($row['partnerCity']=="Any" || $row['partnerCity']==$currentUser['city']),
- "diet"=>($row['partnerDiet']=="Any" || $row['partnerDiet']==$currentUser['diet'])
+    "age"        => ($minage == 0 && $maxage == 0) || ($current_age >= $minage && $current_age <= $maxage),
+    "height"     => ($min_h == 0 && $max_h == 0) || ($viewer_h > 0 && $viewer_h >= $min_h && $viewer_h <= $max_h),
+    "religion"   => prefMatch($row['partnerReligion'], $currentUser['religion']),
+    "caste"      => prefMatch($row['partnerCaste'], $currentUser['community']),
+    "maritalstatus" => prefMatch($row['maritalstatus'], $currentUser['maritalStatus']),
+    "mothertoungue" => prefMatch($row['partnerMotherTongue'], $currentUser['motherTongue']),
+    "country"    => prefMatch($row['partnerCountry'], $currentUser['country']),
+    "state"      => prefMatch($row['partnerState'], $currentUser['state']),
+    "city"       => prefMatch($row['partnerCity'], $currentUser['city']),
+    "diet"       => prefMatch($row['partnerDiet'], $currentUser['diet']),
+    "smokeaccept"=> prefMatch($row['smokeaccept'], $currentUser['smoke']),
+    "drinkaccept"=> prefMatch($row['drinkaccept'], $currentUser['drinks']),
+    "familytype" => prefMatch($row['partnerFamilyType'], $currentUser['familytype']),
+    "qualification"=> prefMatch($row['partnerQualification'], $currentUser['degree']),
+    "proffession"  => prefMatch($row['partnerProfession'], $currentUser['occupationtype']),
+    "disabilityaccept" => prefMatch($row['disabilityaccept'], $currentUser['Disability']),
 ];
 
-$total_preferences=count($partner_match);
-$matched_preferences=count(array_filter($partner_match));
+$total_preferences    = count($partner_match);
+$matched_preferences  = count(array_filter($partner_match));
 
 /* =============================
    GALLERY
 ============================= */
 
 $gallery=[];
-if($can_view_photo){
- $g=$conn->prepare("SELECT id,imageurl,status,reject_reason FROM user_gallery WHERE userid=? AND status='approved'");
- $g->bind_param("i",$userid);
- $g->execute();
- $gr=$g->get_result();
- while($img=$gr->fetch_assoc()){
-  $gallery[]=[
-   "id"=>$img['id'],
-   "imageurl"=>$base_url.$img['imageurl'],
-   "status"=>$img['status'],
-   "reject_reason"=>$img['reject_reason']
-  ];
- }
- $g->close();
+// Always fetch approved gallery photos - frontend controls visibility based on can_view_photo
+$g=$conn->prepare("SELECT id,imageurl,status,reject_reason FROM user_gallery WHERE userid=? AND status='approved'");
+$g->bind_param("i",$userid);
+$g->execute();
+$gr=$g->get_result();
+while($img=$gr->fetch_assoc()){
+ $rawImageUrl = (string)($img['imageurl'] ?? '');
+ $imageUrl = preg_match('#^https?://#i', $rawImageUrl)
+    ? $rawImageUrl
+    : $base_url . ltrim($rawImageUrl, '/');
+ $gallery[]=[
+  "id"=>$img['id'],
+    "imageurl"=>$imageUrl,
+  "status"=>$img['status'],
+  "reject_reason"=>$img['reject_reason']
+ ];
 }
+$g->close();
 
 /* =============================
    FINAL RESPONSE
@@ -375,7 +457,10 @@ echo json_encode([
         "memberid" => $row['memberid'] ?? $default,
         "height_name" => $row['height_name'] ?? $default,
         "maritalStatusId" => $row['maritalStatusId'] ?? $default,
-        "maritalStatusName" => $row['maritalStatusName'] ?? $default,
+            "religionId" => (int)($row['religionId'] ?? 0),
+            "communityId" => (int)($row['communityId'] ?? 0),
+            "subCommunityId" => (int)($row['subCommunityId'] ?? 0),
+            "maritalStatusName" => $row['maritalStatusName'] ?? $default,
         "motherTongue" => $row['motherTongue'] ?? $default,
         "aboutMe" => $row['aboutMe'] ?? $default,
         "birthDate" => $row['birthDate'] ?? $default,
@@ -414,9 +499,9 @@ echo json_encode([
 "partner" => [
         "minage" => $row['minage'] ?? $default,
         "maxage" => $row['maxage'] ?? $default,
-        "minweight" => $row['minweight'] ?? $default,
-        "maxweight" => $row['maxweight'] ?? $default,
-        "maritalstatus" => $row['maritalstatus'] ?? $default,
+            "minheight" => $row['minheight'] ?? $default,
+            "maxheight" => $row['maxheight'] ?? $default,
+            "maritalstatus" => $row['maritalstatus'] ?? $default,
         "profilewithchild" => $row['profilewithchild'] ?? $default,
         "familytype" => $row['partnerFamilyType'] ?? $default,
         "religion" => $row['partnerReligion'] ?? $default,
@@ -452,7 +537,13 @@ echo json_encode([
   "can_view_photo"=>$can_view_photo,
   "can_chat"=>$can_chat,
   // Sending a request requires: viewer is document-verified AND has a paid package.
-  "can_send_requests"=>($current_plan=="paid" && $viewer_is_verified)
+            "photo_access_active" => false,
+            "photo_access_expires_at" => null,
+            "photo_access_remaining_seconds" => 0,
+    "can_send_requests"=>($current_plan=="paid" && $viewer_is_verified),
+    "photo_access_active"=>$photo_access_active,
+    "photo_access_expires_at"=>$photo_access_expires_at,
+    "photo_access_remaining_seconds"=>$photo_access_remaining_seconds
  ]
 ]);
 

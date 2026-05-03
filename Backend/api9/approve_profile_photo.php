@@ -47,7 +47,12 @@ define('DB_PASS', '');
 $input  = json_decode(file_get_contents('php://input'), true) ?? [];
 $userId = isset($input['userid']) ? (int)    $input['userid'] : 0;
 $action = isset($input['action']) ? strtolower(trim((string) $input['action'])) : '';
-$reason = isset($input['reason']) ? trim((string) $input['reason']) : '';
+$reason = isset($input['reason'])
+    ? trim((string) $input['reason'])
+    : trim((string)($input['reject_reason'] ?? ''));
+$galleryId = isset($input['gallery_id'])
+    ? (int) $input['gallery_id']
+    : (int)($input['photo_id'] ?? 0);
 
 if ($userId <= 0 || !in_array($action, ['approve', 'reject'], true)) {
     http_response_code(422);
@@ -92,26 +97,71 @@ try {
     $newStatus    = ($action === 'approve') ? 'approved' : 'rejected';
     $rejectReason = ($action === 'reject')  ? $reason    : null;
 
-    // ── Update all pending gallery photos for the user ─────────────────────────
-    $stmt = $pdo->prepare(
-        "UPDATE user_gallery
-         SET status = ?, reject_reason = ?, updated_at = NOW()
-         WHERE userid = ? AND status = 'pending'"
+    $hasUserUpdatedAt = false;
+    $hasGalleryUpdatedAt = false;
+    $hasGalleryRejectReason = false;
+
+    // Detect optional columns so schema differences don't crash with 500.
+    $colStmt = $pdo->prepare(
+        'SELECT 1 FROM information_schema.columns
+         WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?
+         LIMIT 1'
     );
-    $stmt->execute([$newStatus, $rejectReason, $userId]);
-    $affectedGallery = $stmt->rowCount();
 
-    // ── Reflect approval in the users table status when approving ──────────────
-    // Only promote to 'approved' if currently pending; do not demote verified users.
-    if ($action === 'approve') {
-        $pdo->prepare(
-            "UPDATE users SET status = 'approved' WHERE id = ? AND status = 'pending'"
-        )->execute([$userId]);
+    $colStmt->execute(['users', 'updated_at']);
+    $hasUserUpdatedAt = (bool)$colStmt->fetchColumn();
+
+    $colStmt->execute(['user_gallery', 'updated_at']);
+    $hasGalleryUpdatedAt = (bool)$colStmt->fetchColumn();
+
+    $colStmt->execute(['user_gallery', 'reject_reason']);
+    $hasGalleryRejectReason = (bool)$colStmt->fetchColumn();
+
+    if ($galleryId > 0) {
+        // ── Gallery photo: approve / reject a specific gallery entry ─────────
+        $setParts = ['status = ?'];
+        $params = [$newStatus];
+
+        if ($hasGalleryRejectReason) {
+            // Clear reason on approve, set reason on reject.
+            $setParts[] = 'reject_reason = ?';
+            $params[] = $rejectReason;
+        }
+        if ($hasGalleryUpdatedAt) {
+            $setParts[] = 'updated_at = NOW()';
+        }
+
+        $params[] = $userId;
+        $params[] = $galleryId;
+
+        $stmt = $pdo->prepare(
+            'UPDATE user_gallery
+             SET ' . implode(', ', $setParts) . "
+             WHERE userid = ? AND status = 'pending' AND id = ?"
+        );
+        $stmt->execute($params);
+        $affected = $stmt->rowCount();
+
+        $message = $affected > 0
+            ? "Gallery photo {$newStatus} successfully"
+            : "No pending gallery photo found for this id";
+    } else {
+        // ── Profile photo: approve / reject the user's profile picture ────────
+        $profileSet = 'profile_photo_status = ?';
+        if ($hasUserUpdatedAt) {
+            $profileSet .= ', updated_at = NOW()';
+        }
+
+        $stmt = $pdo->prepare(
+            'UPDATE users
+             SET ' . $profileSet . '
+             WHERE id = ?'
+        );
+        $stmt->execute([$newStatus, $userId]);
+        $affected = $stmt->rowCount();
+
+        $message = "Profile photo {$newStatus} successfully";
     }
-
-    $message = $affectedGallery > 0
-        ? "Photo {$newStatus} successfully"
-        : "No pending photos found, but action recorded";
 
     echo json_encode(['success' => true, 'message' => $message]);
 

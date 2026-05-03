@@ -421,67 +421,71 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 4,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0E0E0),
-                borderRadius: BorderRadius.circular(2),
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE0E0E0),
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Upload "$docType"',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Choose how you want to provide this document',
-              style: TextStyle(fontSize: 13, color: Colors.grey),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            _buildSourceOption(
-              icon: Icons.document_scanner_rounded,
-              label: 'Scan Document',
-              subtitle: 'Auto edge detection',
-              isRecommended: true,
-              onTap: () async {
-                Navigator.pop(context);
-                await _scanAndUploadMaritalDoc(docType);
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildSourceOption(
-              icon: Icons.photo_library_rounded,
-              label: 'Gallery',
-              subtitle: 'Choose existing photo',
-              onTap: () async {
-                Navigator.pop(context);
-                await _galleryUploadMaritalDoc(docType);
-              },
-            ),
-            const SizedBox(height: 12),
-            _buildSourceOption(
-              icon: Icons.camera_alt_rounded,
-              label: 'Camera',
-              subtitle: 'Take a new photo',
-              onTap: () async {
-                Navigator.pop(context);
-                await _cameraUploadMaritalDoc(docType);
-              },
-            ),
-            const SizedBox(height: 8),
-          ],
+              const SizedBox(height: 16),
+              Text(
+                'Upload "$docType"',
+                style:
+                    const TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Choose how you want to provide this document',
+                style: TextStyle(fontSize: 13, color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 14),
+              _buildSourceOption(
+                icon: Icons.document_scanner_rounded,
+                label: 'Scan Document',
+                subtitle: 'Auto edge detection',
+                isRecommended: true,
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _scanAndUploadMaritalDoc(docType);
+                },
+              ),
+              const SizedBox(height: 10),
+              _buildSourceOption(
+                icon: Icons.photo_library_rounded,
+                label: 'Gallery',
+                subtitle: 'Choose existing photo',
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _galleryUploadMaritalDoc(docType);
+                },
+              ),
+              const SizedBox(height: 10),
+              _buildSourceOption(
+                icon: Icons.camera_alt_rounded,
+                label: 'Camera',
+                subtitle: 'Take a new photo',
+                onTap: () async {
+                  Navigator.pop(context);
+                  await _cameraUploadMaritalDoc(docType);
+                },
+              ),
+              const SizedBox(height: 4),
+            ],
+          ),
         ),
       ),
     );
@@ -752,6 +756,12 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                   if (_canProceed()) ...[
                     const SizedBox(height: 32),
                     _buildContinueButton(),
+                  ],
+
+                  // ── Go to Homepage button when docs are submitted but pending ──
+                  if (!_canProceed() && _documentStatus == 'pending') ...[
+                    const SizedBox(height: 28),
+                    _buildGoToHomeButton(),
                   ],
 
                   const SizedBox(height: 32),
@@ -1176,13 +1186,15 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
           ),
         ),
         const SizedBox(width: 10),
-        Text(
-          title,
-          style: const TextStyle(
-            fontSize: 17,
-            fontWeight: FontWeight.bold,
-            color: Color(0xFF212121),
-            letterSpacing: -0.2,
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF212121),
+              letterSpacing: -0.2,
+            ),
           ),
         ),
       ],
@@ -1379,24 +1391,32 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
                           fit: BoxFit.cover,
                         )
                 else if (_selectedImage != null)
-                  FutureBuilder(
-                    future: _selectedImage!.readAsBytes(),
-                    builder: (context, snapshot) {
-                      if (snapshot.hasData) {
-                        return Image.memory(
-                          snapshot.data!,
+                  kIsWeb
+                      ? FutureBuilder(
+                          future: _selectedImage!.readAsBytes(),
+                          builder: (context, snapshot) {
+                            if (snapshot.hasData) {
+                              return Image.memory(
+                                snapshot.data!,
+                                width: double.infinity,
+                                height: double.infinity,
+                                fit: BoxFit.cover,
+                              );
+                            }
+                            return const Center(
+                              child: CircularProgressIndicator(
+                                valueColor:
+                                    AlwaysStoppedAnimation(AppColors.primary),
+                              ),
+                            );
+                          },
+                        )
+                      : Image.file(
+                          File(_selectedImage!.path),
                           width: double.infinity,
                           height: double.infinity,
                           fit: BoxFit.cover,
-                        );
-                      }
-                      return const Center(
-                        child: CircularProgressIndicator(
-                          valueColor: AlwaysStoppedAnimation(AppColors.primary),
                         ),
-                      );
-                    },
-                  ),
                 Positioned(
                   top: 10,
                   right: 10,
@@ -1705,10 +1725,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
             ),
             const SizedBox(height: 16),
             _buildDocumentNumberField(),
-            const SizedBox(height: 24),
-            _buildGuidelinesCard(),
-            const SizedBox(height: 24),
-            _buildConsentCard(),
             const SizedBox(height: 28),
             _buildSubmitButton(),
           ] else ...[
@@ -2182,76 +2198,146 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     );
   }
 
+  Widget _buildGoToHomeButton() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F5E9),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFA5D6A7)),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2E7D32).withOpacity(0.12),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.hourglass_top_rounded,
+                    color: Color(0xFF2E7D32), size: 22),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Document Under Review',
+                      style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF1B5E20)),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      "We'll notify you once verification is complete.",
+                      style: TextStyle(
+                          fontSize: 12, color: Color(0xFF388E3C), height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _goToHome,
+            icon: const Icon(Icons.home_rounded, size: 20),
+            label: const Text('Go to Homepage'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              elevation: 4,
+              shadowColor: AppColors.primary.withOpacity(0.4),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   // ─── SHARED HELPERS ───────────────────────────────────────────────────────
 
   void _showImageSourceSelector() {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0E0E0),
-                  borderRadius: BorderRadius.circular(2),
+        return SafeArea(
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0E0E0),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Choose Upload Method',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Scan, take a photo, or choose from gallery',
-                style: TextStyle(fontSize: 13, color: Colors.grey),
-              ),
-              const SizedBox(height: 20),
-              // Document Scanner option (recommended)
-              _buildSourceOption(
-                icon: Icons.document_scanner_rounded,
-                label: 'Scan Document',
-                subtitle: 'Auto edge detection',
-                isRecommended: true,
-                onTap: () {
-                  Navigator.pop(context);
-                  _scanDocument();
-                },
-              ),
-              const SizedBox(height: 12),
-              // Gallery option
-              _buildSourceOption(
-                icon: Icons.photo_library_rounded,
-                label: 'Gallery',
-                subtitle: 'Choose existing',
-                onTap: () {
-                  Navigator.pop(context);
-                  _selectFromGallery();
-                },
-              ),
-              const SizedBox(height: 12),
-              // Camera option
-              _buildSourceOption(
-                icon: Icons.camera_alt_rounded,
-                label: 'Camera',
-                subtitle: 'Take a photo',
-                onTap: () {
-                  Navigator.pop(context);
-                  _selectFromCamera();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
+                const SizedBox(height: 16),
+                const Text(
+                  'Choose Upload Method',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Scan, take a photo, or choose from gallery',
+                  style: TextStyle(fontSize: 13, color: Colors.grey),
+                ),
+                const SizedBox(height: 14),
+                // Document Scanner option (recommended)
+                _buildSourceOption(
+                  icon: Icons.document_scanner_rounded,
+                  label: 'Scan Document',
+                  subtitle: 'Auto edge detection',
+                  isRecommended: true,
+                  onTap: () {
+                    Navigator.pop(context);
+                    _scanDocument();
+                  },
+                ),
+                const SizedBox(height: 10),
+                // Gallery option
+                _buildSourceOption(
+                  icon: Icons.photo_library_rounded,
+                  label: 'Gallery',
+                  subtitle: 'Choose existing',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _selectFromGallery();
+                  },
+                ),
+                const SizedBox(height: 10),
+                // Camera option
+                _buildSourceOption(
+                  icon: Icons.camera_alt_rounded,
+                  label: 'Camera',
+                  subtitle: 'Take a photo',
+                  onTap: () {
+                    Navigator.pop(context);
+                    _selectFromCamera();
+                  },
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
           ),
         );
       },
@@ -2268,56 +2354,75 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: isRecommended
               ? AppColors.primary.withOpacity(0.05)
               : const Color(0xFFF5F5F5),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
             color: isRecommended
                 ? AppColors.primary.withOpacity(0.3)
                 : const Color(0xFFE0E0E0),
           ),
         ),
-        child: Column(
+        child: Row(
           children: [
-            if (isRecommended)
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  gradient: AppColors.primaryGradient,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'RECOMMENDED',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
             Container(
-              padding: const EdgeInsets.all(14),
+              padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 gradient: isRecommended ? AppColors.primaryGradient : null,
                 color: isRecommended ? null : const Color(0xFF9E9E9E),
                 shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: Colors.white, size: 28),
+              child: Icon(icon, color: Colors.white, size: 22),
             ),
-            const SizedBox(height: 12),
-            Text(label,
-                style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: isRecommended ? AppColors.primary : Colors.black87)),
-            const SizedBox(height: 4),
-            Text(subtitle,
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(label,
+                          style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: isRecommended
+                                  ? AppColors.primary
+                                  : Colors.black87)),
+                      if (isRecommended) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            gradient: AppColors.primaryGradient,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Text(
+                            'RECOMMENDED',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded,
+                color: isRecommended
+                    ? AppColors.primary.withOpacity(0.6)
+                    : Colors.grey.shade400,
+                size: 20),
           ],
         ),
       ),
@@ -2604,8 +2709,7 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
   bool _canContinue() =>
       _selectedDocumentType != null &&
       _documentNumberController.text.isNotEmpty &&
-      (_selectedImage != null || _scannedImagePath != null) &&
-      _hasConsented;
+      (_selectedImage != null || _scannedImagePath != null);
 
   void _validateAndSubmit() {
     if (_selectedDocumentType == null) {
@@ -2618,10 +2722,6 @@ class _IDVerificationScreenState extends State<IDVerificationScreen>
     }
     if (_selectedImage == null && _scannedImagePath == null) {
       _showError('Please upload a photo of your document');
-      return;
-    }
-    if (!_hasConsented) {
-      _showError('Please accept the consent checkbox to continue');
       return;
     }
     _uploadDocument();
