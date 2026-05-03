@@ -31,11 +31,10 @@ class _AdminReelsViewer extends StatefulWidget {
   final List<Map<String, dynamic>> reels;
   final int initialIndex;
   final String Function(String) resolveUrl;
-  final Future<void> Function(Map<String, dynamic> reel, String privacy)
-  onChangePrivacy;
-  final Future<void> Function(Map<String, dynamic> reel) onDelete;
+  final Future<void> Function(Map<String, dynamic>, String) onChangePrivacy;
+  final Future<void> Function(Map<String, dynamic>) onDelete;
   final String Function(String?) privacyLabel;
-  final void Function(String msg) toast;
+  final void Function(String) toast;
 
   @override
   State<_AdminReelsViewer> createState() => _AdminReelsViewerState();
@@ -44,47 +43,46 @@ class _AdminReelsViewer extends StatefulWidget {
 class _AdminReelsViewerState extends State<_AdminReelsViewer> {
   late final PageController _page;
   final Map<int, VideoPlayerController> _controllers = {};
-  int _index = 0;
+  final Map<int, bool> _errors = {};
+  int _idx = 0;
+  bool _flashIcon = false;
 
   @override
   void initState() {
     super.initState();
-    _index = widget.initialIndex.clamp(0, widget.reels.length - 1);
-    _page = PageController(initialPage: _index);
-    _ensureController(_index);
-    _ensureController(_index + 1);
+    _idx = widget.initialIndex.clamp(0, widget.reels.length - 1);
+    _page = PageController(initialPage: _idx);
+    _prime(_idx);
+    _prime(_idx + 1);
   }
 
-  Future<void> _ensureController(int i) async {
+  Future<void> _prime(int i) async {
     if (i < 0 || i >= widget.reels.length) return;
-    if (_controllers.containsKey(i)) return;
+    if (_controllers.containsKey(i) || _errors[i] == true) return;
     final raw = (widget.reels[i]['video_url']?.toString() ?? '').trim();
     final url = widget.resolveUrl(raw);
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      if (mounted) setState(() => _errors[i] = true);
+      return;
+    }
     final c = VideoPlayerController.networkUrl(Uri.parse(url));
     _controllers[i] = c;
     try {
       await c.initialize();
       await c.setLooping(true);
       if (!mounted) return;
-      if (i == _index) {
-        await c.play();
-      }
+      if (i == _idx) await c.play();
       setState(() {});
     } catch (_) {
-      await c.dispose();
       _controllers.remove(i);
+      if (mounted) setState(() => _errors[i] = true);
     }
   }
 
-  void _playActiveOnly() {
-    _controllers.forEach((i, c) {
-      if (i == _index) {
-        c.play();
-      } else {
-        c.pause();
-      }
-    });
+  void _syncPlay() {
+    for (final e in _controllers.entries) {
+      e.key == _idx ? e.value.play() : e.value.pause();
+    }
   }
 
   @override
@@ -93,164 +91,315 @@ class _AdminReelsViewerState extends State<_AdminReelsViewer> {
     for (final c in _controllers.values) {
       c.dispose();
     }
-    _controllers.clear();
     super.dispose();
   }
 
-  Future<String?> _pickPrivacyDialog(String current) async {
-    final options = [
-      'public',
-      'matches_only',
-      'paid_only',
-      'verified_only',
-      'private',
-    ];
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Change Privacy'),
-        content: SizedBox(
-          width: 280,
-          child: ListView(
-            shrinkWrap: true,
-            children: options
-                .map(
-                  (p) => RadioListTile<String>(
-                    value: p,
-                    groupValue: current,
-                    onChanged: (v) => Navigator.of(ctx).pop(v),
-                    title: Text(widget.privacyLabel(p)),
-                    dense: true,
-                  ),
-                )
-                .toList(),
-          ),
+  Future<String?> _privacyDialog(String current) => showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF1F2937),
+      title: const Text('Privacy', style: TextStyle(color: Colors.white)),
+      content: SizedBox(
+        width: 280,
+        child: ListView(
+          shrinkWrap: true,
+          children: ['public', 'matches_only', 'paid_only', 'verified_only', 'private']
+              .map(
+                (p) => RadioListTile<String>(
+                  value: p,
+                  groupValue: current,
+                  onChanged: (v) => Navigator.of(ctx).pop(v),
+                  title: Text(widget.privacyLabel(p),
+                      style: const TextStyle(color: Colors.white)),
+                  activeColor: Colors.white,
+                  dense: true,
+                ),
+              )
+              .toList(),
         ),
       ),
-    );
-  }
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     if (widget.reels.isEmpty) {
-      return const Scaffold(body: Center(child: Text('No reels')));
+      return const Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: Text('No reels', style: TextStyle(color: Colors.white))));
     }
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: PageView.builder(
-        controller: _page,
-        scrollDirection: Axis.vertical,
-        itemCount: widget.reels.length,
-        onPageChanged: (i) {
-          setState(() => _index = i);
-          _ensureController(i);
-          _ensureController(i + 1);
-          _playActiveOnly();
-        },
-        itemBuilder: (_, i) {
-          final reel = widget.reels[i];
-          final caption = (reel['caption']?.toString() ?? '').trim();
-          final privacy = (reel['privacy']?.toString() ?? 'public').trim();
-          final userId = reel['user_id']?.toString() ?? '-';
-          final likes = reel['like_count']?.toString() ?? '0';
-          final views = reel['view_count']?.toString() ?? '0';
-          final c = _controllers[i];
-          final isReady = c?.value.isInitialized == true;
-          return Stack(
-            fit: StackFit.expand,
-            children: [
-              if (isReady)
-                FittedBox(
-                  fit: BoxFit.cover,
-                  child: SizedBox(
-                    width: c!.value.size.width,
-                    height: c.value.size.height,
-                    child: VideoPlayer(c),
-                  ),
-                )
-              else
-                const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                ),
-              Positioned(
-                top: 44,
-                left: 12,
-                child: IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                ),
-              ),
-              Positioned(
-                top: 44,
-                right: 12,
-                child: PopupMenuButton<String>(
-                  color: const Color(0xFF111827),
-                  icon: const Icon(Icons.more_vert, color: Colors.white),
-                  onSelected: (v) async {
-                    if (v == 'privacy') {
-                      final selected = await _pickPrivacyDialog(privacy);
-                      if (selected != null && selected != privacy) {
-                        await widget.onChangePrivacy(reel, selected);
-                        if (mounted) setState(() => reel['privacy'] = selected);
-                      }
-                    } else if (v == 'delete') {
-                      await widget.onDelete(reel);
-                      if (mounted) {
-                        widget.toast(
-                          'Reel updated. Close and refresh list if needed.',
-                        );
-                      }
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'privacy', child: Text('Privacy')),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
-                  ],
-                ),
-              ),
-              Positioned(
-                left: 16,
-                bottom: 20,
-                right: 90,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      caption.isEmpty ? '(No caption)' : caption,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'User $userId · ${widget.privacyLabel(privacy)}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Positioned(
-                right: 12,
-                bottom: 20,
-                child: Column(
-                  children: [
-                    _viewerBadge(Icons.favorite_border, likes),
-                    const SizedBox(height: 10),
-                    _viewerBadge(Icons.visibility_outlined, views),
-                  ],
-                ),
-              ),
+    final screenW = MediaQuery.sizeOf(context).width;
+    final isWide = screenW > 640;
+
+    // Core viewer: video-only PageView + fixed overlay Stack
+    Widget viewer = Stack(
+      children: [
+        // ── Layer 1: video-only PageView — this is what scrolls ──────────
+        PageView.builder(
+          controller: _page,
+          scrollDirection: Axis.vertical,
+          itemCount: widget.reels.length,
+          onPageChanged: (i) {
+            setState(() => _idx = i);
+            _prime(i);
+            _prime(i + 1);
+            _syncPlay();
+          },
+          itemBuilder: (_, i) => _buildVideoSlot(i),
+        ),
+        // ── Layer 2: fixed overlay — never moves when swiping ────────────
+        _buildOverlay(),
+      ],
+    );
+
+    // On wide screens (web) constrain to phone frame, centered
+    if (isWide) {
+      viewer = ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: SizedBox(
+            width: 420,
+            child: ClipRect(child: viewer),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(backgroundColor: Colors.black, body: viewer);
+  }
+
+  Widget _buildVideoSlot(int i) {
+    if (_errors[i] == true) {
+      return ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              Icon(Icons.videocam_off_outlined, color: Colors.white30, size: 56),
+              SizedBox(height: 12),
+              Text('Video unavailable',
+                  style: TextStyle(color: Colors.white38, fontSize: 14)),
             ],
-          );
-        },
+          ),
+        ),
+      );
+    }
+    final c = _controllers[i];
+    if (c == null || !c.value.isInitialized) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2)),
+      );
+    }
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() => _flashIcon = true);
+        c.value.isPlaying ? c.pause() : c.play();
+        Future.delayed(
+          const Duration(milliseconds: 800),
+          () { if (mounted) setState(() => _flashIcon = false); },
+        );
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: c.value.size.width,
+              height: c.value.size.height,
+              child: VideoPlayer(c),
+            ),
+          ),
+          if (_flashIcon && i == _idx)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  c.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                  size: 44,
+                ),
+              ),
+            ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildOverlay() {
+    final reel = widget.reels[_idx];
+    final caption = (reel['caption']?.toString() ?? '').trim();
+    final privacy = (reel['privacy']?.toString() ?? 'public').trim();
+    final userId = reel['user_id']?.toString() ?? '-';
+    final likes = reel['like_count']?.toString() ?? '0';
+    final views = reel['view_count']?.toString() ?? '0';
+    final c = _controllers[_idx];
+    final hasProgress = c != null && c.value.isInitialized;
+
+    return Stack(
+      children: [
+        // top gradient
+        Positioned(
+          top: 0, left: 0, right: 0, height: 120,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black.withOpacity(0.55), Colors.transparent],
+              ),
+            ),
+          ),
+        ),
+        // bottom gradient
+        Positioned(
+          bottom: 0, left: 0, right: 0, height: 240,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [Colors.black.withOpacity(0.85), Colors.transparent],
+              ),
+            ),
+          ),
+        ),
+        // back button
+        Positioned(
+          top: 0, left: 0,
+          child: SafeArea(
+            child: IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+        // counter
+        Positioned(
+          top: 0, left: 0, right: 0,
+          child: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: Text(
+                  '${_idx + 1} / ${widget.reels.length}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ),
+          ),
+        ),
+        // menu
+        Positioned(
+          top: 0, right: 0,
+          child: SafeArea(
+            child: PopupMenuButton<String>(
+              color: const Color(0xFF1F2937),
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (v) async {
+                if (v == 'privacy') {
+                  final sel = await _privacyDialog(privacy);
+                  if (sel != null && sel != privacy) {
+                    await widget.onChangePrivacy(reel, sel);
+                    if (mounted) setState(() => reel['privacy'] = sel);
+                  }
+                } else if (v == 'delete') {
+                  await widget.onDelete(reel);
+                  if (mounted) Navigator.of(context).pop();
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'privacy',
+                  child: Row(children: [
+                    Icon(Icons.lock_outline, size: 18, color: Colors.white70),
+                    SizedBox(width: 8),
+                    Text('Change Privacy', style: TextStyle(color: Colors.white)),
+                  ]),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(children: [
+                    Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                    SizedBox(width: 8),
+                    Text('Delete', style: TextStyle(color: Colors.redAccent)),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+        ),
+        // caption + user info
+        Positioned(
+          left: 16, right: 76, bottom: hasProgress ? 52 : 28,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (caption.isNotEmpty)
+                Text(
+                  caption,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    shadows: [Shadow(blurRadius: 6, color: Colors.black)],
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Row(children: [
+                const Icon(Icons.person_outline, size: 13, color: Colors.white60),
+                const SizedBox(width: 4),
+                Text('User $userId',
+                    style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(widget.privacyLabel(privacy),
+                      style: const TextStyle(color: Colors.white, fontSize: 11)),
+                ),
+              ]),
+            ],
+          ),
+        ),
+        // side stats
+        Positioned(
+          right: 10, bottom: hasProgress ? 52 : 28,
+          child: Column(children: [
+            _viewerBadge(Icons.favorite_border, likes),
+            const SizedBox(height: 10),
+            _viewerBadge(Icons.visibility_outlined, views),
+          ]),
+        ),
+        // progress bar
+        if (hasProgress)
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: VideoProgressIndicator(
+              c!,
+              allowScrubbing: true,
+              colors: const VideoProgressColors(
+                playedColor: Colors.white,
+                bufferedColor: Colors.white24,
+                backgroundColor: Colors.white12,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -269,11 +418,10 @@ class _AdminStoriesViewer extends StatefulWidget {
   final List<Map<String, dynamic>> stories;
   final int initialIndex;
   final String Function(String) resolveUrl;
-  final Future<void> Function(Map<String, dynamic> story, String privacy)
-  onChangePrivacy;
-  final Future<void> Function(Map<String, dynamic> story) onDelete;
+  final Future<void> Function(Map<String, dynamic>, String) onChangePrivacy;
+  final Future<void> Function(Map<String, dynamic>) onDelete;
   final String Function(String?) privacyLabel;
-  final void Function(String msg) toast;
+  final void Function(String) toast;
 
   @override
   State<_AdminStoriesViewer> createState() => _AdminStoriesViewerState();
@@ -282,50 +430,49 @@ class _AdminStoriesViewer extends StatefulWidget {
 class _AdminStoriesViewerState extends State<_AdminStoriesViewer> {
   late final PageController _page;
   final Map<int, VideoPlayerController> _controllers = {};
-  int _index = 0;
+  final Map<int, bool> _errors = {};
+  int _idx = 0;
+  bool _flashIcon = false;
 
   @override
   void initState() {
     super.initState();
-    _index = widget.initialIndex.clamp(0, widget.stories.length - 1);
-    _page = PageController(initialPage: _index);
-    _ensureController(_index);
+    _idx = widget.initialIndex.clamp(0, widget.stories.length - 1);
+    _page = PageController(initialPage: _idx);
+    _prime(_idx);
+    _prime(_idx + 1);
   }
 
-  Future<void> _ensureController(int i) async {
+  Future<void> _prime(int i) async {
     if (i < 0 || i >= widget.stories.length) return;
-    if (_controllers.containsKey(i)) return;
-    final story = widget.stories[i];
-    final isVideo =
-        (story['media_type']?.toString() ?? 'image').trim() == 'video';
-    if (!isVideo) return;
-    final raw = (story['media_url']?.toString() ?? '').trim();
+    if (_controllers.containsKey(i) || _errors[i] == true) return;
+    final s = widget.stories[i];
+    final isVideo = (s['media_type']?.toString() ?? 'image').trim() == 'video';
+    if (!isVideo) return; // images don't need a controller
+    final raw = (s['media_url']?.toString() ?? '').trim();
     final url = widget.resolveUrl(raw);
-    if (url.isEmpty) return;
+    if (url.isEmpty) {
+      if (mounted) setState(() => _errors[i] = true);
+      return;
+    }
     final c = VideoPlayerController.networkUrl(Uri.parse(url));
     _controllers[i] = c;
     try {
       await c.initialize();
       await c.setLooping(true);
       if (!mounted) return;
-      if (i == _index) {
-        await c.play();
-      }
+      if (i == _idx) await c.play();
       setState(() {});
     } catch (_) {
-      await c.dispose();
       _controllers.remove(i);
+      if (mounted) setState(() => _errors[i] = true);
     }
   }
 
-  void _playActiveOnly() {
-    _controllers.forEach((i, c) {
-      if (i == _index) {
-        c.play();
-      } else {
-        c.pause();
-      }
-    });
+  void _syncPlay() {
+    for (final e in _controllers.entries) {
+      e.key == _idx ? e.value.play() : e.value.pause();
+    }
   }
 
   @override
@@ -334,179 +481,336 @@ class _AdminStoriesViewerState extends State<_AdminStoriesViewer> {
     for (final c in _controllers.values) {
       c.dispose();
     }
-    _controllers.clear();
     super.dispose();
   }
 
-  Future<String?> _pickPrivacyDialog(String current) async {
-    final options = [
-      'public',
-      'matches_only',
-      'paid_only',
-      'verified_only',
-      'private',
-    ];
-    return showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Change Privacy'),
-        content: SizedBox(
-          width: 280,
-          child: ListView(
-            shrinkWrap: true,
-            children: options
-                .map(
-                  (p) => RadioListTile<String>(
-                    value: p,
-                    groupValue: current,
-                    onChanged: (v) => Navigator.of(ctx).pop(v),
-                    title: Text(widget.privacyLabel(p)),
-                    dense: true,
-                  ),
-                )
-                .toList(),
-          ),
+  Future<String?> _privacyDialog(String current) => showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: const Color(0xFF1F2937),
+      title: const Text('Privacy', style: TextStyle(color: Colors.white)),
+      content: SizedBox(
+        width: 280,
+        child: ListView(
+          shrinkWrap: true,
+          children: ['public', 'matches_only', 'paid_only', 'verified_only', 'private']
+              .map(
+                (p) => RadioListTile<String>(
+                  value: p,
+                  groupValue: current,
+                  onChanged: (v) => Navigator.of(ctx).pop(v),
+                  title: Text(widget.privacyLabel(p),
+                      style: const TextStyle(color: Colors.white)),
+                  activeColor: Colors.white,
+                  dense: true,
+                ),
+              )
+              .toList(),
         ),
       ),
-    );
-  }
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
     if (widget.stories.isEmpty) {
-      return const Scaffold(body: Center(child: Text('No stories')));
+      return const Scaffold(
+          backgroundColor: Colors.black,
+          body: Center(child: Text('No stories', style: TextStyle(color: Colors.white))));
     }
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: PageView.builder(
-        controller: _page,
-        scrollDirection: Axis.vertical,
-        itemCount: widget.stories.length,
-        onPageChanged: (i) {
-          setState(() => _index = i);
-          _ensureController(i);
-          _playActiveOnly();
-        },
-        itemBuilder: (_, i) {
-          final s = widget.stories[i];
-          final type = (s['media_type']?.toString() ?? 'image').trim();
-          final privacy = (s['privacy']?.toString() ?? 'public').trim();
-          final caption = (s['caption']?.toString() ?? '').trim();
-          final userId = s['user_id']?.toString() ?? '-';
-          final media = widget.resolveUrl(
-            (s['media_url']?.toString() ?? '').trim(),
-          );
-          final c = _controllers[i];
-          final isVideo = type == 'video';
-          final isReady = !isVideo || (c?.value.isInitialized == true);
-          return Stack(
-            fit: StackFit.expand,
+    final screenW = MediaQuery.sizeOf(context).width;
+    final isWide = screenW > 640;
+
+    Widget viewer = Stack(
+      children: [
+        // ── Layer 1: media-only PageView — this is what scrolls ──────────
+        PageView.builder(
+          controller: _page,
+          scrollDirection: Axis.vertical,
+          itemCount: widget.stories.length,
+          onPageChanged: (i) {
+            setState(() => _idx = i);
+            _prime(i);
+            _prime(i + 1);
+            _syncPlay();
+          },
+          itemBuilder: (_, i) => _buildMediaSlot(i),
+        ),
+        // ── Layer 2: fixed overlay — never moves when swiping ────────────
+        _buildOverlay(),
+      ],
+    );
+
+    if (isWide) {
+      viewer = ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: SizedBox(
+            width: 420,
+            child: ClipRect(child: viewer),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(backgroundColor: Colors.black, body: viewer);
+  }
+
+  Widget _buildMediaSlot(int i) {
+    final s = widget.stories[i];
+    final isVideo = (s['media_type']?.toString() ?? 'image').trim() == 'video';
+    final mediaUrl = widget.resolveUrl((s['media_url']?.toString() ?? '').trim());
+
+    if (!isVideo) {
+      // Image story
+      if (mediaUrl.isEmpty) {
+        return const ColoredBox(
+            color: Colors.black,
+            child: Center(child: Icon(Icons.broken_image, color: Colors.white30, size: 56)));
+      }
+      return ColoredBox(
+        color: Colors.black,
+        child: Image.network(mediaUrl, fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) =>
+                const Center(child: Icon(Icons.broken_image, color: Colors.white30, size: 56))),
+      );
+    }
+
+    if (_errors[i] == true) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              if (isReady)
-                isVideo
-                    ? FittedBox(
-                        fit: BoxFit.cover,
-                        child: SizedBox(
-                          width: c!.value.size.width,
-                          height: c.value.size.height,
-                          child: VideoPlayer(c),
-                        ),
-                      )
-                    : Image.network(media, fit: BoxFit.cover)
-              else
-                const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                ),
-              Positioned(
-                top: 44,
-                left: 12,
-                child: IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: const Icon(Icons.arrow_back, color: Colors.white),
-                ),
-              ),
-              Positioned(
-                top: 44,
-                right: 12,
-                child: PopupMenuButton<String>(
-                  color: const Color(0xFF111827),
-                  icon: const Icon(Icons.more_vert, color: Colors.white),
-                  onSelected: (v) async {
-                    if (v == 'privacy') {
-                      final selected = await _pickPrivacyDialog(privacy);
-                      if (selected != null && selected != privacy) {
-                        await widget.onChangePrivacy(s, selected);
-                        if (mounted) setState(() => s['privacy'] = selected);
-                      }
-                    } else if (v == 'delete') {
-                      await widget.onDelete(s);
-                      if (mounted) {
-                        widget.toast(
-                          'Story updated. Close and refresh list if needed.',
-                        );
-                      }
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'privacy', child: Text('Privacy')),
-                    PopupMenuItem(value: 'delete', child: Text('Delete')),
-                  ],
-                ),
-              ),
-              Positioned(
-                left: 16,
-                right: 16,
-                bottom: 20,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      caption.isEmpty ? '(No caption)' : caption,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'User $userId · ${widget.privacyLabel(privacy)}',
-                      style: const TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              Icon(Icons.videocam_off_outlined, color: Colors.white30, size: 56),
+              SizedBox(height: 12),
+              Text('Video unavailable', style: TextStyle(color: Colors.white38, fontSize: 14)),
             ],
-          );
-        },
+          ),
+        ),
+      );
+    }
+
+    final c = _controllers[i];
+    if (c == null || !c.value.isInitialized) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator(color: Colors.white54, strokeWidth: 2)),
+      );
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () {
+        setState(() => _flashIcon = true);
+        c.value.isPlaying ? c.pause() : c.play();
+        Future.delayed(
+          const Duration(milliseconds: 800),
+          () { if (mounted) setState(() => _flashIcon = false); },
+        );
+      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          FittedBox(
+            fit: BoxFit.cover,
+            child: SizedBox(
+              width: c.value.size.width,
+              height: c.value.size.height,
+              child: VideoPlayer(c),
+            ),
+          ),
+          if (_flashIcon && i == _idx)
+            Center(
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.5),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  c.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                  color: Colors.white,
+                  size: 44,
+                ),
+              ),
+            ),
+        ],
       ),
+    );
+  }
+
+  Widget _buildOverlay() {
+    final s = widget.stories[_idx];
+    final caption = (s['caption']?.toString() ?? '').trim();
+    final privacy = (s['privacy']?.toString() ?? 'public').trim();
+    final userId = s['user_id']?.toString() ?? '-';
+    final isVideo = (s['media_type']?.toString() ?? 'image').trim() == 'video';
+    final c = isVideo ? _controllers[_idx] : null;
+    final hasProgress = c != null && c.value.isInitialized;
+
+    return Stack(
+      children: [
+        Positioned(
+          top: 0, left: 0, right: 0, height: 120,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black.withOpacity(0.55), Colors.transparent],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          bottom: 0, left: 0, right: 0, height: 200,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.bottomCenter,
+                end: Alignment.topCenter,
+                colors: [Colors.black.withOpacity(0.85), Colors.transparent],
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 0, left: 0,
+          child: SafeArea(
+            child: IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 0, left: 0, right: 0,
+          child: SafeArea(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 14),
+                child: Text(
+                  '${_idx + 1} / ${widget.stories.length}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 0, right: 0,
+          child: SafeArea(
+            child: PopupMenuButton<String>(
+              color: const Color(0xFF1F2937),
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (v) async {
+                if (v == 'privacy') {
+                  final sel = await _privacyDialog(privacy);
+                  if (sel != null && sel != privacy) {
+                    await widget.onChangePrivacy(s, sel);
+                    if (mounted) setState(() => s['privacy'] = sel);
+                  }
+                } else if (v == 'delete') {
+                  await widget.onDelete(s);
+                  if (mounted) Navigator.of(context).pop();
+                }
+              },
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'privacy',
+                  child: Row(children: [
+                    Icon(Icons.lock_outline, size: 18, color: Colors.white70),
+                    SizedBox(width: 8),
+                    Text('Change Privacy', style: TextStyle(color: Colors.white)),
+                  ]),
+                ),
+                const PopupMenuItem(
+                  value: 'delete',
+                  child: Row(children: [
+                    Icon(Icons.delete_outline, size: 18, color: Colors.redAccent),
+                    SizedBox(width: 8),
+                    Text('Delete', style: TextStyle(color: Colors.redAccent)),
+                  ]),
+                ),
+              ],
+            ),
+          ),
+        ),
+        Positioned(
+          left: 16, right: 16, bottom: hasProgress ? 52 : 28,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (caption.isNotEmpty)
+                Text(
+                  caption,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    shadows: [Shadow(blurRadius: 6, color: Colors.black)],
+                  ),
+                ),
+              const SizedBox(height: 6),
+              Row(children: [
+                const Icon(Icons.person_outline, size: 13, color: Colors.white60),
+                const SizedBox(width: 4),
+                Text('User $userId',
+                    style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(widget.privacyLabel(privacy),
+                      style: const TextStyle(color: Colors.white, fontSize: 11)),
+                ),
+              ]),
+            ],
+          ),
+        ),
+        if (hasProgress)
+          Positioned(
+            left: 0, right: 0, bottom: 0,
+            child: VideoProgressIndicator(
+              c!,
+              allowScrubbing: true,
+              colors: const VideoProgressColors(
+                playedColor: Colors.white,
+                bufferedColor: Colors.white24,
+                backgroundColor: Colors.white12,
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 8),
+            ),
+          ),
+      ],
     );
   }
 }
 
-Widget _viewerBadge(IconData icon, String text) {
-  return Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-    decoration: BoxDecoration(
-      color: Colors.black.withOpacity(0.45),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: Colors.white24),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 15, color: Colors.white),
-        const SizedBox(width: 6),
-        Text(text, style: const TextStyle(color: Colors.white, fontSize: 12)),
-      ],
-    ),
-  );
-}
+Widget _viewerBadge(IconData icon, String text) => Container(
+  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+  decoration: BoxDecoration(
+    color: Colors.black.withOpacity(0.45),
+    borderRadius: BorderRadius.circular(20),
+    border: Border.all(color: Colors.white24),
+  ),
+  child: Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 15, color: Colors.white),
+      const SizedBox(width: 6),
+      Text(text, style: const TextStyle(color: Colors.white, fontSize: 12)),
+    ],
+  ),
+);
 
 class _ShortsManageScreenState extends State<ShortsManageScreen>
     with SingleTickerProviderStateMixin {
