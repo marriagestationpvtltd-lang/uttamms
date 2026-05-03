@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 // ---------------------------------------------------------------------------
 
 // Fallback IP used during `flutter run` dev server and mobile/desktop builds.
-const String _kFallbackIp = '192.168.1.4';
+const String _kFallbackIp = '192.168.18.208';
 
 /// Returns true when the page is being served by Flutter's own dev server
 /// (e.g. flutter run -d chrome) which runs on localhost with a high port.
@@ -56,3 +56,20 @@ final String kAdminSocketBaseUrl = _deriveAdminSocketBaseUrl();
 
 final String kAdminApi2BaseUrl = '$kAdminApiBaseUrl/Api2';
 final String kAdminApi9BaseUrl = '$kAdminApiBaseUrl/api9';
+
+// Shorts / Reels
+final String kAdminEndpointUploadReel = '$kAdminApi2BaseUrl/upload_reel.php';
+final String kAdminEndpointUploadStory = '$kAdminApi2BaseUrl/upload_story.php';
+final String kAdminEndpointReelFeed = '$kAdminApi2BaseUrl/reel_feed.php';
+final String kAdminEndpointUserStories =
+    '$kAdminApi2BaseUrl/get_user_stories.php';
+final String kAdminEndpointReelUpdatePrivacy =
+    '$kAdminApi2BaseUrl/reel_update_privacy.php';
+final String kAdminEndpointReelDelete = '$kAdminApi2BaseUrl/reel_delete.php';
+final String kAdminEndpointStoryUpdatePrivacy =
+    '$kAdminApi2BaseUrl/story_update_privacy.php';
+final String kAdminEndpointStoryDelete = '$kAdminApi2BaseUrl/story_delete.php';
+
+// User lookup
+final String kAdminEndpointUserSearch =
+    '$kAdminApiBaseUrl/admin/user_search.php';
