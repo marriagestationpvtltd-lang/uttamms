@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter/foundation.dart';
 
 /// Persistent call state storage service
 /// Saves and restores call state across app restarts
@@ -12,9 +13,9 @@ class CallStatePersistence {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyCallState, json.encode(data.toJson()));
-      print('[CallStatePersistence] Saved call state: ${data.callId}');
+      debugPrint('[CallStatePersistence] Saved call state: ${data.callId}');
     } catch (e) {
-      print('[CallStatePersistence] Error saving call state: $e');
+      debugPrint('[CallStatePersistence] Error saving call state: $e');
     }
   }
 
@@ -25,11 +26,11 @@ class CallStatePersistence {
       final String? stateJson = prefs.getString(_keyCallState);
       if (stateJson != null && stateJson.isNotEmpty) {
         final data = CallStateData.fromJson(json.decode(stateJson));
-        print('[CallStatePersistence] Loaded call state: ${data.callId}');
+        debugPrint('[CallStatePersistence] Loaded call state: ${data.callId}');
         return data;
       }
     } catch (e) {
-      print('[CallStatePersistence] Error loading call state: $e');
+      debugPrint('[CallStatePersistence] Error loading call state: $e');
     }
     return null;
   }
@@ -39,9 +40,9 @@ class CallStatePersistence {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keyCallState);
-      print('[CallStatePersistence] Cleared call state');
+      debugPrint('[CallStatePersistence] Cleared call state');
     } catch (e) {
-      print('[CallStatePersistence] Error clearing call state: $e');
+      debugPrint('[CallStatePersistence] Error clearing call state: $e');
     }
   }
 
@@ -66,9 +67,9 @@ class CallStatePersistence {
         'timestamp': DateTime.now().toIso8601String(),
       };
       await prefs.setString(_keyCallHistory, json.encode(pending));
-      print('[CallStatePersistence] Saved pending call history update');
+      debugPrint('[CallStatePersistence] Saved pending call history update');
     } catch (e) {
-      print('[CallStatePersistence] Error saving pending history: $e');
+      debugPrint('[CallStatePersistence] Error saving pending history: $e');
     }
   }
 
@@ -81,7 +82,7 @@ class CallStatePersistence {
         return json.decode(historyJson) as Map<String, dynamic>;
       }
     } catch (e) {
-      print('[CallStatePersistence] Error loading pending history: $e');
+      debugPrint('[CallStatePersistence] Error loading pending history: $e');
     }
     return null;
   }
@@ -91,9 +92,9 @@ class CallStatePersistence {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keyCallHistory);
-      print('[CallStatePersistence] Cleared pending call history');
+      debugPrint('[CallStatePersistence] Cleared pending call history');
     } catch (e) {
-      print('[CallStatePersistence] Error clearing pending history: $e');
+      debugPrint('[CallStatePersistence] Error clearing pending history: $e');
     }
   }
 }

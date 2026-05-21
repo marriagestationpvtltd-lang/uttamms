@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../Chat/call_overlay_manager.dart';
 import '../navigation/app_navigation.dart';
 import 'call_state_persistence.dart';
+import 'callmanager.dart';
 import 'unified_call_manager.dart';
 import 'incommingcall.dart';
 import 'incomingvideocall.dart';
@@ -11,7 +14,8 @@ import 'call_foreground_service.dart';
 
 /// Manages call state recovery when app launches
 class CallStateRecoveryManager {
-  static final CallStateRecoveryManager _instance = CallStateRecoveryManager._internal();
+  static final CallStateRecoveryManager _instance =
+      CallStateRecoveryManager._internal();
   factory CallStateRecoveryManager() => _instance;
   CallStateRecoveryManager._internal();
 
@@ -22,11 +26,11 @@ class CallStateRecoveryManager {
   /// Initialize and attempt to recover any active calls
   Future<void> initialize() async {
     if (_hasRecovered) {
-      print('[CallStateRecovery] Already recovered, skipping');
+      debugPrint('[CallStateRecovery] Already recovered, skipping');
       return;
     }
 
-    print('[CallStateRecovery] Initializing...');
+    debugPrint('[CallStateRecovery] Initializing...');
 
     // Initialize unified call manager first
     await _callManager.initialize();
@@ -34,15 +38,15 @@ class CallStateRecoveryManager {
     // Check for active call state
     final callState = _callManager.currentCallState;
     if (callState != null && callState.isActive) {
-      print('[CallStateRecovery] Found active call state, recovering...');
+      debugPrint('[CallStateRecovery] Found active call state, recovering...');
       await _recoverCall(callState);
     } else {
-      print('[CallStateRecovery] No active call to recover');
+      debugPrint('[CallStateRecovery] No active call to recover');
 
       // Check for stale/old call states and clean them
       final savedState = await CallStatePersistence.loadCallState();
       if (savedState != null && !savedState.isActive) {
-        print('[CallStateRecovery] Cleaning stale call state');
+        debugPrint('[CallStateRecovery] Cleaning stale call state');
         await CallStatePersistence.clearCallState();
         await CallForegroundServiceManager.stopCallService();
       }
@@ -56,16 +60,18 @@ class CallStateRecoveryManager {
 
   /// Recover an active call
   Future<void> _recoverCall(CallStateData callState) async {
-    print('[CallStateRecovery] Recovering call: ${callState.callId}');
-    print('[CallStateRecovery] Status: ${callState.status.name}');
-    print('[CallStateRecovery] Type: ${callState.callType}');
-    print('[CallStateRecovery] Incoming: ${callState.isIncoming}');
+    debugPrint('[CallStateRecovery] Recovering call: ${callState.callId}');
+    debugPrint('[CallStateRecovery] Status: ${callState.status.name}');
+    debugPrint('[CallStateRecovery] Type: ${callState.callType}');
+    debugPrint('[CallStateRecovery] Incoming: ${callState.isIncoming}');
 
     // Restart foreground service if needed
     if (callState.status == CallStatus.active) {
       await CallForegroundServiceManager.startCallService(
         callType: callState.callType,
-        callerName: callState.isIncoming ? callState.callerName : callState.receiverName,
+        callerName: callState.isIncoming
+            ? callState.callerName
+            : callState.receiverName,
         callId: callState.callId,
         isIncoming: false, // It's already accepted
       );
@@ -81,12 +87,37 @@ class CallStateRecoveryManager {
   void _navigateToCallScreen(CallStateData callState) {
     final context = navigatorKey.currentContext;
     if (context == null) {
-      print('[CallStateRecovery] Navigator context not ready, queueing...');
+      debugPrint(
+          '[CallStateRecovery] Navigator context not ready, queueing...');
       _queueNavigation(() => _navigateToCallScreen(callState));
       return;
     }
 
-    print('[CallStateRecovery] Navigating to call screen');
+    // Dedup with CallOverlayWrapper._checkPendingIncomingCall: if the
+    // full-screen call screen has already been pushed (or is being pushed),
+    // bail out so we never stack two IncomingCallScreens on top of each
+    // other when the user opens the app from a notification cold-start.
+    if (CallManager().isCallScreenShowing) {
+      debugPrint(
+          '[CallStateRecovery] Call screen already showing, skipping duplicate push');
+      return;
+    }
+
+    // Dismiss the compact IncomingCallOverlay banner BEFORE pushing the
+    // full-screen route. Otherwise the banner stays mounted above the
+    // full-screen and dismissing it (e.g. tapping its Reject button) ends
+    // the active call.
+    try {
+      IncomingCallOverlayManager().dismiss();
+    } catch (_) {}
+
+    // Clear pending_incoming_call so CallOverlayWrapper._checkPendingIncomingCall
+    // does not attempt a second push for the same call.
+    SharedPreferences.getInstance()
+        .then((p) => p.remove('pending_incoming_call'))
+        .catchError((_) => false);
+
+    debugPrint('[CallStateRecovery] Navigating to call screen');
 
     // Use camelCase keys to match what IncomingCallScreen._parseData expects
     final callData = {
@@ -113,14 +144,23 @@ class CallStateRecoveryManager {
           callData: callData,
         );
       }
-    } else if (callState.status == CallStatus.active || callState.status == CallStatus.connecting) {
+    } else if (callState.status == CallStatus.active ||
+        callState.status == CallStatus.connecting) {
       // Call is already active/connecting — reconnect to the live call screen
-      final currentUserId = callState.isIncoming ? callState.receiverId : callState.callerId;
-      final currentUserName = callState.isIncoming ? callState.receiverName : callState.callerName;
-      final currentUserImage = callState.isIncoming ? callState.receiverImage : callState.callerImage;
-      final otherUserId = callState.isIncoming ? callState.callerId : callState.receiverId;
-      final otherUserName = callState.isIncoming ? callState.callerName : callState.receiverName;
-      final otherUserImage = callState.isIncoming ? callState.callerImage : callState.receiverImage;
+      final currentUserId =
+          callState.isIncoming ? callState.receiverId : callState.callerId;
+      final currentUserName =
+          callState.isIncoming ? callState.receiverName : callState.callerName;
+      final currentUserImage = callState.isIncoming
+          ? callState.receiverImage
+          : callState.callerImage;
+      final otherUserId =
+          callState.isIncoming ? callState.callerId : callState.receiverId;
+      final otherUserName =
+          callState.isIncoming ? callState.callerName : callState.receiverName;
+      final otherUserImage = callState.isIncoming
+          ? callState.callerImage
+          : callState.receiverImage;
 
       if (callState.callType == 'video') {
         callScreen = VideoCallScreen(
@@ -145,18 +185,21 @@ class CallStateRecoveryManager {
       }
     } else {
       // Call ended or invalid state - just clean up
-      print('[CallStateRecovery] Call in ended state, cleaning up');
+      debugPrint('[CallStateRecovery] Call in ended state, cleaning up');
       _callManager.reset();
       return;
     }
 
     // Navigate to call screen
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => callScreen,
-        settings: const RouteSettings(name: '/active-call'),
-      ),
-    );
+    CallManager().isCallScreenShowing = true;
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (context) => callScreen,
+            settings: const RouteSettings(name: '/active-call'),
+          ),
+        )
+        .whenComplete(() => CallManager().isCallScreenShowing = false);
   }
 
   /// Queue a navigation action to be executed when context is ready
@@ -173,7 +216,8 @@ class CallStateRecoveryManager {
           if (context != null && context.mounted) {
             action();
           } else {
-            print('[CallStateRecovery] Failed to execute navigation, context unavailable');
+            debugPrint(
+                '[CallStateRecovery] Failed to execute navigation, context unavailable');
           }
         });
       }
@@ -186,7 +230,8 @@ class CallStateRecoveryManager {
   void _executePendingActions() {
     if (_pendingActions.isEmpty) return;
 
-    print('[CallStateRecovery] Executing ${_pendingActions.length} pending actions');
+    debugPrint(
+        '[CallStateRecovery] Executing ${_pendingActions.length} pending actions');
 
     final context = navigatorKey.currentContext;
     if (context != null && context.mounted) {
@@ -194,7 +239,7 @@ class CallStateRecoveryManager {
         try {
           action();
         } catch (e) {
-          print('[CallStateRecovery] Error executing pending action: $e');
+          debugPrint('[CallStateRecovery] Error executing pending action: $e');
         }
       }
       _pendingActions.clear();
@@ -206,18 +251,18 @@ class CallStateRecoveryManager {
 
   /// Handle notification tap when app is in background/terminated
   Future<void> handleNotificationTap(Map<String, dynamic> data) async {
-    print('[CallStateRecovery] Handling notification tap: $data');
+    debugPrint('[CallStateRecovery] Handling notification tap: $data');
 
     final callType = data['type'];
     if (callType != 'call' && callType != 'video_call') {
-      print('[CallStateRecovery] Not a call notification, ignoring');
+      debugPrint('[CallStateRecovery] Not a call notification, ignoring');
       return;
     }
 
     // Check if there's already an active call state
     final currentState = _callManager.currentCallState;
     if (currentState != null && currentState.isActive) {
-      print('[CallStateRecovery] Active call exists, navigating to it');
+      debugPrint('[CallStateRecovery] Active call exists, navigating to it');
       _navigateToCallScreen(currentState);
       return;
     }
@@ -229,7 +274,7 @@ class CallStateRecoveryManager {
     final channelName = data['channelName'] ?? data['channel_name'];
 
     if (callerId == null || channelName == null) {
-      print('[CallStateRecovery] Incomplete call data in notification');
+      debugPrint('[CallStateRecovery] Incomplete call data in notification');
       return;
     }
 
@@ -238,11 +283,25 @@ class CallStateRecoveryManager {
       callId: channelName, // Use channel as call ID
       channelName: channelName,
       callerId: callerId,
-      callerName: data['callerName'] ?? data['caller_name'] ?? data['senderName'] ?? 'Unknown',
-      callerImage: data['callerImage'] ?? data['caller_image'] ?? data['senderImage'] ?? '',
-      receiverId: data['receiverId'] ?? data['receiver_id'] ?? data['myId'] ?? '',
-      receiverName: data['recipientName'] ?? data['receiverName'] ?? data['receiver_name'] ?? data['myName'] ?? '',
-      receiverImage: data['receiverImage'] ?? data['receiver_image'] ?? data['myImage'] ?? '',
+      callerName: data['callerName'] ??
+          data['caller_name'] ??
+          data['senderName'] ??
+          'Unknown',
+      callerImage: data['callerImage'] ??
+          data['caller_image'] ??
+          data['senderImage'] ??
+          '',
+      receiverId:
+          data['receiverId'] ?? data['receiver_id'] ?? data['myId'] ?? '',
+      receiverName: data['recipientName'] ??
+          data['receiverName'] ??
+          data['receiver_name'] ??
+          data['myName'] ??
+          '',
+      receiverImage: data['receiverImage'] ??
+          data['receiver_image'] ??
+          data['myImage'] ??
+          '',
       callType: callType == 'video_call' ? 'video' : 'audio',
       status: CallStatus.ringing,
       startTime: DateTime.now(),

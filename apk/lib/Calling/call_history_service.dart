@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:ms2026/service/auth_http_client.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'call_history_model.dart';
 import '../service/socket_service.dart';
 import 'package:uuid/uuid.dart';
+import 'package:flutter/foundation.dart';
 
 /// Base URL of the Node.js Socket.IO server (same as SocketService).
 /// Kept in sync with [kSocketServerUrl] in socket_service.dart.
@@ -47,10 +48,10 @@ class CallHistoryService {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         if (body['success'] == true) return callId;
       }
-      print('⚠️ logCall failed: ${response.statusCode} ${response.body}');
+      debugPrint('⚠️ logCall failed: ${response.statusCode} ${response.body}');
       return callId; // Return generated ID even on server error so we can still update later
     } catch (e) {
-      print('Error logging call: $e');
+      debugPrint('Error logging call: $e');
       return '';
     }
   }
@@ -74,7 +75,7 @@ class CallHistoryService {
           )
           .timeout(const Duration(seconds: 15));
     } catch (e) {
-      print('Error updating call end: $e');
+      debugPrint('Error updating call end: $e');
     }
   }
 
@@ -112,7 +113,7 @@ class CallHistoryService {
       }
       return [];
     } catch (e) {
-      print('Error getting call history: $e');
+      debugPrint('Error getting call history: $e');
       return [];
     }
   }
@@ -126,7 +127,7 @@ class CallHistoryService {
           )
           .timeout(const Duration(seconds: 15));
     } catch (e) {
-      print('Error deleting call: $e');
+      debugPrint('Error deleting call: $e');
     }
   }
 
@@ -139,7 +140,7 @@ class CallHistoryService {
           )
           .timeout(const Duration(seconds: 15));
     } catch (e) {
-      print('Error clearing call history: $e');
+      debugPrint('Error clearing call history: $e');
     }
   }
 
@@ -211,7 +212,7 @@ class CallHistoryService {
         }
       }
     } catch (e) {
-      print(
+      debugPrint(
           'Error logging call message in chat (chatRoomId: $chatRoomId, isAdminChat: $isAdminChat): $e');
     }
   }

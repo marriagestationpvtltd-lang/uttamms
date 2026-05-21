@@ -20,7 +20,7 @@ class ConnectionStatusOverlay extends StatelessWidget {
         color: Colors.transparent,
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-          color: Colors.orange.withOpacity(0.9),
+          color: Colors.orange.withValues(alpha: 0.9),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [

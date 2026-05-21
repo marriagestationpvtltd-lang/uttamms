@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'call_history_model.dart';
 import 'call_history_service.dart';
 import '../Chat/ChatdetailsScreen.dart';
+import '../utils/access_control.dart' as app_access;
 import 'OutgoingCall.dart';
 import 'videocall.dart';
 
@@ -331,7 +332,10 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
     }
   }
 
-  void _openChat(String userId, String userName, String userImage) {
+  Future<void> _openChat(
+      String userId, String userName, String userImage) async {
+    if (!await app_access.requireChatPackage(context)) return;
+    if (!mounted) return;
     // Generate chat room ID (same logic as in chat system)
     final chatRoomId = _currentUserId.compareTo(userId) < 0
         ? '${_currentUserId}_$userId'
@@ -363,6 +367,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
+          settings: const RouteSettings(name: '/active-call'),
           builder: (context) => VideoCallScreen(
             currentUserId: _currentUserId,
             currentUserName: _currentUserName,
@@ -377,6 +382,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> {
       Navigator.push(
         context,
         MaterialPageRoute(
+          settings: const RouteSettings(name: '/active-call'),
           builder: (context) => CallScreen(
             currentUserId: _currentUserId,
             currentUserName: _currentUserName,

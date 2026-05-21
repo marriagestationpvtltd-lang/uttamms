@@ -1,6 +1,6 @@
 // call_manager.dart
 import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 class CallManager {
   static final CallManager _instance = CallManager._internal();
@@ -31,12 +31,12 @@ class CallManager {
     // for the same call. Without deduplication this pushes TWO IncomingCallScreens;
     // the buried screen's 60-second ring-timer then pops the active call screen.
     if (channelName.isNotEmpty && channelName == _lastIncomingChannelName) {
-      print('📱 CallManager: Duplicate incoming call ignored (channel: $channelName)');
+      debugPrint('📱 CallManager: Duplicate incoming call ignored (channel: $channelName)');
       return;
     }
     _lastIncomingChannelName = channelName;
 
-    print('📱 CallManager: Incoming call triggered: $data');
+    debugPrint('📱 CallManager: Incoming call triggered: $data');
     _currentCallData = data;
     _incomingCallController.add(data);
 
@@ -45,7 +45,7 @@ class CallManager {
     // Auto-reject after 60 seconds if not answered
     _callTimeoutTimer = Timer(const Duration(seconds: 60), () {
       if (_currentCallData != null) {
-        print('⏰ CallManager: Call timeout');
+        debugPrint('⏰ CallManager: Call timeout');
         _currentCallData = null;
         _lastIncomingChannelName = null;
       }
@@ -54,7 +54,7 @@ class CallManager {
 
   // Trigger call response
   void triggerCallResponse(Map<String, dynamic> data) {
-    print('📱 CallManager: Call response triggered: $data');
+    debugPrint('📱 CallManager: Call response triggered: $data');
     _callResponseController.add(data);
 
     final type = data['type']?.toString();
@@ -79,16 +79,14 @@ class CallManager {
     _lastIncomingChannelName = null; // allow the next distinct call to be processed
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = null;
-    _callScreenShowing = false;
+    isCallScreenShowing = false;
   }
 
   // Check if there's an active incoming call
   bool hasActiveIncomingCall() => _currentCallData != null;
 
   // Track whether the call screen is already being shown to prevent duplicate pushes
-  bool _callScreenShowing = false;
-  bool get isCallScreenShowing => _callScreenShowing;
-  set isCallScreenShowing(bool value) => _callScreenShowing = value;
+  bool isCallScreenShowing = false;
 
   void dispose() {
     _incomingCallController.close();

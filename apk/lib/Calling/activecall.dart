@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -11,6 +10,8 @@ import '../Chat/call_overlay_manager.dart';
 import '../navigation/app_navigation.dart';
 import 'call_foreground_service.dart';
 import 'widgets/connection_status_overlay.dart';
+import '../service/socket_service.dart';
+import '../pushnotification/pushservice.dart';
 
 class ActiveCallScreen extends StatefulWidget {
   final String channel;
@@ -43,22 +44,58 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   bool _micMuted = false;
   bool _speakerOn = false;
   bool _foregroundServiceStarted = false;
+  bool _ending = false;
   Timer? _callTimer;
   Duration _duration = Duration.zero;
-  int _callStartTime = 0;
-
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<Map<String, dynamic>>? _socketEndedSub;
+  StreamSubscription<Map<String, dynamic>>? _socketCancelledSub;
+  StreamSubscription<Map<String, dynamic>>? _callResponseSub;
   String? _connectionStatus;
 
   @override
   void initState() {
     super.initState();
     WakelockPlus.enable();
-    _callStartTime = DateTime.now().millisecondsSinceEpoch;
     _initEngine();
     _startCallTimer();
     _initializeOverlay();
     _listenConnectivity();
+    _listenForRemoteEnd();
+  }
+
+  void _listenForRemoteEnd() {
+    _socketEndedSub = SocketService().onCallEnded.listen((data) {
+      final channelName = data['channelName']?.toString() ?? '';
+      if (channelName.isNotEmpty && channelName != widget.channel) return;
+      if (!_ending) {
+        unawaited(_endCall());
+      }
+    });
+
+    _socketCancelledSub = SocketService().onCallCancelled.listen((data) {
+      final channelName = data['channelName']?.toString() ?? '';
+      if (channelName.isNotEmpty && channelName != widget.channel) return;
+      if (!_ending) {
+        unawaited(_endCall());
+      }
+    });
+
+    _callResponseSub = NotificationService.callResponses.listen((data) {
+      final type = data['type']?.toString() ?? '';
+      const endTypes = {
+        'call_ended',
+        'video_call_ended',
+        'call_cancelled',
+        'video_call_cancelled',
+      };
+      if (!endTypes.contains(type)) return;
+      final channelName = data['channelName']?.toString() ?? '';
+      if (channelName.isNotEmpty && channelName != widget.channel) return;
+      if (!_ending) {
+        unawaited(_endCall());
+      }
+    });
   }
 
   void _initializeOverlay() {
@@ -106,7 +143,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     try {
       // Check microphone permission
       if (!(await Permission.microphone.request()).isGranted) {
-        print('❌ No mic permission');
+        debugPrint('❌ No mic permission');
         _endCall();
         return;
       }
@@ -122,17 +159,17 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
       // Event handlers
       _engine.registerEventHandler(RtcEngineEventHandler(
         onJoinChannelSuccess: (conn, elapsed) {
-          print('✅ Active call joined');
+          debugPrint('✅ Active call joined');
           if (mounted) setState(() => _joined = true);
           _syncOverlayState();
           unawaited(_startForegroundService());
         },
         onUserOffline: (conn, remoteUid, reason) {
-          print('👋 Remote user left');
+          debugPrint('👋 Remote user left');
           _endCall();
         },
         onError: (err, msg) {
-          print('❌ Active call error: $err - $msg');
+          debugPrint('❌ Active call error: $err - $msg');
           if (_isFatalAgoraError(err, msg)) {
             _endCall();
             return;
@@ -142,7 +179,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
           }
         },
         onConnectionStateChanged: (connection, state, reason) {
-          print('🔌 Active call state: $state, reason: $reason');
+          debugPrint('🔌 Active call state: $state, reason: $reason');
           if (!mounted) return;
           if (state == ConnectionStateType.connectionStateConnected) {
             setState(() => _connectionStatus = null);
@@ -156,14 +193,18 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
 
       // Enable audio
       await _engine.enableAudio();
+      // Start with earpiece route; user can switch to loudspeaker manually.
+      await _engine.setEnableSpeakerphone(_speakerOn);
       await _engine.setClientRole(role: ClientRoleType.clientRoleBroadcaster);
 
       // Fetch token from your server
       final token = await AgoraTokenService.getToken(
         channelName: widget.channel,
         uid: widget.localUid,
+        userId: widget.currentUserId,
+        callType: 'audio',
       );
-      print('🔑 Token received: ${token.substring(0, 20)}...');
+      debugPrint('🔑 Token received: ${token.substring(0, 20)}...');
 
       // Join channel with token
       await _engine.joinChannel(
@@ -176,7 +217,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
         ),
       );
     } catch (e) {
-      print('❌ Init engine error: $e');
+      debugPrint('❌ Init engine error: $e');
       _endCall();
     }
   }
@@ -204,21 +245,34 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   }
 
   Future<void> _endCall() async {
+    if (_ending) return;
+    _ending = true;
     _callTimer?.cancel();
-    final wasMinimized = CallOverlayManager().isMinimized;
+    _socketEndedSub?.cancel();
+    _socketCancelledSub?.cancel();
+    _callResponseSub?.cancel();
 
-    // Navigate away FIRST so the user never sees the black AgoraRTC screen
-    if (wasMinimized) {
-      navigatorKey.currentState?.popUntil(
-        (route) => route.settings.name == activeCallRouteName || route.isFirst,
-      );
-    }
+    // Navigate away FIRST so the user never sees stale connected UI.
     CallOverlayManager().reset();
-    if (mounted) Navigator.pop(context);
+    _dismissCallRoutes();
 
     // Release engine resources after navigation (fire-and-forget)
     if (_engineInitialized) unawaited(_releaseEngineAsync());
     unawaited(_stopForegroundService());
+  }
+
+  void _dismissCallRoutes() {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) return;
+    if (navigator.canPop()) {
+      navigator.pop();
+    }
+    navigator.popUntil((route) {
+      final name = route.settings.name;
+      final isCallRoute =
+          name == activeCallRouteName || name == minimizedCallHostRouteName;
+      return route.isFirst || !isCallRoute;
+    });
   }
 
   @override
@@ -226,6 +280,9 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
     WakelockPlus.disable();
     _callTimer?.cancel();
     _connectivitySubscription?.cancel();
+    _socketEndedSub?.cancel();
+    _socketCancelledSub?.cancel();
+    _callResponseSub?.cancel();
     // Release Agora engine if not already released by _endCall
     if (_engineInitialized) {
       unawaited(_releaseEngineAsync());
@@ -278,7 +335,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen> {
   Widget build(BuildContext context) {
     return PopScope(
       canPop: false,
-      onPopInvoked: (bool didPop) async {
+      onPopInvokedWithResult: (bool didPop, _) async {
         if (didPop) return;
         // When back button is pressed, minimize the call instead of closing
         await _minimizeCall();

@@ -1,12 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:ms2026/service/auth_http_client.dart' as http;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart'
     if (dart.library.html) 'package:ms2026/utils/web_local_notifications_stub.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,10 +16,12 @@ import 'package:provider/provider.dart';
 
 import 'firebase_options.dart';
 
+import 'Calling/callmanager.dart';
 import 'Calling/incomingvideocall.dart';
 import 'Calling/incommingcall.dart';
 import 'Calling/call_state_recovery_manager.dart';
 import 'Calling/unified_call_manager.dart';
+import 'Calling/call_foreground_service.dart';
 import 'Chat/call_overlay_manager.dart';
 import 'Chat/ChatdetailsScreen.dart';
 import 'Chat/adminchat.dart';
@@ -27,31 +29,40 @@ import 'Chat/screen_state_manager.dart';
 import 'Startup/SplashScreen.dart';
 import 'Auth/SuignupModel/signup_model.dart';
 import 'Startup/onboarding.dart';
+import 'constant/app_colors.dart';
 import 'otherenew/modelfile.dart';
 import 'otherenew/othernew.dart';
 import 'otherenew/service.dart';
+import 'utils/access_control.dart' as app_access;
 import 'constant/app_theme.dart';
+import 'core/current_user_info.dart';
 import 'core/user_state.dart';
 import 'navigation/app_navigation.dart';
 import 'online/onlineservice.dart';
+import 'config/app_endpoints.dart';
 import 'service/socket_service.dart';
 import 'service/connectivity_service.dart';
 import 'service/chat_message_cache.dart';
-import 'Calling/call_tone_settings.dart';
 import 'service/sound_settings_service.dart';
 import 'service/message_tone_service.dart';
 import 'service/app_sound_tone_service.dart';
+import 'service/audio_manager.dart';
+import 'service/verification_service.dart';
 import 'widgets/global_connectivity_handler.dart';
+
+part 'main_notification_routing.dart';
+part 'main_notification_helpers.dart';
+part 'main_notification_actions.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
 // Notification channel IDs
-const String callChannelId = 'calls_channel';
+const String callChannelId = 'calls_channel_v3';
 const String callChannelName = 'Calls';
 const String callChannelDescription =
     'Channel for WhatsApp-like call notifications';
-const String messagesChannelId = 'messages_channel';
+const String messagesChannelId = 'messages_channel_v2';
 const String messagesChannelName = 'Messages';
 const String messagesChannelDescription = 'Channel for chat messages';
 const String generalChannelId = 'general_notifications';
@@ -59,13 +70,86 @@ const String generalChannelName = 'General Notifications';
 const String generalChannelDescription =
     'Channel for general app notifications';
 
+/// Idempotently registers an Android notification channel for the custom
+/// admin-uploaded incoming-call ringtone. Safe to call from any isolate as
+/// many times as needed — Android ignores re-creation if a channel with the
+/// same ID already exists (channel settings are immutable after creation,
+/// so a URL-hash based channel ID is used to force a fresh channel whenever
+/// the admin uploads a new tone).
+///
+/// Returns true when the channel exists (created or already existed), false
+/// when the platform is web, the file is missing, or registration failed.
+Future<bool> ensureCustomCallChannel(String channelId, String localPath) async {
+  if (kIsWeb) return false;
+  try {
+    if (!File(localPath).existsSync()) return false;
+    final android =
+        flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (android == null) return false;
+    final channel = AndroidNotificationChannel(
+      channelId,
+      callChannelName,
+      description: callChannelDescription,
+      importance: Importance.max,
+      playSound: true,
+      sound: UriAndroidNotificationSound('file://$localPath'),
+      audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+      enableVibration: true,
+      enableLights: true,
+      ledColor: Colors.blue,
+      showBadge: true,
+      vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
+    );
+    await android.createNotificationChannel(channel);
+    return true;
+  } catch (e) {
+    debugPrint('ensureCustomCallChannel failed: $e');
+    return false;
+  }
+}
+
+Future<void> _configureSystemUi() async {
+  await SystemChrome.setEnabledSystemUIMode(
+    SystemUiMode.manual,
+    overlays: SystemUiOverlay.values,
+  );
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: AppColors.white,
+    statusBarIconBrightness: Brightness.dark,
+    statusBarBrightness: Brightness.light,
+    systemStatusBarContrastEnforced: false,
+    systemNavigationBarColor: AppColors.white,
+    systemNavigationBarIconBrightness: Brightness.dark,
+  ));
+}
+
+/// Background notification response handler — required by flutter_local_notifications
+/// when the app is in the background and a notification action button is tapped
+/// (action with showsUserInterface: false / side-effect only). For our call
+/// notifications all actions have showsUserInterface: true, so the app is always
+/// brought to the foreground first and the main-isolate
+/// onDidReceiveNotificationResponse fires instead. This stub is still required
+/// to be registered so the plugin does not crash looking for the handler.
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse notificationResponse) {
+  // No-op: foreground handler onDidReceiveNotificationResponse takes over
+  // once the app is brought to foreground by showsUserInterface: true.
+  debugPrint(
+      '📱 [background] notification action: ${notificationResponse.actionId}');
+}
+
 @pragma('vm:entry-point')
 Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // Initialize local notifications plugin so we can show custom notifications
   // (e.g. full-screen call intent) from this background isolate.
-  await initLocalNotifications();
+  try {
+    await initLocalNotifications(requestPermission: false);
+  } catch (e) {
+    debugPrint('⚠️ Background local notification init failed: $e');
+  }
 
   final data = message.data;
   final type = _extractNotificationType(data);
@@ -110,7 +194,24 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
     }
   } catch (_) {}
 
-  // Always record notification in inbox
+  // Real-time interactive notifications (Type 1): Incoming calls.
+  // Hoisted ABOVE the inbox DB write so the full-screen-intent fires as
+  // fast as possible when the app is killed — every millisecond saved
+  // here reduces the time-to-ring for the user. Inbox recording follows.
+  if (defaultTargetPlatform == TargetPlatform.android &&
+      (type == 'call' || type == 'video_call')) {
+    await _displayWhatsAppCallNotification(
+        normalizedData, message.notification);
+    // Fire-and-forget inbox record so we don't delay the ringing UI.
+    unawaited(NotificationInboxService.recordIncomingRemoteNotification(
+      data: normalizedData,
+      fallbackTitle: message.notification?.title,
+      fallbackBody: message.notification?.body,
+    ));
+    return;
+  }
+
+  // Always record notification in inbox (non-call types)
   await NotificationInboxService.recordIncomingRemoteNotification(
     data: normalizedData,
     fallbackTitle: message.notification?.title,
@@ -135,17 +236,16 @@ Future<void> firebaseBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
-  // Real-time interactive notifications (Type 1): Incoming calls
-  if (defaultTargetPlatform == TargetPlatform.android &&
-      (type == 'call' || type == 'video_call')) {
-    await _displayWhatsAppCallNotification(
-        normalizedData, message.notification);
-    return;
-  }
-
   // Standard notifications (Type 3 & 4): chat, requests, profile views, etc.
   // Show them only while the app is backgrounded.
-  if (_shouldDisplayStandardNotification(normalizedData)) {
+  //
+  // IMPORTANT: When the FCM payload contains a `notification` block (chat
+  // pushes from the PHP backend now do), the Android system itself already
+  // displays the banner with the channel sound. Creating another local
+  // notification here would cause duplicates. Skip in that case — the data
+  // payload is still recorded in the inbox above.
+  if (message.notification == null &&
+      _shouldDisplayStandardNotification(normalizedData)) {
     await _displayStandardNotification(message);
   }
 }
@@ -161,15 +261,25 @@ Future<void> _displayWhatsAppCallNotification(
   final isVideoCall =
       data['type'] == 'video_call' || data['isVideoCall'] == 'true';
   final callerName = data['callerName'] ?? 'Unknown';
+  // Use the call's channelName as the notification tag so this local
+  // notification REPLACES the OS-displayed FCM banner (which the PHP
+  // backend posts with the same tag = channelName). Without a matching
+  // tag the OS banner would stack on top of our full-screen UI.
+  final channelTag = (data['channelName']?.toString().isNotEmpty ?? false)
+      ? data['channelName'].toString()
+      : 'incoming_call';
 
   // Create notification ID based on call type
   final notificationId = isVideoCall ? 1002 : 1001;
 
-  // WhatsApp-like action buttons using built-in Android icons
+  // WhatsApp-like action buttons. Uses dedicated phone/hangup vector
+  // drawables (res/drawable/ic_call_accept.xml and ic_call_decline.xml)
+  // so the lock-screen heads-up banner shows the universally-recognised
+  // call icons instead of the app launcher icon.
   final acceptAction = AndroidNotificationAction(
     'accept_call',
     'Accept',
-    icon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+    icon: const DrawableResourceAndroidBitmap('ic_call_accept'),
     showsUserInterface: true,
     cancelNotification: false,
   );
@@ -177,14 +287,37 @@ Future<void> _displayWhatsAppCallNotification(
   final declineAction = AndroidNotificationAction(
     'decline_call',
     'Decline',
-    icon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+    icon: const DrawableResourceAndroidBitmap('ic_call_decline'),
     showsUserInterface: true,
     cancelNotification: true,
   );
 
+  // Resolve which notification channel to use: prefer the admin-uploaded
+  // custom-ringtone channel (backed by a local file), fall back to the
+  // device-default-ringtone channel (calls_channel_v3) when unavailable.
+  String _activeCallChannelId = callChannelId;
+  if (!kIsWeb) {
+    try {
+      final _p = await SharedPreferences.getInstance();
+      final _path = _p.getString(AppSoundToneService.kLocalRingtonePathKey);
+      final _cid = _p.getString(AppSoundToneService.kActiveCallChannelIdKey);
+      if (_path != null && _cid != null && File(_path).existsSync()) {
+        // Guarantee the custom-ringtone channel exists in THIS isolate before
+        // posting the notification. Without this, a fresh background isolate
+        // that booted before AppSoundToneService.preload() finished downloading
+        // the admin ringtone would fall back silently to the default-sound
+        // channel even though the path/id are now in prefs.
+        final ok = await ensureCustomCallChannel(_cid, _path);
+        if (ok) {
+          _activeCallChannelId = _cid;
+        }
+      }
+    } catch (_) {}
+  }
+
   // Use simpler notification style without custom icons
   final androidDetails = AndroidNotificationDetails(
-    callChannelId,
+    _activeCallChannelId,
     callChannelName,
     channelDescription: callChannelDescription,
     importance: Importance.max,
@@ -212,7 +345,7 @@ Future<void> _displayWhatsAppCallNotification(
       htmlFormatContent: true,
       htmlFormatTitle: true,
     ),
-    tag: 'incoming_call_$notificationId',
+    tag: channelTag,
     groupKey: 'calls',
     setAsGroupSummary: false,
     onlyAlertOnce: false,
@@ -244,6 +377,16 @@ Future<void> _displayWhatsAppCallNotification(
 
   debugPrint('📞 Showing WhatsApp-like call notification for: $callerName');
 
+  // Before posting our own full-screen-intent notification, remove the
+  // OS banner that Firebase's FCM SDK already displayed from the FCM
+  // `notification` block. FCM picks an opaque internal id for that
+  // banner so we cannot cancel it via the plain plugin.cancel(id) API;
+  // we cancel by tag via the native NotificationManager so both the
+  // small heads-up and the full-screen UI never coexist.
+  try {
+    await CallForegroundServiceManager.cancelNotificationsByTag(channelTag);
+  } catch (_) {}
+
   await plugin.show(
     notificationId,
     isVideoCall ? '📹 Video Call' : '📞 Voice Call',
@@ -254,9 +397,13 @@ Future<void> _displayWhatsAppCallNotification(
 }
 
 // Display standard notification for messages, requests, etc.
-Future<void> _displayStandardNotification(RemoteMessage message) async {
+Future<void> _displayStandardNotification(
+  RemoteMessage message, {
+  bool forceSilent = false,
+}) async {
   final data = message.data;
   final type = _extractNotificationType(data);
+  final isMessage = _isChatNotificationType(type) || _isLikelyChatPayload(data);
   final content = NotificationInboxService.buildNotificationContent(
     type: type,
     actorName: data['senderName']?.toString() ??
@@ -267,17 +414,35 @@ Future<void> _displayStandardNotification(RemoteMessage message) async {
     messagePreview: data['message']?.toString() ?? message.notification?.body,
   );
 
+  final dataTitle = data['title']?.toString().trim();
+  final dataBody = data['body']?.toString().trim();
+  final remoteTitle = message.notification?.title?.trim();
+  final remoteBody = message.notification?.body?.trim();
+
+  final resolvedTitle = isMessage
+      ? (content['title'] ?? 'New chat message')
+      : (dataTitle != null && dataTitle.isNotEmpty
+          ? dataTitle
+          : (remoteTitle != null && remoteTitle.isNotEmpty
+              ? remoteTitle
+              : (content['title'] ?? 'New notification')));
+
+  final resolvedBody = isMessage
+      ? (content['body'] ?? 'You have a new chat message.')
+      : (dataBody != null && dataBody.isNotEmpty
+          ? dataBody
+          : (remoteBody != null && remoteBody.isNotEmpty
+              ? remoteBody
+              : (content['body'] ?? 'You have a new update.')));
+
   // Use different channel based on notification type
-  final isMessage = _isChatNotificationType(type) || _isLikelyChatPayload(data);
   final channelId = isMessage ? messagesChannelId : generalChannelId;
   final channelName = isMessage ? messagesChannelName : generalChannelName;
   final channelDescription =
       isMessage ? messagesChannelDescription : generalChannelDescription;
 
-  // Use custom soft notification sound; AudioAttributesUsage.notification ensures
-  // system silent/vibration-only modes are respected (no sound in those modes).
-  const notificationSound =
-      RawResourceAndroidNotificationSound('ms_notification');
+  // Category label shown as subText on notification banner
+  final typeLabel = _notificationTypeLabel(type);
 
   final androidDetails = AndroidNotificationDetails(
     channelId,
@@ -285,17 +450,24 @@ Future<void> _displayStandardNotification(RemoteMessage message) async {
     channelDescription: channelDescription,
     importance: isMessage ? Importance.high : Importance.defaultImportance,
     priority: isMessage ? Priority.high : Priority.defaultPriority,
-    playSound: true,
-    sound: notificationSound,
+    playSound: !forceSilent,
+    silent: forceSilent,
     audioAttributesUsage: AudioAttributesUsage.notification,
     enableVibration: true,
+    showWhen: true,
+    subText: typeLabel,
+    category: _notificationCategory(type),
   );
 
-  const iosDetails = DarwinNotificationDetails(
+  final iosDetails = DarwinNotificationDetails(
     presentAlert: true,
     presentBadge: true,
-    presentSound: true,
-    sound: 'ms_notification.wav',
+    presentSound: !forceSilent,
+    // sound: null → use device default notification sound. The previous
+    // hardcoded 'ms_notification.wav' was removed per the centralized-sound
+    // policy: admin-uploaded custom sounds are handled at playback time;
+    // otherwise the OS plays its own default.
+    sound: null,
     presentBanner: true,
     presentList: true,
   );
@@ -305,30 +477,27 @@ Future<void> _displayStandardNotification(RemoteMessage message) async {
     iOS: iosDetails,
   );
 
+  /// Use conversation-based notification ID to update same chat thread
+  /// instead of creating multiple notifications
+  final senderId =
+      data['senderId']?.toString() ?? data['sender_id']?.toString() ?? '';
+  final notificationId = isMessage && senderId.isNotEmpty
+      ? senderId.hashCode.abs() % 100000
+      : DateTime.now().millisecondsSinceEpoch ~/ 1000;
+
+  /// Cancel previous notification from same sender before showing new one
+  /// This prevents notification pile-up and keeps only latest message visible
+  if (isMessage && senderId.isNotEmpty) {
+    await flutterLocalNotificationsPlugin.cancel(notificationId);
+  }
+
   await flutterLocalNotificationsPlugin.show(
-    DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    message.notification?.title ?? content['title'],
-    message.notification?.body ?? content['body'],
+    notificationId,
+    resolvedTitle,
+    resolvedBody,
     details,
     payload: json.encode(data),
   );
-}
-
-bool _isChatNotificationType(String type) {
-  return type == 'chat' ||
-      type == 'chat_message' ||
-      type == 'message' ||
-      type == 'new_message' ||
-      type == 'admin_message';
-}
-
-bool _isRequestNotificationType(String type) {
-  return type == 'request' ||
-      type == 'request_sent' ||
-      type == 'request_reminder' ||
-      type == 'request_reminder_sent' ||
-      type == 'request_accepted' ||
-      type == 'request_rejected';
 }
 
 String _extractNotificationType(Map<String, dynamic> data) {
@@ -342,6 +511,9 @@ String _extractNotificationType(Map<String, dynamic> data) {
       .toLowerCase();
 }
 
+/// Public accessor for app foreground state - usable from other files
+bool get isAppInForeground => _MyAppState.isAppInForeground;
+
 bool _isLikelyChatPayload(Map<String, dynamic> data) {
   final hasChatRoom = (data['chatRoomId']?.toString().isNotEmpty ?? false) ||
       (data['chat_room_id']?.toString().isNotEmpty ?? false);
@@ -354,75 +526,148 @@ bool _isLikelyChatPayload(Map<String, dynamic> data) {
   return (hasChatRoom || hasMessage) && hasSender;
 }
 
+bool _isSilentNotificationType(String type) {
+  return type == 'call_response' ||
+      type == 'video_call_response' ||
+      type == 'call_ended' ||
+      type == 'video_call_ended' ||
+      type == 'call_cancelled' ||
+      type == 'video_call_cancelled' ||
+      type == 'missed_call' ||
+      type == 'missed_video_call';
+}
+
 bool _shouldDisplayStandardNotification(Map<String, dynamic> data) {
   final type = _extractNotificationType(data);
+  if (_isSilentNotificationType(type)) return false;
+  if (type == 'call' || type == 'video_call') return false;
+
+  final hasVisibleContent =
+      (data['title']?.toString().trim().isNotEmpty ?? false) ||
+          (data['body']?.toString().trim().isNotEmpty ?? false) ||
+          (data['message']?.toString().trim().isNotEmpty ?? false);
+
   return _isChatNotificationType(type) ||
       _isLikelyChatPayload(data) ||
       _isRequestNotificationType(type) ||
-      type == 'profile_view';
+      type == 'profile_view' ||
+      type == 'profile_like' ||
+      type == 'shortlist' ||
+      type == 'reel_like' ||
+      type == 'reel_comment' ||
+      type == 'reel_share' ||
+      type == 'story_like' ||
+      type == 'story_comment' ||
+      (type.isEmpty && hasVisibleContent);
 }
 
-// Returns true when the notification was sent by the admin (senderId == '1').
-// NOTE: '1' matches AdminChatScreen._adminUserId which is a fixed constant in this app.
-bool _isAdminMessage(Map<String, dynamic> data) {
-  const adminUserId = '1'; // Same constant as AdminChatScreen._adminUserId
-  final senderId =
-      data['senderId']?.toString() ?? data['sender_id']?.toString() ?? '';
-  return senderId == adminUserId;
+/// Returns a human-readable label shown as subText on the notification banner.
+/// Users can see at a glance: "Message", "Profile Like", "Reel", etc.
+String _notificationTypeLabel(String type) {
+  switch (type) {
+    case 'chat':
+    case 'chat_message':
+      return '💬 Message';
+    case 'call':
+      return '📞 Voice Call';
+    case 'video_call':
+      return '🎥 Video Call';
+    case 'missed_call':
+    case 'missed_video_call':
+      return '📵 Missed Call';
+    case 'request':
+      return '🤝 Request';
+    case 'request_accepted':
+      return '✅ Request Accepted';
+    case 'request_rejected':
+      return '❌ Request Rejected';
+    case 'request_reminder':
+      return '🔔 Reminder';
+    case 'profile_view':
+      return '👁 Profile View';
+    case 'profile_like':
+      return '❤️ Profile Like';
+    case 'shortlist':
+      return '⭐ Shortlisted';
+    case 'reel_like':
+      return '🎬 Reel Like';
+    case 'reel_comment':
+      return '🎬 Reel Comment';
+    case 'reel_share':
+      return '🔗 Reel Share';
+    case 'story_like':
+      return '📸 Story Like';
+    case 'story_comment':
+      return '📸 Story Comment';
+    default:
+      return '🔔 Notification';
+  }
 }
 
-// Navigate to AdminChatScreen when an admin-sent message notification arrives.
-Future<void> _navigateToAdminChatFromNotification(
-    Map<String, dynamic> data) async {
-  debugPrint('🔔 Admin message notification – opening AdminChatScreen');
-  try {
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-    if (userDataString == null) {
-      debugPrint('⚠️ Admin chat navigation: no user_data in prefs');
-      return;
-    }
-
-    final userData = json.decode(userDataString);
-    final currentUserId = userData['id']?.toString() ?? '';
-    if (currentUserId.isEmpty) {
-      debugPrint('⚠️ Admin chat navigation: currentUserId is empty');
-      return;
-    }
-
-    final firstName = userData['firstName']?.toString().trim() ?? '';
-    final lastName = userData['lastName']?.toString().trim() ?? '';
-    final currentUserName =
-        [firstName, lastName].where((s) => s.isNotEmpty).join(' ').trim();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final currentState = navigatorKey.currentState;
-      if (currentState != null) {
-        currentState.push(MaterialPageRoute(
-          builder: (context) => AdminChatScreen(
-            senderID: currentUserId,
-            userName: currentUserName.isEmpty ? 'User' : currentUserName,
-            isAdmin: false,
-          ),
-        ));
-      }
-    });
-  } catch (e) {
-    debugPrint('❌ Error navigating to admin chat from notification: $e');
+/// Returns the appropriate Android notification category for system handling.
+AndroidNotificationCategory _notificationCategory(String type) {
+  switch (type) {
+    case 'chat':
+    case 'chat_message':
+      return AndroidNotificationCategory.message;
+    case 'call':
+    case 'video_call':
+    case 'missed_call':
+    case 'missed_video_call':
+      return AndroidNotificationCategory.missedCall;
+    case 'request':
+    case 'request_accepted':
+    case 'request_rejected':
+    case 'request_reminder':
+    case 'profile_like':
+    case 'shortlist':
+    case 'profile_view':
+      return AndroidNotificationCategory.social;
+    case 'reel_like':
+    case 'reel_comment':
+    case 'reel_share':
+    case 'story_like':
+    case 'story_comment':
+      return AndroidNotificationCategory.event;
+    default:
+      return AndroidNotificationCategory.status;
   }
 }
 
 // Create notification channels and configure actions
-Future<void> initLocalNotifications() async {
+Future<void> initLocalNotifications({bool requestPermission = true}) async {
   // Local notifications are not supported on web
   if (kIsWeb) return;
-  // Create Android notification channel for calls
+  // Determine the ringtone sound for the call notification channel.
+  // Priority: (1) admin-uploaded custom tone downloaded to local storage,
+  //           (2) device default ringtone via the well-known Android URI.
+  // Android notification-channel sounds are immutable after creation, so a
+  // URL-derived channel ID is used for the custom-tone channel, and
+  // calls_channel_v3 is used for the system-ringtone fallback.
+  String? _customRingtonePath;
+  String? _customChannelId;
+  try {
+    final _ringtonePrefs = await SharedPreferences.getInstance();
+    _customRingtonePath =
+        _ringtonePrefs.getString(AppSoundToneService.kLocalRingtonePathKey);
+    _customChannelId =
+        _ringtonePrefs.getString(AppSoundToneService.kActiveCallChannelIdKey);
+  } catch (_) {}
+  final bool _hasCustomRingtone = !kIsWeb &&
+      _customRingtonePath != null &&
+      _customChannelId != null &&
+      File(_customRingtonePath).existsSync();
+
+  // Primary call channel — device default ringtone.
   final callChannel = AndroidNotificationChannel(
-    callChannelId,
+    callChannelId, // 'calls_channel_v3'
     callChannelName,
     description: callChannelDescription,
     importance: Importance.max,
     playSound: true,
+    sound:
+        const UriAndroidNotificationSound('content://settings/system/ringtone'),
+    audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
     enableVibration: true,
     enableLights: true,
     ledColor: Colors.blue,
@@ -430,10 +675,29 @@ Future<void> initLocalNotifications() async {
     vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
   );
 
-  // Create Android notification channel for messages
-  // Custom soft sound respects system silent/vibration via AudioAttributesUsage.notification
-  const notificationSound =
-      RawResourceAndroidNotificationSound('ms_notification');
+  // Custom-ringtone call channel — backed by the admin-uploaded local file.
+  final AndroidNotificationChannel? callChannelCustom = _hasCustomRingtone
+      ? AndroidNotificationChannel(
+          _customChannelId,
+          callChannelName,
+          description: callChannelDescription,
+          importance: Importance.max,
+          playSound: true,
+          sound: UriAndroidNotificationSound('file://$_customRingtonePath'),
+          audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+          enableVibration: true,
+          enableLights: true,
+          ledColor: Colors.blue,
+          showBadge: true,
+          vibrationPattern: Int64List.fromList([0, 1000, 500, 1000]),
+        )
+      : null;
+
+  // Use the device default notification sound. The previous hardcoded
+  // RawResourceAndroidNotificationSound('ms_notification') was removed per
+  // the centralized-sound policy: if the admin uploads a custom notification
+  // tone the apk plays it at notification time; otherwise the OS picks its
+  // own default.
 
   final messagesChannel = AndroidNotificationChannel(
     messagesChannelId,
@@ -441,10 +705,10 @@ Future<void> initLocalNotifications() async {
     description: messagesChannelDescription,
     importance: Importance.high,
     playSound: true,
-    sound: notificationSound,
     audioAttributesUsage: AudioAttributesUsage.notification,
     enableVibration: true,
     showBadge: true,
+    ledColor: Colors.green,
   );
 
   // Create Android notification channel for general notifications
@@ -454,9 +718,10 @@ Future<void> initLocalNotifications() async {
     description: generalChannelDescription,
     importance: Importance.defaultImportance,
     playSound: true,
-    sound: notificationSound,
     audioAttributesUsage: AudioAttributesUsage.notification,
     showBadge: true,
+    ledColor: Colors.blue,
+    enableVibration: true,
   );
 
   final androidPlugin =
@@ -464,8 +729,20 @@ Future<void> initLocalNotifications() async {
           AndroidFlutterLocalNotificationsPlugin>();
 
   await androidPlugin?.createNotificationChannel(callChannel);
+  if (callChannelCustom != null) {
+    await androidPlugin?.createNotificationChannel(callChannelCustom);
+  }
   await androidPlugin?.createNotificationChannel(messagesChannel);
   await androidPlugin?.createNotificationChannel(generalChannel);
+
+  // Remove legacy call channels — channel sounds are immutable so each
+  // ringtone change requires a new channel ID; old IDs are cleaned up here.
+  try {
+    await androidPlugin?.deleteNotificationChannel('calls_channel');
+  } catch (_) {}
+  try {
+    await androidPlugin?.deleteNotificationChannel('calls_channel_v2');
+  } catch (_) {}
 
   const android = AndroidInitializationSettings('@mipmap/ic_launcher');
   const ios = DarwinInitializationSettings(
@@ -485,42 +762,60 @@ Future<void> initLocalNotifications() async {
     onDidReceiveNotificationResponse: (NotificationResponse response) {
       _handleNotificationAction(response);
     },
+    onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
   );
 
+  // Handle cold-start: app was killed when user tapped a notification action.
+  // In this case onDidReceiveNotificationResponse does NOT fire automatically;
+  // we must call getNotificationAppLaunchDetails() to retrieve the response.
+  try {
+    final launchDetails =
+        await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+    if (launchDetails?.didNotificationLaunchApp == true) {
+      final response = launchDetails!.notificationResponse;
+      if (response != null) {
+        // 800 ms: enough for SplashScreen minimum (300 ms) + async navigation,
+        // fast enough that a ringing call is still alive when the UI opens.
+        Future.delayed(const Duration(milliseconds: 800), () {
+          _handleNotificationAction(response);
+        });
+      }
+    }
+  } catch (e) {
+    debugPrint('📱 getNotificationAppLaunchDetails error: $e');
+  }
+
+  if (requestPermission && defaultTargetPlatform == TargetPlatform.android) {
+    final granted = await androidPlugin?.requestNotificationsPermission();
+    debugPrint(
+        '🔔 Android notification permission: ${granted == true ? 'granted' : 'denied'}');
+
+    // Android 14+ (API 34) requires the user to explicitly grant the
+    // "Allow full-screen notifications" permission for the WhatsApp-style
+    // incoming call screen to actually pop over the lockscreen. The
+    // permission is auto-granted on Android < 14 (since it's a normal
+    // permission there) so this call is a no-op on those versions.
+    // We do not block app startup on the result — if the user denies, the
+    // call still arrives as a heads-up banner, just without the full-screen
+    // takeover.
+    try {
+      final fsiGranted =
+          await androidPlugin?.requestFullScreenIntentPermission();
+      debugPrint(
+          '📞 Full-screen intent permission: ${fsiGranted == true ? 'granted' : 'denied/not-required'}');
+    } catch (e) {
+      debugPrint('📞 requestFullScreenIntentPermission failed: $e');
+    }
+  }
+
   // Configure iOS notification categories - using the correct method
-  if (defaultTargetPlatform == TargetPlatform.iOS) {
+  if (requestPermission && defaultTargetPlatform == TargetPlatform.iOS) {
     await _configureIOSNotifications();
   }
 }
 
 // Configure iOS notification categories with actions
 Future<void> _configureIOSNotifications() async {
-  final DarwinNotificationCategory callCategory = DarwinNotificationCategory(
-    'incoming_call',
-    actions: [
-      DarwinNotificationAction.plain(
-        'accept_call',
-        'Accept',
-        options: {
-          DarwinNotificationActionOption.foreground,
-          DarwinNotificationActionOption.destructive,
-        },
-      ),
-      DarwinNotificationAction.plain(
-        'decline_call',
-        'Decline',
-        options: {
-          DarwinNotificationActionOption.destructive,
-          DarwinNotificationActionOption.authenticationRequired,
-        },
-      ),
-    ],
-    options: {
-      DarwinNotificationCategoryOption.customDismissAction,
-      DarwinNotificationCategoryOption.allowInCarPlay,
-    },
-  );
-
   // For newer versions of flutter_local_notifications, use this method
   final iosPlugin =
       flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
@@ -537,327 +832,50 @@ Future<String> _resolveCurrentUserName() async {
   if (cachedFirstName != null && cachedFirstName.isNotEmpty) {
     return cachedFirstName;
   }
-
-  final rawUserData = prefs.getString('user_data');
-  if (rawUserData == null || rawUserData.isEmpty) {
-    return 'User';
-  }
-
-  try {
-    final userData = json.decode(rawUserData) as Map<String, dynamic>;
-    final firstName = userData['firstName']?.toString().trim() ?? '';
-    final lastName = userData['lastName']?.toString().trim() ?? '';
-    final fullName = [firstName, lastName]
-        .where((value) => value.isNotEmpty)
-        .join(' ')
-        .trim();
-    return fullName.isEmpty ? 'User' : fullName;
-  } catch (_) {
-    return 'User';
-  }
+  final info = await CurrentUserInfo.fromPrefs();
+  return info.fullName.trim().isEmpty ? 'User' : info.fullName.trim();
 }
 
-// Handle notification actions (Accept/Decline from notification)
-Future<void> _handleNotificationAction(NotificationResponse response) async {
-  final payload = response.payload;
-  final actionId = response.actionId;
-
-  if (payload == null) return;
-
-  try {
-    final data = json.decode(payload);
-    final type = data['type'];
-    final isVideoCall = type == 'video_call' || data['isVideoCall'] == 'true';
-    final notificationId = isVideoCall ? 1002 : 1001;
-
-    debugPrint('📱 Notification action: $actionId');
-    debugPrint('📱 Payload data: $data');
-
-    if (actionId == 'accept_call') {
-      debugPrint('✅ Call accepted from notification');
-
-      // Clear the SharedPrefs key so _checkPendingIncomingCall doesn't also show banner
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove('pending_incoming_call');
-      } catch (_) {}
-
-      // Dismiss compact banner if showing (prevents coexistence with full-screen)
-      IncomingCallOverlayManager().dismiss();
-
-      // Navigate to full-screen call page directly (user already pressed Accept)
-      _navigateToCallPage(data);
-
-      // Delay notification cancellation to ensure call screen is visible
-      Future.delayed(const Duration(milliseconds: 800), () {
-        flutterLocalNotificationsPlugin.cancel(notificationId);
-      });
-    } else if (actionId == 'decline_call') {
-      debugPrint('❌ Call declined from notification');
-
-      // Cancel the ringing notification
-      flutterLocalNotificationsPlugin.cancel(notificationId);
-
-      final callerId = data['callerId']?.toString();
-      if (callerId != null && callerId.isNotEmpty) {
-        final recipientName = await _resolveCurrentUserName();
-        if (isVideoCall) {
-          await NotificationService.sendVideoCallResponseNotification(
-            callerId: callerId,
-            recipientName: recipientName,
-            accepted: false,
-            recipientUid: '0',
-            channelName: data['channelName']?.toString(),
-          );
-        } else {
-          await NotificationService.sendCallResponseNotification(
-            callerId: callerId,
-            recipientName: recipientName,
-            accepted: false,
-            recipientUid: '0',
-            channelName: data['channelName']?.toString(),
-          );
-        }
-      }
-    } else if (type == 'call' || type == 'video_call') {
-      // Regular notification tap (for missed calls)
-      _navigateToCallPage(data);
-
-      // Delay notification cancellation to ensure call screen is visible
-      Future.delayed(const Duration(milliseconds: 800), () {
-        flutterLocalNotificationsPlugin.cancel(notificationId);
-      });
-    } else {
-      // Regular notification tap (chat messages, requests, profile views, etc.)
-      _handleNotificationTap(payload);
-    }
-  } catch (e) {
-    debugPrint('❌ Error handling notification action: $e');
-  }
+Future<String> _resolveCurrentUserId() async {
+  final info = await CurrentUserInfo.fromPrefs();
+  return info.userId > 0 ? info.userId.toString() : '';
 }
 
-void _handleNotificationTap(String? payload) {
-  if (payload == null) return;
+Future<void> _syncFcmTokenToBackend(String token) async {
+  if (token.trim().isEmpty) return;
 
-  try {
-    final data = json.decode(payload);
-    final type = data['type'];
-
-    debugPrint('📱 Notification tapped with type: $type');
-    debugPrint('📱 Payload data: $data');
-
-    // Navigate based on notification type
-    if (type == 'call' || type == 'video_call') {
-      // For call notifications (especially missed calls), navigate to chat instead
-      _navigateToChatFromCallNotification(data);
-    } else if (type == 'chat_message' || type == 'chat') {
-      _navigateToChatFromMessageNotification(data);
-    } else {
-      _navigateToUserProfileFromNotification(data);
-    }
-  } catch (e) {
-    debugPrint('❌ Error handling notification tap: $e');
-  }
-}
-
-void _navigateToChatFromCallNotification(Map<String, dynamic> data) async {
-  debugPrint('🚀 Navigating to chat from call notification');
-
-  try {
-    // Get current user data
-    final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-
-    if (userDataString == null) {
-      debugPrint('❌ No user data found');
-      return;
-    }
-
-    final userData = json.decode(userDataString);
-    final currentUserId = userData['id']?.toString() ?? '';
-    final currentUserName = userData['name']?.toString() ?? '';
-    final currentUserImage = userData['image']?.toString() ?? '';
-
-    if (currentUserId.isEmpty) {
-      debugPrint('❌ Current user ID is empty');
-      return;
-    }
-
-    // Extract caller/recipient info from notification
-    final callerId = data['callerId'] ?? data['senderId'] ?? '';
-    final callerName = data['callerName'] ?? data['senderName'] ?? 'Unknown';
-    final callerImage = data['callerImage'] ?? '';
-
-    if (callerId.isEmpty) {
-      debugPrint('❌ Caller ID is empty');
-      return;
-    }
-
-    // Generate chat room ID
-    final chatRoomId = currentUserId.compareTo(callerId) < 0
-        ? '${currentUserId}_$callerId'
-        : '${callerId}_$currentUserId';
-
-    debugPrint('💬 Opening chat with: $callerName (ID: $callerId)');
-    debugPrint('💬 Chat room ID: $chatRoomId');
-
-    // Navigate to chat screen
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final currentState = navigatorKey.currentState;
-
-      if (currentState != null) {
-        currentState.push(
-          MaterialPageRoute(
-            builder: (context) => ChatDetailScreen(
-              chatRoomId: chatRoomId,
-              receiverId: callerId,
-              receiverName: callerName,
-              receiverImage: callerImage,
-              currentUserId: currentUserId,
-              currentUserName: currentUserName,
-              currentUserImage: currentUserImage,
-            ),
-          ),
-        );
-      } else {
-        debugPrint('❌ Navigator state is null, cannot navigate');
-      }
-    });
-  } catch (e) {
-    debugPrint('❌ Error navigating to chat from call notification: $e');
-  }
-}
-
-void _navigateToChatFromMessageNotification(Map<String, dynamic> data) async {
-  debugPrint('🚀 Navigating to chat from message notification');
   try {
     final prefs = await SharedPreferences.getInstance();
-    final userDataString = prefs.getString('user_data');
-    if (userDataString == null) return;
+    final userDataRaw = prefs.getString('user_data');
+    if (userDataRaw == null || userDataRaw.isEmpty) {
+      return;
+    }
 
-    final userData = json.decode(userDataString);
-    final currentUserId = userData['id']?.toString() ?? '';
-    final firstName = userData['firstName']?.toString().trim() ?? '';
-    final lastName = userData['lastName']?.toString().trim() ?? '';
-    final currentUserName =
-        [firstName, lastName].where((s) => s.isNotEmpty).join(' ').trim();
+    final decoded = json.decode(userDataRaw);
+    if (decoded is! Map<String, dynamic>) {
+      return;
+    }
 
-    if (currentUserId.isEmpty) return;
+    final userId = decoded['id']?.toString() ?? '';
+    if (userId.isEmpty) {
+      return;
+    }
 
-    final senderId = data['senderId']?.toString() ??
-        data['sender_id']?.toString() ??
-        data['related_user_id']?.toString() ??
-        '';
-    if (senderId.isEmpty) return;
+    await prefs.setString('fcm_token', token);
 
-    final chatRoomId = currentUserId.compareTo(senderId) < 0
-        ? '${currentUserId}_$senderId'
-        : '${senderId}_$currentUserId';
+    final response = await http.post(
+      Uri.parse('$kApiBaseUrl/Api2/update_token.php'),
+      body: {
+        'user_id': userId,
+        'fcm_token': token,
+      },
+    );
 
-    final senderName = data['senderName']?.toString() ??
-        data['peer_name']?.toString() ??
-        data['sender_name']?.toString() ??
-        'User';
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final currentState = navigatorKey.currentState;
-      if (currentState != null) {
-        currentState.push(MaterialPageRoute(
-          builder: (context) => ChatDetailScreen(
-            chatRoomId: chatRoomId,
-            receiverId: senderId,
-            receiverName: senderName,
-            receiverImage: '',
-            currentUserId: currentUserId,
-            currentUserName: currentUserName.isEmpty ? 'User' : currentUserName,
-            currentUserImage: '',
-          ),
-        ));
-      } else {
-        debugPrint('❌ Navigator state is null, cannot navigate to chat');
-      }
-    });
+    debugPrint(
+        '🔄 FCM token sync response(${response.statusCode}) for user $userId');
   } catch (e) {
-    debugPrint('❌ Error navigating to chat from message notification: $e');
+    debugPrint('⚠️ FCM token sync failed: $e');
   }
-}
-
-void _navigateToUserProfileFromNotification(Map<String, dynamic> data) {
-  final userId = data['sender_id']?.toString() ??
-      data['related_user_id']?.toString() ??
-      data['recipient_id']?.toString() ??
-      '';
-  if (userId.isEmpty) {
-    debugPrint('❌ User ID is empty, cannot navigate to profile');
-    return;
-  }
-  debugPrint('🚀 Navigating to user profile: $userId');
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final currentState = navigatorKey.currentState;
-    if (currentState != null) {
-      currentState.push(MaterialPageRoute(
-        builder: (context) => ProfileScreen(userId: userId),
-      ));
-    } else {
-      debugPrint('❌ Navigator state is null, cannot navigate to profile');
-    }
-  });
-}
-
-void _navigateToCallPage(Map<String, dynamic> data) {
-  final isVideoCall =
-      data['isVideoCall'] == 'true' || data['type'] == 'video_call';
-
-  debugPrint('🚀 Navigating to ${isVideoCall ? 'Video' : 'Voice'} Call Page');
-
-  // Ensure we're on the main thread
-  WidgetsBinding.instance.addPostFrameCallback((_) {
-    final currentContext = navigatorKey.currentContext;
-    final currentState = navigatorKey.currentState;
-
-    if (currentState != null) {
-      // Check if we're already on a call page to avoid duplicates
-      bool isAlreadyOnCallPage = false;
-      if (currentContext != null) {
-        // Check if the current route is a call page
-        final route = ModalRoute.of(currentContext);
-        if (route != null) {
-          final settings = route.settings;
-          if (settings.name?.contains('call') ?? false) {
-            isAlreadyOnCallPage = true;
-          }
-        }
-      }
-
-      if (!isAlreadyOnCallPage) {
-        if (isVideoCall) {
-          currentState.push(
-            MaterialPageRoute(
-              settings: const RouteSettings(name: activeCallRouteName),
-              fullscreenDialog: true,
-              builder: (context) => IncomingVideoCallScreen(
-                callData: data,
-              ),
-            ),
-          );
-        } else {
-          currentState.push(
-            MaterialPageRoute(
-              settings: const RouteSettings(name: activeCallRouteName),
-              fullscreenDialog: true,
-              builder: (context) => IncomingCallScreen(
-                callData: data,
-              ),
-            ),
-          );
-        }
-      } else {
-        debugPrint('⚠️ Already on a call page, skipping navigation');
-      }
-    } else {
-      debugPrint('❌ Navigator state is null, cannot navigate');
-    }
-  });
 }
 
 Future<void> setupFirebaseMessaging() async {
@@ -890,50 +908,17 @@ Future<void> setupFirebaseMessaging() async {
     }
     final token = await FirebaseMessaging.instance.getToken();
     debugPrint("🎯 FCM TOKEN: $token");
+
+    if (token != null && token.trim().isNotEmpty) {
+      await _syncFcmTokenToBackend(token);
+    }
+
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      debugPrint('🔁 FCM token refreshed: $newToken');
+      await _syncFcmTokenToBackend(newToken);
+    });
   } catch (e) {
     debugPrint("⚠️ FCM token not ready yet: $e");
-  }
-
-  Future<void> _showStandardNotification(RemoteMessage message) async {
-    final data = message.data;
-    final content = NotificationInboxService.buildNotificationContent(
-      type: data['type']?.toString() ?? 'notification',
-      actorName: data['senderName']?.toString() ??
-          data['viewerName']?.toString() ??
-          data['callerName']?.toString(),
-      requestType:
-          data['requestType']?.toString() ?? data['request_type']?.toString(),
-      messagePreview: data['message']?.toString() ?? message.notification?.body,
-    );
-
-    const androidDetails = AndroidNotificationDetails(
-      generalChannelId,
-      generalChannelName,
-      channelDescription: generalChannelDescription,
-      importance: Importance.max,
-      priority: Priority.high,
-    );
-
-    const iosDetails = DarwinNotificationDetails(
-      presentAlert: true,
-      presentBadge: true,
-      presentSound: true,
-      presentBanner: true,
-      presentList: true,
-    );
-
-    const details = NotificationDetails(
-      android: androidDetails,
-      iOS: iosDetails,
-    );
-
-    await flutterLocalNotificationsPlugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      message.notification?.title ?? content['title'],
-      message.notification?.body ?? content['body'],
-      details,
-      payload: json.encode(data),
-    );
   }
 
   // Set up foreground message handlers
@@ -961,6 +946,16 @@ Future<void> setupFirebaseMessaging() async {
 
     // Type 1: Real-time Interactive Notifications (Incoming Calls)
     if (type == 'call' || type == 'video_call') {
+      final currentUserId = await _resolveCurrentUserId();
+      final callerId = normalizedData['callerId']?.toString() ??
+          normalizedData['senderId']?.toString() ??
+          '';
+      if (currentUserId.isNotEmpty &&
+          callerId.isNotEmpty &&
+          callerId == currentUserId) {
+        debugPrint('⚠️ Ignored self-originated call notification');
+        return;
+      }
       NotificationService.triggerIncomingCall(normalizedData);
       // When app is in foreground, the calling UI opens directly via CallOverlayWrapper.
       // Do NOT show a notification banner — it would appear alongside the call screen.
@@ -995,19 +990,24 @@ Future<void> setupFirebaseMessaging() async {
         debugPrint('💬 Chat notification suppressed - user viewing this chat');
         return;
       }
-      // Play message tone in-app (socket may not have fired for this message)
-      // The MessageToneService debounce prevents double-play if socket already fired.
+      // Foreground chat: only play the in-app tone via the unified
+      // AudioManager. We DO NOT show a local notification banner here
+      // because (a) the app is visible to the user, (b) the chat list /
+      // unread badge updates in real time over the socket, and (c) showing
+      // the banner additionally would produce a "double notification"
+      // (channel-level sound on Android 8+ ignores the per-notification
+      // silent flag, so the system tone would play on top of the in-app
+      // tone). The background isolate handler is responsible for showing
+      // the banner when the app is not in the foreground.
       MessageToneService.instance.playToneForIncomingFcmData(normalizedData);
-    }
-
-    // Standard foreground notifications are suppressed; they should only
-    // appear while the app is in the background.
-    if (_shouldDisplayStandardNotification(normalizedData)) {
-      debugPrint('🔕 Foreground standard notification suppressed: $type');
       return;
     }
 
-    await _showStandardNotification(message);
+    // Show notification banner for non-chat standard types
+    // (request, profile_like, reel interactions, etc.).
+    if (_shouldDisplayStandardNotification(normalizedData)) {
+      await _displayStandardNotification(message);
+    }
   });
 
   // Handle messages when app is in background but opened via notification
@@ -1042,17 +1042,38 @@ Future<void> setupFirebaseMessaging() async {
 
     // Navigate based on notification type
     if (type == 'call' || type == 'video_call') {
-      // Clear the SharedPreferences-persisted call so the overlay doesn't double-push
+      // Check if the call is still within the answerable window (60 s).
+      // The background isolate writes _receivedAt into pending_incoming_call
+      // when the FCM push arrives. If more than 60 seconds have passed, or
+      // the key is absent (already claimed by the overlay dismiss handler),
+      // the call has expired — open the chat conversation instead so the
+      // user is not dropped into a stale call screen.
+      bool callStillActive = false;
       try {
         final prefs = await SharedPreferences.getInstance();
+        final pendingStr = prefs.getString('pending_incoming_call');
         await prefs.remove('pending_incoming_call');
+        if (pendingStr != null) {
+          final pendingData = json.decode(pendingStr) as Map<String, dynamic>;
+          final receivedAt = pendingData['_receivedAt'] as int?;
+          final now = DateTime.now().millisecondsSinceEpoch;
+          callStillActive = receivedAt != null && now - receivedAt <= 60000;
+        }
       } catch (_) {}
-      // Show the compact incoming-call banner (user can Accept/Reject from it).
-      // Pushing full-screen directly here would race with _checkPendingIncomingCall
-      // and show both UIs simultaneously.
-      final isVideoCall =
-          type == 'video_call' || normalizedData['isVideoCall'] == 'true';
-      IncomingCallOverlayManager().show(normalizedData, isVideo: isVideoCall);
+
+      if (callStillActive) {
+        _navigateToCallPage(normalizedData);
+      } else {
+        // Race-condition guard: _checkPendingIncomingCall (which fires from
+        // AppLifecycleState.resumed) may have consumed pending_incoming_call
+        // and already pushed the call screen. Wait briefly so that flag is set.
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (!CallManager().isCallScreenShowing &&
+              !IncomingCallOverlayManager().isVisible) {
+            _navigateToChatFromCallNotification(normalizedData);
+          }
+        });
+      }
     } else if (_isChatNotificationType(type) ||
         _isLikelyChatPayload(normalizedData)) {
       if (_isAdminMessage(normalizedData)) {
@@ -1087,8 +1108,28 @@ Future<void> setupFirebaseMessaging() async {
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         // Navigate based on notification type
         if (type == 'call' || type == 'video_call') {
-          await CallStateRecoveryManager()
-              .handleNotificationTap(normalizedData);
+          // Terminated-state call: use the same direct 60-second window check
+          // as onMessageOpenedApp instead of going through CallStateRecoveryManager
+          // (which adds latency that can cause the call to expire before the UI opens).
+          bool callStillActive = false;
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            final pendingStr = prefs.getString('pending_incoming_call');
+            await prefs.remove('pending_incoming_call');
+            if (pendingStr != null) {
+              final pendingData =
+                  json.decode(pendingStr) as Map<String, dynamic>;
+              final receivedAt = pendingData['_receivedAt'] as int?;
+              final now = DateTime.now().millisecondsSinceEpoch;
+              callStillActive = receivedAt != null && now - receivedAt <= 60000;
+            }
+          } catch (_) {}
+          if (callStillActive) {
+            _navigateToCallPage(normalizedData);
+          } else if (!CallManager().isCallScreenShowing &&
+              !IncomingCallOverlayManager().isVisible) {
+            _navigateToChatFromCallNotification(normalizedData);
+          }
         } else if (_isChatNotificationType(type) ||
             _isLikelyChatPayload(normalizedData)) {
           if (_isAdminMessage(normalizedData)) {
@@ -1096,6 +1137,14 @@ Future<void> setupFirebaseMessaging() async {
           } else {
             _navigateToChatFromMessageNotification(normalizedData);
           }
+        } else if (type == 'reel_like' ||
+            type == 'reel_comment' ||
+            type == 'reel_share' ||
+            type == 'story_like' ||
+            type == 'story_comment') {
+          // For reel/story notifications, navigate to the user's profile
+          // where their reels/stories are visible
+          _navigateToUserProfileFromNotification(normalizedData);
         } else {
           _navigateToUserProfileFromNotification(normalizedData);
         }
@@ -1110,15 +1159,23 @@ Future<void> setupFirebaseMessaging() async {
 /// awaited in [addPostFrameCallback] before any Firebase-dependent setup runs.
 Future<void> _initFirebase() async {
   try {
+    if (Firebase.apps.isNotEmpty) {
+      return;
+    }
     await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform);
   } catch (e) {
+    if (e.toString().contains('duplicate-app')) {
+      // Another isolate/engine already initialized Firebase.
+      return;
+    }
     debugPrint('⚠️ Firebase initialization failed: $e');
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _configureSystemUi();
 
   // Start Firebase initialisation in the background so it does not delay
   // the first rendered frame. All Firebase-dependent setup (FCM, Auth, local
@@ -1130,23 +1187,21 @@ void main() async {
   // synchronously in initState, eliminating the white-screen flash.
   await ChatMessageCache.instance.init();
 
-  // ── Splash fast-start setup ─────────────────────────────────────────────
-  // 1. Read SharedPreferences to determine if this is a subsequent launch so
-  //    the splash animation can use the shorter 600 ms path synchronously in
-  //    initState (no extra async read needed before the first frame).
-  // 2. Pre-warm the logo GIF bytes into the rootBundle cache.  Flutter's
+  // ── Splash asset pre-warm ───────────────────────────────────────────────
+  // Pre-warm the logo GIF bytes into the rootBundle cache. Flutter's
   //    AssetImage resolver uses rootBundle.load() internally, so warming it
   //    here means the 3.3 MB GIF bytes are already in memory when the splash
   //    widget builds — the decoder starts immediately on the first frame.
-  final prefs = await SharedPreferences.getInstance();
-  final hasLaunchedBefore = prefs.getBool('has_launched_before') ?? false;
-  SplashScreen.preloadForFastStart(hasLaunchedBefore);
   // Pre-load GIF bytes; fire-and-forget — we don't need to await the result
   // because rootBundle caches the ByteData Future itself, so any concurrent
   // AssetImage.resolve() call will wait on the same cached Future.
-  rootBundle.load('assets/images/ms.gif').catchError((Object e) {
-    debugPrint('Splash GIF pre-warm failed (non-fatal): $e');
-  });
+  unawaited(() async {
+    try {
+      await rootBundle.load('assets/images/ms.gif');
+    } catch (e) {
+      debugPrint('Splash GIF pre-warm failed (non-fatal): $e');
+    }
+  }());
 
   // Connectivity service: create now, but start the background HTTP reachability
   // checks (to google.com / cloudflare.com) after the first frame — they can
@@ -1181,42 +1236,37 @@ void main() async {
     // state and notifies listeners once the HTTP checks finish.
     connectivityService.initialize();
 
-    // Pre-warm call tone settings cache so outgoing calls don't block on a
-    // server round-trip.  This is fire-and-forget; any failure is safe
-    // because load() falls back to SharedPreferences.
-    CallToneSettingsService.instance.preload();
-
-    // Pre-warm incoming / message / typing tone settings cache so that the
-    // first message or incoming call tone plays without a server round-trip.
+    // Pre-warm centralized sound settings cache so the first call /
+    // message / typing tone plays without a server round-trip.
     AppSoundToneService.instance.preload();
 
     // Pre-load user sound/vibration preferences so chat screens can read
     // them synchronously without an async hop.
     SoundSettingsService.instance.load();
 
+    // Initialize the unified audio manager for all sound playback
+    // (messages, calls, typing, voice recordings).
+    AudioManager.instance.init();
+
     // Wait for Firebase before any Firebase-dependent setup so that
     // FCM token requests and local notification channel creation succeed.
     await firebaseInitFuture;
 
-    // Fire-and-forget: sign in anonymously so Firestore security rules that
-    // require request.auth != null are satisfied. Firebase Auth caches the
-    // anonymous credential after the first call, so this is only slow on a
-    // brand-new install.
-    () async {
-      try {
-        await FirebaseAuth.instance.signInAnonymously();
-      } catch (e) {
-        debugPrint('⚠️ Firebase anonymous sign-in failed: $e');
-      }
-    }();
+    if (Firebase.apps.isEmpty) {
+      debugPrint('⚠️ Firebase not available; skipping FCM/Auth bootstrap');
+      return;
+    }
 
     // Initialise local notifications after the first frame so channel creation
     // and plugin setup don't add to the cold-start time.
     await initLocalNotifications();
 
+    // Recover active call state BEFORE registering FCM handlers so that
+    // _hasRecovered = true when getInitialMessage().then() fires — this
+    // prevents the navigation from being queued and delayed unnecessarily.
+    await callRecoveryManager.initialize();
+
     setupFirebaseMessaging();
-    // Initialize call recovery after first frame
-    callRecoveryManager.initialize();
     // Start online presence tracking if the user is already logged in
     // (handles app restarts without going through SplashScreen login)
     SharedPreferences.getInstance().then((prefs) {
@@ -1243,22 +1293,67 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
+  static AppLifecycleState _appLifecycleState = AppLifecycleState.detached;
+
   StreamSubscription<Map<String, dynamic>>? _newProposalNotificationSub;
   StreamSubscription<Map<String, dynamic>>? _proposalAcceptedNotificationSub;
+
+  /// Check if app is currently in foreground (user actively viewing app)
+  static bool get isAppInForeground =>
+      _appLifecycleState == AppLifecycleState.resumed;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _attachLiveRequestSocketNotifications();
+    http.sessionExpiredTick.addListener(_onSessionExpired);
   }
 
   @override
   void dispose() {
     _newProposalNotificationSub?.cancel();
     _proposalAcceptedNotificationSub?.cancel();
+    http.sessionExpiredTick.removeListener(_onSessionExpired);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// Triggered when [auth_http_client.sessionExpiredTick] fires because a
+  /// wrapped HTTP call returned 401. Clears stored credentials and pushes
+  /// the user back to the login screen with a snackbar explaining why.
+  bool _sessionRedirectInFlight = false;
+  void _onSessionExpired() async {
+    if (_sessionRedirectInFlight) return;
+    _sessionRedirectInFlight = true;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('user_data');
+      // bearer_token already cleared inside the wrapper.
+      final navState = navigatorKey.currentState;
+      if (navState != null) {
+        navState.pushNamedAndRemoveUntil('/login', (_) => false);
+      }
+      final ctx = navigatorKey.currentContext;
+      if (ctx != null) {
+        final reason = http.lastSessionExpiredReason;
+        ScaffoldMessenger.maybeOf(ctx)?.showSnackBar(
+          SnackBar(
+            content: Text(
+              (reason != null && reason.isNotEmpty)
+                  ? 'Session expired: $reason. Please sign in again.'
+                  : 'Your session has expired. Please sign in again.',
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Session expiry redirect error: $e');
+    } finally {
+      _sessionRedirectInFlight = false;
+    }
   }
 
   void _attachLiveRequestSocketNotifications() {
@@ -1325,8 +1420,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }) async {
     if (kIsWeb) return;
 
-    const notificationSound =
-        RawResourceAndroidNotificationSound('ms_notification');
     const androidDetails = AndroidNotificationDetails(
       generalChannelId,
       generalChannelName,
@@ -1334,7 +1427,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       importance: Importance.high,
       priority: Priority.high,
       playSound: true,
-      sound: notificationSound,
       audioAttributesUsage: AudioAttributesUsage.notification,
       enableVibration: true,
     );
@@ -1343,7 +1435,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
-      sound: 'ms_notification.wav',
+      // sound: null → device default notification sound.
+      sound: null,
       presentBanner: true,
       presentList: true,
     );
@@ -1359,6 +1452,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _appLifecycleState = state;
     ScreenStateManager().updateAppLifecycleState(state);
 
     if (state == AppLifecycleState.resumed) {

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'call_state_persistence.dart';
-import '../pushnotification/pushservice.dart';
 
 /// Unified call manager that combines CallManager and CallOverlayManager
 /// with persistent state management
@@ -64,16 +63,16 @@ class UnifiedCallManager extends ChangeNotifier {
 
   /// Initialize and restore any persisted call state
   Future<void> initialize() async {
-    print('[UnifiedCallManager] Initializing...');
+    debugPrint('[UnifiedCallManager] Initializing...');
 
     // Try to restore call state from storage
     final savedState = await CallStatePersistence.loadCallState();
     if (savedState != null && savedState.isActive) {
-      print('[UnifiedCallManager] Restoring saved call state: ${savedState.callId}');
+      debugPrint('[UnifiedCallManager] Restoring saved call state: ${savedState.callId}');
 
       // Check if call should have timed out
       if (savedState.shouldTimeout(const Duration(seconds: 60))) {
-        print('[UnifiedCallManager] Saved call timed out, clearing...');
+        debugPrint('[UnifiedCallManager] Saved call timed out, clearing...');
         await CallStatePersistence.clearCallState();
         return;
       }
@@ -93,7 +92,7 @@ class UnifiedCallManager extends ChangeNotifier {
     // Process any pending call history updates
     await _processPendingCallHistory();
 
-    print('[UnifiedCallManager] Initialization complete');
+    debugPrint('[UnifiedCallManager] Initialization complete');
   }
 
   /// Start a new call
@@ -113,7 +112,7 @@ class UnifiedCallManager extends ChangeNotifier {
     required VoidCallback onEnd,
     Map<String, dynamic>? extraData,
   }) async {
-    print('[UnifiedCallManager] Starting call: $callId');
+    debugPrint('[UnifiedCallManager] Starting call: $callId');
 
     // Cancel any existing timers
     _cancelAllTimers();
@@ -154,7 +153,7 @@ class UnifiedCallManager extends ChangeNotifier {
   Future<void> acceptCall() async {
     if (_currentCallState == null) return;
 
-    print('[UnifiedCallManager] Accepting call: ${_currentCallState!.callId}');
+    debugPrint('[UnifiedCallManager] Accepting call: ${_currentCallState!.callId}');
 
     _currentCallState = _currentCallState!.copyWith(
       status: CallStatus.connecting,
@@ -174,7 +173,7 @@ class UnifiedCallManager extends ChangeNotifier {
   Future<void> markCallActive() async {
     if (_currentCallState == null) return;
 
-    print('[UnifiedCallManager] Call active: ${_currentCallState!.callId}');
+    debugPrint('[UnifiedCallManager] Call active: ${_currentCallState!.callId}');
 
     _currentCallState = _currentCallState!.copyWith(
       status: CallStatus.active,
@@ -203,7 +202,7 @@ class UnifiedCallManager extends ChangeNotifier {
     if (_currentCallState == null || !isCallActive) return;
 
     if (!_currentCallState!.isMinimized) {
-      print('[UnifiedCallManager] Minimizing call');
+      debugPrint('[UnifiedCallManager] Minimizing call');
 
       _currentCallState = _currentCallState!.copyWith(isMinimized: true);
       await CallStatePersistence.saveCallState(_currentCallState!);
@@ -217,7 +216,7 @@ class UnifiedCallManager extends ChangeNotifier {
     if (_currentCallState == null || !isCallActive) return;
 
     if (_currentCallState!.isMinimized) {
-      print('[UnifiedCallManager] Maximizing call');
+      debugPrint('[UnifiedCallManager] Maximizing call');
 
       _currentCallState = _currentCallState!.copyWith(isMinimized: false);
       // Don't await to keep it synchronous for UI
@@ -232,7 +231,7 @@ class UnifiedCallManager extends ChangeNotifier {
   Future<void> endCall({CallStatus endStatus = CallStatus.ended}) async {
     if (_currentCallState == null) return;
 
-    print('[UnifiedCallManager] Ending call: ${_currentCallState!.callId}, status: ${endStatus.name}');
+    debugPrint('[UnifiedCallManager] Ending call: ${_currentCallState!.callId}, status: ${endStatus.name}');
 
     // Update status
     _currentCallState = _currentCallState!.copyWith(status: endStatus);
@@ -291,7 +290,7 @@ class UnifiedCallManager extends ChangeNotifier {
 
   /// Reset all call state
   Future<void> reset() async {
-    print('[UnifiedCallManager] Resetting call manager');
+    debugPrint('[UnifiedCallManager] Resetting call manager');
 
     _cancelAllTimers();
 
@@ -306,13 +305,13 @@ class UnifiedCallManager extends ChangeNotifier {
 
   /// Trigger incoming call event
   void triggerIncomingCall(Map<String, dynamic> data) {
-    print('[UnifiedCallManager] Incoming call triggered: $data');
+    debugPrint('[UnifiedCallManager] Incoming call triggered: $data');
     _incomingCallController.add(data);
   }
 
   /// Trigger call response event
   void triggerCallResponse(Map<String, dynamic> data) {
-    print('[UnifiedCallManager] Call response triggered: $data');
+    debugPrint('[UnifiedCallManager] Call response triggered: $data');
     _callResponseController.add(data);
   }
 
@@ -342,7 +341,7 @@ class UnifiedCallManager extends ChangeNotifier {
   void _startTimeoutTimer() {
     _callTimeoutTimer?.cancel();
     _callTimeoutTimer = Timer(const Duration(seconds: 60), () {
-      print('[UnifiedCallManager] Call timeout');
+      debugPrint('[UnifiedCallManager] Call timeout');
       missedCall();
     });
   }
@@ -398,7 +397,7 @@ class UnifiedCallManager extends ChangeNotifier {
   Future<void> _processPendingCallHistory() async {
     final pending = await CallStatePersistence.loadPendingCallHistory();
     if (pending != null) {
-      print('[UnifiedCallManager] Found pending call history update, processing...');
+      debugPrint('[UnifiedCallManager] Found pending call history update, processing...');
       // This will be handled by the call history service
       // For now just clear it - the actual retry logic should be in CallHistoryService
       await CallStatePersistence.clearPendingCallHistory();

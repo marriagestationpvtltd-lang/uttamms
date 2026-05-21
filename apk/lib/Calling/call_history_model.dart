@@ -57,7 +57,7 @@ class CallHistory {
 
   // Create from map (works with REST JSON or Socket.IO data)
   factory CallHistory.fromMap(Map<String, dynamic> map, [String? id]) {
-    DateTime _parseDate(dynamic v) {
+    DateTime parseDate(dynamic v) {
       if (v == null) return DateTime.now();
       if (v is DateTime) return v.isUtc ? v.toLocal() : v;
       final dt = DateTime.tryParse(v.toString());
@@ -76,7 +76,7 @@ class CallHistory {
         (e) => e.toString().split('.').last == map['callType'],
         orElse: () => CallType.audio,
       ),
-      startTime: _parseDate(map['startTime']),
+      startTime: parseDate(map['startTime']),
       endTime: map['endTime'] != null
           ? DateTime.tryParse(map['endTime'].toString())?.toLocal()
           : null,
