@@ -93,6 +93,10 @@ extension _ChatDetailsStateHelpers on _ChatDetailScreenState {
       serverMessages: messages,
       pendingLocalMessages: pendingLocal,
     );
+    // Prune stale GlobalKeys to prevent unbounded memory growth.
+    final validIds = merged.map((m) => m['messageId']?.toString() ?? '').toSet();
+    _messageKeys.removeWhere((id, _) => !validIds.contains(id));
+
     setState(() {
       _cachedMessages = merged;
       _hasMoreMessages = hasMore;
