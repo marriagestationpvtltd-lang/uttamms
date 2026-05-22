@@ -10,22 +10,65 @@ extension _ChatDetailsComposePreviewWidgets on _ChatDetailScreenState {
     final messageType = repliedMessage!['messageType'] ?? 'text';
     final message = repliedMessage!['message'];
 
+    // Reply snippet type icon + label helper
+    Widget typeRow(IconData icon, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 14, color: _accentColor),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 13,
+                    color: const Color(0xFF444444),
+                    fontWeight: FontWeight.w500)),
+          ],
+        );
+
+    Widget snippetWidget;
+    switch (messageType) {
+      case 'image':
+        snippetWidget = typeRow(Icons.image_outlined, 'Photo');
+        break;
+      case 'image_gallery':
+        snippetWidget = typeRow(Icons.photo_library_outlined, 'Photos');
+        break;
+      case 'voice':
+        snippetWidget = typeRow(Icons.mic_outlined, 'Voice message');
+        break;
+      case 'call':
+        snippetWidget = typeRow(Icons.call_outlined, 'Voice call');
+        break;
+      case 'video_call':
+        snippetWidget = typeRow(Icons.videocam_outlined, 'Video call');
+        break;
+      case 'profile_card':
+        snippetWidget = typeRow(Icons.person_outline, 'Profile card');
+        break;
+      default:
+        snippetWidget = Text(
+          message?.toString() ?? '',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF444444)),
+        );
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
       decoration: BoxDecoration(
-        gradient: _secondaryGradient,
+        color: const Color(0xFFFFF0F3),
         borderRadius: BorderRadius.circular(12),
         border: Border(
-          left: BorderSide(
-            color: _accentColor,
-            width: 4,
-          ),
+          left: BorderSide(color: _accentColor, width: 4),
+          top: BorderSide(color: _accentColor.withValues(alpha: 0.15), width: 1),
+          right: BorderSide(color: _accentColor.withValues(alpha: 0.15), width: 1),
+          bottom: BorderSide(color: _accentColor.withValues(alpha: 0.15), width: 1),
         ),
         boxShadow: [
           BoxShadow(
-            color: _accentColor.withValues(alpha: 0.10),
-            blurRadius: 6,
+            color: _accentColor.withValues(alpha: 0.08),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
@@ -41,96 +84,25 @@ extension _ChatDetailsComposePreviewWidgets on _ChatDetailScreenState {
                   style: TextStyle(
                     fontSize: 12,
                     color: _accentColor,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.1,
                   ),
                 ),
                 const SizedBox(height: 3),
-                if (messageType == 'text')
-                  Text(
-                    message?.toString() ?? '',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: _lightTextColor),
-                  )
-                else if (messageType == 'image')
-                  Row(
-                    children: [
-                      Icon(Icons.image, size: 15, color: _accentColor),
-                      const SizedBox(width: 4),
-                      Text('Photo',
-                          style:
-                              TextStyle(fontSize: 13, color: _lightTextColor)),
-                    ],
-                  )
-                else if (messageType == 'image_gallery')
-                  Row(
-                    children: [
-                      Icon(Icons.photo_library, size: 15, color: _accentColor),
-                      const SizedBox(width: 4),
-                      Text('Photos',
-                          style:
-                              TextStyle(fontSize: 13, color: _lightTextColor)),
-                    ],
-                  )
-                else if (messageType == 'voice')
-                  Row(
-                    children: [
-                      Icon(Icons.mic, size: 15, color: _accentColor),
-                      const SizedBox(width: 4),
-                      Text('Voice message',
-                          style:
-                              TextStyle(fontSize: 13, color: _lightTextColor)),
-                    ],
-                  )
-                else if (messageType == 'call')
-                  Row(
-                    children: [
-                      Icon(Icons.call, size: 15, color: _accentColor),
-                      const SizedBox(width: 4),
-                      Text('Voice call',
-                          style:
-                              TextStyle(fontSize: 13, color: _lightTextColor)),
-                    ],
-                  )
-                else if (messageType == 'video_call')
-                  Row(
-                    children: [
-                      Icon(Icons.videocam, size: 15, color: _accentColor),
-                      const SizedBox(width: 4),
-                      Text('Video call',
-                          style:
-                              TextStyle(fontSize: 13, color: _lightTextColor)),
-                    ],
-                  )
-                else if (messageType == 'profile_card')
-                  Row(
-                    children: [
-                      Icon(Icons.person, size: 15, color: _accentColor),
-                      const SizedBox(width: 4),
-                      Text('Profile card',
-                          style:
-                              TextStyle(fontSize: 13, color: _lightTextColor)),
-                    ],
-                  )
-                else
-                  Text(
-                    message ?? '',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: _lightTextColor),
-                  ),
+                snippetWidget,
               ],
             ),
           ),
+          const SizedBox(width: 8),
           GestureDetector(
             onTap: _cancelReply,
             child: Container(
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.all(5),
               decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.15),
+                color: _accentColor.withValues(alpha: 0.10),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.close, size: 16, color: Colors.grey),
+              child: Icon(Icons.close_rounded, size: 14, color: _accentColor),
             ),
           ),
         ],
@@ -144,23 +116,28 @@ extension _ChatDetailsComposePreviewWidgets on _ChatDetailScreenState {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
       decoration: BoxDecoration(
-        gradient: _secondaryGradient,
+        color: const Color(0xFFFFF0F3),
         borderRadius: BorderRadius.circular(12),
         border: Border(
           left: BorderSide(color: _accentColor, width: 4),
+          top: BorderSide(color: _accentColor.withValues(alpha: 0.15), width: 1),
+          right: BorderSide(color: _accentColor.withValues(alpha: 0.15), width: 1),
+          bottom: BorderSide(color: _accentColor.withValues(alpha: 0.15), width: 1),
         ),
         boxShadow: [
           BoxShadow(
             color: _accentColor.withValues(alpha: 0.08),
-            blurRadius: 6,
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Row(
         children: [
+          Icon(Icons.edit_outlined, size: 15, color: _accentColor),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -170,7 +147,8 @@ extension _ChatDetailsComposePreviewWidgets on _ChatDetailScreenState {
                   style: TextStyle(
                     fontSize: 12,
                     color: _accentColor,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.1,
                   ),
                 ),
                 const SizedBox(height: 3),
@@ -178,20 +156,24 @@ extension _ChatDetailsComposePreviewWidgets on _ChatDetailScreenState {
                   editingMessage!['message']?.toString() ?? '',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 13, color: _lightTextColor),
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF444444),
+                  ),
                 ),
               ],
             ),
           ),
+          const SizedBox(width: 8),
           GestureDetector(
             onTap: _cancelEdit,
             child: Container(
-              padding: const EdgeInsets.all(4),
+              padding: const EdgeInsets.all(5),
               decoration: BoxDecoration(
-                color: Colors.grey.withValues(alpha: 0.15),
+                color: _accentColor.withValues(alpha: 0.10),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.close, size: 16, color: Colors.grey),
+              child: Icon(Icons.close_rounded, size: 14, color: _accentColor),
             ),
           ),
         ],
