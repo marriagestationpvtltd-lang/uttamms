@@ -6,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:ms2026/Auth/Screen/signupscreen2.dart';
 
 import '../../constant/app_colors.dart';
-import '../../constant/app_dimensions.dart';
 import '../../constant/app_text_styles.dart';
 import '../../ReUsable/registration_progress.dart';
 import '../../ReUsable/enhanced_form_fields.dart';
@@ -50,7 +49,6 @@ class _YourDetailsPageState extends State<YourDetailsPage>
 
   // Form state
   String selectedNationality = "";
-  String _confirmPassword = '';
   String completeNumberr = '';
   String? countryCode = '+977';
 
@@ -120,7 +118,7 @@ class _YourDetailsPageState extends State<YourDetailsPage>
         return List.generate(daysInMonth, (index) => (index + 1).toString().padLeft(2, '0'));
       }
     } catch (e) {
-      print('Error getting AD days: $e');
+      debugPrint('Error getting AD days: $e');
     }
     return List.generate(31, (index) => (index + 1).toString().padLeft(2, '0'));
   }
@@ -136,7 +134,7 @@ class _YourDetailsPageState extends State<YourDetailsPage>
         return NepaliDateConverter.getBsDaysList(year, month);
       }
     } catch (e) {
-      print('Error getting BS days: $e');
+      debugPrint('Error getting BS days: $e');
     }
     return List.generate(32, (index) => (index + 1).toString().padLeft(2, '0'));
   }
@@ -193,7 +191,7 @@ class _YourDetailsPageState extends State<YourDetailsPage>
     _passwordFocus.dispose();
     _confirmPasswordFocus.dispose();
     _phoneFocus.dispose();
-super.dispose();
+    super.dispose();
   }
 
   // Validation methods
@@ -306,7 +304,7 @@ super.dispose();
         }
       }
     } catch (e) {
-      print('Error converting BS to AD: $e');
+      debugPrint('Error converting BS to AD: $e');
     }
   }
 
@@ -338,16 +336,22 @@ super.dispose();
   }
 
   void _showLanguagePicker() {
-    FocusScope.of(context).unfocus();
-    List<String> available = languagesList
-        .where((lang) => !selectedLanguages.contains(lang))
-        .toList();
+    // Same pattern as TypingDropdown: wait for keyboard dismiss animation
+    // before showing the sheet so both animations don't compete.
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+    FocusManager.instance.primaryFocus?.unfocus();
 
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) {
+    void openPicker() {
+      if (!mounted) return;
+      List<String> available = languagesList
+          .where((lang) => !selectedLanguages.contains(lang))
+          .toList();
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             return Container(
@@ -393,7 +397,7 @@ super.dispose();
                             borderRadius: BorderRadius.circular(20),
                             boxShadow: [
                               BoxShadow(
-                                color: AppColors.primary.withOpacity(0.3),
+                                color: AppColors.primary.withValues(alpha: 0.3),
                                 blurRadius: 8,
                                 offset: const Offset(0, 2),
                               ),
@@ -499,13 +503,20 @@ super.dispose();
           },
         );
       },
-    ).then((_) {
-      if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) FocusManager.instance.primaryFocus?.unfocus();
-        });
-      }
-    });
+      ).then((_) {
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) FocusManager.instance.primaryFocus?.unfocus();
+          });
+        }
+      });
+    }
+
+    if (keyboardVisible) {
+      Future.delayed(const Duration(milliseconds: 280), openPicker);
+    } else {
+      openPicker();
+    }
   }
 
   Future<void> _submitSignup() async {
@@ -719,7 +730,6 @@ super.dispose();
                           },
                         ),
                         onChanged: (value) {
-                          _confirmPassword = value;
                           if (_hasValidationErrors) {
                             setState(() {
                               _fieldErrors['confirmPassword'] = _validateConfirmPassword(value);
@@ -770,7 +780,7 @@ super.dispose();
                                   boxShadow: [
                                     BoxShadow(
                                       color: _fieldErrors['phone'] != null
-                                          ? AppColors.error.withOpacity(0.1)
+                                          ? AppColors.error.withValues(alpha: 0.1)
                                           : AppColors.shadowLight,
                                       blurRadius: 10,
                                       offset: const Offset(0, 3),
@@ -807,7 +817,7 @@ super.dispose();
                                     boxShadow: [
                                       BoxShadow(
                                         color: _fieldErrors['phone'] != null
-                                            ? AppColors.error.withOpacity(0.1)
+                                            ? AppColors.error.withValues(alpha: 0.1)
                                             : AppColors.shadowLight,
                                         blurRadius: 10,
                                         offset: const Offset(0, 3),
@@ -1089,13 +1099,13 @@ super.dispose();
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             colors: [
-                              AppColors.success.withOpacity(0.1),
-                              AppColors.success.withOpacity(0.05),
+                              AppColors.success.withValues(alpha: 0.1),
+                              AppColors.success.withValues(alpha: 0.05),
                             ],
                           ),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: AppColors.success.withOpacity(0.3),
+                            color: AppColors.success.withValues(alpha: 0.3),
                             width: 1,
                           ),
                         ),
@@ -1104,7 +1114,7 @@ super.dispose();
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: AppColors.success.withOpacity(0.2),
+                                color: AppColors.success.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: const Icon(
@@ -1176,7 +1186,7 @@ super.dispose();
                               boxShadow: [
                                 BoxShadow(
                                   color: _fieldErrors['languages'] != null
-                                      ? AppColors.error.withOpacity(0.1)
+                                      ? AppColors.error.withValues(alpha: 0.1)
                                       : AppColors.shadowLight,
                                   blurRadius: 10,
                                   offset: const Offset(0, 3),
@@ -1231,7 +1241,7 @@ super.dispose();
                                           borderRadius: BorderRadius.circular(20),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: AppColors.primary.withOpacity(0.3),
+                                              color: AppColors.primary.withValues(alpha: 0.3),
                                               blurRadius: 4,
                                               offset: const Offset(0, 2),
                                             ),
@@ -1311,13 +1321,13 @@ super.dispose();
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            AppColors.secondary.withOpacity(0.1),
-                            AppColors.secondaryLight.withOpacity(0.05),
+                            AppColors.secondary.withValues(alpha: 0.1),
+                            AppColors.secondaryLight.withValues(alpha: 0.05),
                           ],
                         ),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                          color: AppColors.secondary.withOpacity(0.2),
+                          color: AppColors.secondary.withValues(alpha: 0.2),
                           width: 1,
                         ),
                       ),
@@ -1326,7 +1336,7 @@ super.dispose();
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: BoxDecoration(
-                              color: AppColors.secondary.withOpacity(0.2),
+                              color: AppColors.secondary.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(

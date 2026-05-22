@@ -3,6 +3,7 @@ import '../constant/app_colors.dart';
 
 class TypingDropdown<T> extends StatefulWidget {
   final bool showError;
+  final bool isRequired;
 
   final List<T> items;
   final String Function(T) itemLabel;
@@ -14,7 +15,7 @@ class TypingDropdown<T> extends StatefulWidget {
   final IconData? prefixIcon;
 
   const TypingDropdown({
-    Key? key,
+    super.key,
     required this.items,
     required this.itemLabel,
     required this.onChanged,
@@ -22,10 +23,10 @@ class TypingDropdown<T> extends StatefulWidget {
     this.hint = "Select",
     required this.title,
     required this.showError,
+    this.isRequired = true,
     this.errorText,
     this.prefixIcon,
-  }) : super(key: key);
-
+  });
 
   @override
   State<TypingDropdown<T>> createState() => _TypingDropdownState<T>();
@@ -39,7 +40,7 @@ class _TypingDropdownState<T> extends State<TypingDropdown<T>> {
     super.initState();
     controller = TextEditingController(
       text: widget.selectedItem != null
-          ? widget.itemLabel(widget.selectedItem!)
+          ? widget.itemLabel(widget.selectedItem as T)
           : '',
     );
   }
@@ -49,7 +50,7 @@ class _TypingDropdownState<T> extends State<TypingDropdown<T>> {
     super.didUpdateWidget(oldWidget);
     if (widget.selectedItem != oldWidget.selectedItem) {
       controller.text = widget.selectedItem != null
-          ? widget.itemLabel(widget.selectedItem!)
+          ? widget.itemLabel(widget.selectedItem as T)
           : '';
     }
   }
@@ -61,50 +62,64 @@ class _TypingDropdownState<T> extends State<TypingDropdown<T>> {
   }
 
   void _openBottomSheet() {
-    FocusScope.of(context).unfocus();
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) {
-        return FractionallySizedBox(
-          heightFactor: 0.65, // 👈 HALF SCREEN (65%)
-          child: _BottomSheetContent<T>(
-            items: widget.items,
-            itemLabel: widget.itemLabel,
-            selectedItem: widget.selectedItem,
-            title: widget.title,
-            onSelected: (item) {
-              controller.text = widget.itemLabel(item);
-              widget.onChanged(item);
-              Navigator.pop(context);
-            },
-            onClear: () {
-              controller.clear();
-              widget.onChanged(null);
-              Navigator.pop(context);
-            },
-          ),
-        );
-      },
-    ).then((_) {
-      if (mounted) {
-        // Use post-frame callback so unfocus runs after Flutter restores focus
-        // from the closed modal route, ensuring the keyboard stays hidden.
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) FocusManager.instance.primaryFocus?.unfocus();
-        });
-      }
-    });
+    // Dismiss keyboard first. If it was visible we must wait for its dismiss
+    // animation to finish before showing the bottom sheet, otherwise both
+    // animations run at the same time and the UI appears to hang/stutter.
+    final keyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    void showSheet() {
+      if (!mounted) return;
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) {
+          return FractionallySizedBox(
+            heightFactor: 0.65,
+            child: _BottomSheetContent<T>(
+              items: widget.items,
+              itemLabel: widget.itemLabel,
+              selectedItem: widget.selectedItem,
+              title: widget.title,
+              onSelected: (item) {
+                controller.text = widget.itemLabel(item);
+                widget.onChanged(item);
+                Navigator.pop(context);
+              },
+              onClear: () {
+                controller.clear();
+                widget.onChanged(null);
+                Navigator.pop(context);
+              },
+            ),
+          );
+        },
+      ).then((_) {
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) FocusManager.instance.primaryFocus?.unfocus();
+          });
+        }
+      });
+    }
+
+    if (keyboardVisible) {
+      // 280 ms lets the keyboard slide-down animation finish before the
+      // bottom sheet slides up (typical keyboard animation is ~250 ms).
+      Future.delayed(const Duration(milliseconds: 280), showSheet);
+    } else {
+      showSheet();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final bool hasError =
-        widget.showError && widget.selectedItem == null;
+        widget.isRequired && widget.showError && widget.selectedItem == null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -123,14 +138,15 @@ class _TypingDropdownState<T> extends State<TypingDropdown<T>> {
                 ),
               ),
               const SizedBox(width: 4),
-              const Text(
-                '*',
-                style: TextStyle(
-                  color: AppColors.error,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+              if (widget.isRequired)
+                const Text(
+                  '*',
+                  style: TextStyle(
+                    color: AppColors.error,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
             ],
           ),
         ),
@@ -140,7 +156,7 @@ class _TypingDropdownState<T> extends State<TypingDropdown<T>> {
             boxShadow: [
               BoxShadow(
                 color: hasError
-                    ? AppColors.error.withOpacity(0.1)
+                    ? AppColors.error.withValues(alpha: 0.1)
                     : AppColors.shadowLight,
                 blurRadius: 8,
                 offset: const Offset(0, 2),
@@ -184,13 +200,16 @@ class _TypingDropdownState<T> extends State<TypingDropdown<T>> {
                     prefixIcon: widget.prefixIcon != null
                         ? Icon(
                             widget.prefixIcon,
-                            color: hasError ? AppColors.error : AppColors.textSecondary,
+                            color: hasError
+                                ? AppColors.error
+                                : AppColors.textSecondary,
                             size: 22,
                           )
                         : null,
                     suffixIcon: Icon(
                       Icons.keyboard_arrow_down_rounded,
-                      color: hasError ? AppColors.error : AppColors.textSecondary,
+                      color:
+                          hasError ? AppColors.error : AppColors.textSecondary,
                       size: 24,
                     ),
                   ),
@@ -250,15 +269,12 @@ class _BottomSheetContent<T> extends StatefulWidget {
   });
 
   @override
-  State<_BottomSheetContent<T>> createState() =>
-      _BottomSheetContentState<T>();
+  State<_BottomSheetContent<T>> createState() => _BottomSheetContentState<T>();
 }
 
-class _BottomSheetContentState<T>
-    extends State<_BottomSheetContent<T>> {
+class _BottomSheetContentState<T> extends State<_BottomSheetContent<T>> {
   late List<T> filteredItems;
-  final TextEditingController searchController =
-  TextEditingController();
+  final TextEditingController searchController = TextEditingController();
 
   bool get _showSearch => widget.items.length >= 5;
 
@@ -279,8 +295,7 @@ class _BottomSheetContentState<T>
     final q = searchController.text.toLowerCase();
     setState(() {
       filteredItems = widget.items
-          .where((e) =>
-          widget.itemLabel(e).toLowerCase().contains(q))
+          .where((e) => widget.itemLabel(e).toLowerCase().contains(q))
           .toList();
     });
   }
@@ -310,10 +325,10 @@ class _BottomSheetContentState<T>
               Wrap(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: AppColors.primary.withOpacity(0.08),
+                      color: AppColors.primary.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(
                         color: AppColors.primary,
@@ -323,8 +338,7 @@ class _BottomSheetContentState<T>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          widget
-                              .itemLabel(widget.selectedItem!),
+                          widget.itemLabel(widget.selectedItem as T),
                         ),
                         const SizedBox(width: 6),
                         GestureDetector(
@@ -341,45 +355,42 @@ class _BottomSheetContentState<T>
                 ],
               ),
 
-             const SizedBox(height: 12),
+            const SizedBox(height: 12),
 
-             /// SEARCH
-             if (_showSearch) ...[
-               TextField(
-                 controller: searchController,
-                 autofocus: false,
-                 textInputAction: TextInputAction.search,
-                 decoration: InputDecoration(
-                   hintText: "Search...",
-                   prefixIcon: const Icon(Icons.search),
-                   enabledBorder: OutlineInputBorder(
-                     borderRadius: BorderRadius.circular(30),
-                     borderSide: BorderSide(color: AppColors.border, width: 1),
-                   ),
-                   focusedBorder: OutlineInputBorder(
-                     borderRadius: BorderRadius.circular(30),
-                     borderSide: BorderSide(color: AppColors.primary, width: 1.5),
-                   ),
-                   contentPadding:
-                   const EdgeInsets.symmetric(
-                       horizontal: 20, vertical: 10),
-                 ),
-               ),
+            /// SEARCH
+            if (_showSearch) ...[
+              TextField(
+                controller: searchController,
+                autofocus: false,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: "Search...",
+                  prefixIcon: const Icon(Icons.search),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                    borderSide: BorderSide(color: AppColors.border, width: 1),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30),
+                    borderSide:
+                        BorderSide(color: AppColors.primary, width: 1.5),
+                  ),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
 
-               const SizedBox(height: 16),
-             ],
-
-             /// LIST
-             Expanded(
-               child: ListView.builder(
+            /// LIST
+            Expanded(
+              child: ListView.builder(
                 itemCount: filteredItems.length,
                 itemBuilder: (_, index) {
                   final item = filteredItems[index];
                   return ListTile(
-                    title:
-                    Text(widget.itemLabel(item)),
-                    onTap: () =>
-                        widget.onSelected(item),
+                    title: Text(widget.itemLabel(item)),
+                    onTap: () => widget.onSelected(item),
                   );
                 },
               ),

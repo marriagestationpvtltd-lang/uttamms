@@ -8,14 +8,16 @@ import 'package:flutter/rendering.dart';
 mixin SmartScrollBehavior<T extends StatefulWidget> on State<T> {
   final ScrollController scrollController = ScrollController();
   final Map<FocusNode, GlobalKey> _fieldKeys = {};
+  // Stored listener references so removeListener can find the exact callback.
+  final Map<FocusNode, VoidCallback> _focusListeners = {};
 
   @override
   void dispose() {
     scrollController.dispose();
-    // Remove listeners from all focus nodes
-    for (final focusNode in _fieldKeys.keys) {
-      focusNode.removeListener(() => _onFocusChange(focusNode));
+    for (final entry in _focusListeners.entries) {
+      entry.key.removeListener(entry.value);
     }
+    _focusListeners.clear();
     super.dispose();
   }
 
@@ -23,12 +25,15 @@ mixin SmartScrollBehavior<T extends StatefulWidget> on State<T> {
   /// Call this for each field that should trigger auto-scroll
   void registerField(FocusNode focusNode, GlobalKey fieldKey) {
     _fieldKeys[focusNode] = fieldKey;
-    focusNode.addListener(() => _onFocusChange(focusNode));
+    void listener() => _onFocusChange(focusNode);
+    _focusListeners[focusNode] = listener;
+    focusNode.addListener(listener);
   }
 
   /// Unregister a form field
   void unregisterField(FocusNode focusNode) {
-    focusNode.removeListener(() => _onFocusChange(focusNode));
+    final listener = _focusListeners.remove(focusNode);
+    if (listener != null) focusNode.removeListener(listener);
     _fieldKeys.remove(focusNode);
   }
 
@@ -44,9 +49,8 @@ mixin SmartScrollBehavior<T extends StatefulWidget> on State<T> {
     final fieldKey = _fieldKeys[focusNode];
     if (fieldKey == null || fieldKey.currentContext == null) return;
 
-    // Delay scroll until after the keyboard finishes animating (~300 ms).
-    // Running a competing animation while the keyboard slides up causes jank.
-    Future.delayed(const Duration(milliseconds: 350), () {
+    // Start scroll after one frame so the keyboard layout is settled.
+    Future.delayed(const Duration(milliseconds: 200), () {
       if (!mounted) return;
       if (fieldKey.currentContext == null) return;
 
@@ -54,9 +58,8 @@ mixin SmartScrollBehavior<T extends StatefulWidget> on State<T> {
           fieldKey.currentContext?.findRenderObject() as RenderBox?;
       if (renderBox == null) return;
 
-      final RenderAbstractViewport? viewport =
+      final RenderAbstractViewport viewport =
           RenderAbstractViewport.of(renderBox);
-      if (viewport == null) return;
 
       // Get the scroll offset needed to show the field
       final double fieldTop = viewport.getOffsetToReveal(renderBox, 0.0).offset;
@@ -143,11 +146,11 @@ class SmartScrollField extends StatefulWidget {
   final GlobalKey? fieldKey;
 
   const SmartScrollField({
-    Key? key,
+    super.key,
     required this.child,
     this.focusNode,
     this.fieldKey,
-  }) : super(key: key);
+  });
 
   @override
   State<SmartScrollField> createState() => _SmartScrollFieldState();
