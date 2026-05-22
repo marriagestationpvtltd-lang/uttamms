@@ -693,7 +693,7 @@ extension _ChatDetailsComposerOverlayWidgets on _ChatDetailScreenState {
         await _startRecording();
       },
       onLongPressMoveUpdate: (details) {
-        if (!_isRecording || _isRecordingLocked) return;
+        if (_isRecordingLocked) return;
         final dx = details.offsetFromOrigin.dx;
         final dy = details.offsetFromOrigin.dy;
 
